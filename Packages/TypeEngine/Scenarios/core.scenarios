@@ -496,12 +496,14 @@ TAP teh
 EXPECT_BUFFER "teh "
 EXPECT_COMMITS 1
 EXPECT_LAST_COMMIT teh
-# The tap also plants the verbatim-choice memo: were the token still
-# pending (host without the auto-space), a delimiter could not re-correct
-# it. Type it again after an explicit tap-less commit to show autocorrect
-# re-arms for future words as usual.
+# M2: the verbatim tap is an explicit learn signal — the token becomes
+# session-learned vocabulary immediately, so typing it again is typing a
+# valid word: suggestions may appear, but nothing may auto-apply, ever
+# again this session (deeper than the old one-keystroke memo).
 T teh
-EXPECT_AUTOCORRECT the
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "teh teh "
 
 SCENARIO url field suppresses autocorrect but keeps suggestions
 FIELD url
@@ -645,3 +647,102 @@ SCENARIO period at sentence start is not attached
 # No word before the space: nothing to attach to.
 T ". "
 EXPECT_BUFFER ". "
+
+# ============================================================
+# Personal learning (M2): learned/user-added words, tombstones,
+# personal bigram prediction, session-immediate learning, and the
+# HARD privacy gates on learning-event emission.
+# ============================================================
+
+SCENARIO learned company name is suggested and never autocorrected
+# "veitingahusid" is OOV in both base lexicons and BÍN; once personally
+# learned it is valid vocabulary: typed exactly, nothing may auto-apply.
+PERSONAL veitingahusid 8
+T veitingahusid
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "veitingahusid "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT veitingahusid
+
+SCENARIO learned word completes from a prefix
+PERSONAL veitingahusid 8
+T veitingahusi
+EXPECT_CONTAINS veitingahusid
+
+SCENARIO typo of a learned word corrects to it
+PERSONAL veitingahusid 8
+T veitingahusit
+EXPECT_AUTOCORRECT veitingahusid
+T " "
+EXPECT_BUFFER "veitingahusid "
+
+SCENARIO learned proper noun keeps its canonical casing
+# Surface forms are byte-exact in the personal store; the engine matches
+# case-insensitively and restores the canonical surface in the bar.
+PERSONAL Miðeind 6
+T mideind
+EXPECT_CONTAINS Miðeind
+
+SCENARIO tombstoned base word absent from bar but typing it is untouched
+# "hestur" exists in is.lex; the user deleted it in the dictionary editor.
+# Never suggested, never predicted — but typed verbatim it behaves like any
+# valid word (deletion means "stop suggesting", not "punish typing").
+TOMBSTONE hestur
+T hestu
+EXPECT_NOT_CONTAINS hestur
+T r
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "hestur "
+
+SCENARIO personal bigram wins next-word prediction
+# The user has typed "hjá Miðeind" often; the personal follower must
+# outrank the base continuations of "hjá" (blended, not hard-prepended).
+PERSONAL_BIGRAM hjá Miðeind 5
+T "hjá "
+EXPECT_TOP Miðeind
+
+SCENARIO session-immediate learn takes effect before any compaction
+# LEARN = the explicit learn path (verbatim tap / KeyboardKit learnWord):
+# the word becomes valid + suggestible right now, within the session.
+LEARN veitingahusid
+T veitingahusit
+EXPECT_TOP veitingahusid
+T " "
+EXPECT_BUFFER "veitingahusid "
+
+SCENARIO standard field emits learning events at commits
+T "hestur og "
+EXPECT_COMMITS 2
+EXPECT_EVENTS 2
+
+SCENARIO url field typing emits zero learning events
+FIELD url
+T "hestur og godan daginn "
+EXPECT_COMMITS 4
+EXPECT_EVENTS 0
+
+SCENARIO webSearch field typing emits zero learning events
+FIELD webSearch
+T "hestur og "
+EXPECT_EVENTS 0
+
+SCENARIO secure field emits zero events and never autocorrects
+FIELD secure
+T teh
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "teh "
+EXPECT_EVENTS 0
+
+SCENARIO host paste emits zero learning events
+HOST_SET "þetta er langur texti sem var límdur inn"
+EXPECT_COMMITS 0
+EXPECT_EVENTS 0
+
+SCENARIO email-shaped tokens are never logged even in standard fields
+# Verbatim-class (internal '.'/'@') tokens are filtered from every event.
+T "jokull@triptojapan.com "
+EXPECT_COMMITS 1
+EXPECT_EVENTS 0

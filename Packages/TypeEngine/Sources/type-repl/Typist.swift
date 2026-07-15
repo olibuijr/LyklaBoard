@@ -1,4 +1,5 @@
 import Foundation
+import Learning
 import TypeEngine
 
 /// Drives a `TypingSession` through a `ProxySimulator` exactly the way the
@@ -45,6 +46,10 @@ final class Typist {
     private(set) var lastAppliedAutocorrect: (from: String, to: String)?
     /// Set when the most recent keystroke executed a revert-on-continuation.
     private(set) var lastRevert: RevertInstruction?
+    /// Learning events drained from the session so far (the harness twin of
+    /// the extension's per-pass EventLog flush; `EXPECT_EVENTS` asserts on
+    /// this — the URL-field zero-events test hook).
+    private(set) var collectedEvents: [LearningEvent] = []
 
     private let clock = ContinuousClock()
 
@@ -180,6 +185,22 @@ final class Typist {
         let micros = start.duration(to: clock.now).microseconds
         lastLatencyMicros = micros
         latenciesMicros.append(micros)
+        collectPendingEvents()
+    }
+
+    /// Drain the session's buffered learning events (what the extension
+    /// flushes to the EventLog after every autocomplete pass).
+    func collectPendingEvents() {
+        if session.hasPendingLearningEvents {
+            collectedEvents += session.drainLearningEvents()
+        }
+    }
+
+    /// Explicit learn signal (the `LEARN` directive / `:learn` command —
+    /// same path as a KeyboardKit `learnWord` forward on device).
+    func learnWord(_ word: String) {
+        session.learnWordImmediately(word)
+        collectPendingEvents()
     }
 
     /// Fresh field: empty document, session state + posterior reset.
@@ -192,6 +213,7 @@ final class Typist {
         lastRevert = nil
         latenciesMicros.removeAll()
         lastLatencyMicros = 0
+        collectedEvents.removeAll()
     }
 
     // MARK: - Presentation helpers

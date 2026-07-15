@@ -49,6 +49,16 @@ public struct Predictor {
                     pool.insert(entry.word)
                 }
             }
+            // Personal bigram followers join the SAME pool ("blend, don't
+            // hard-prepend"): ranking is the shared blendedScore, where the
+            // personal pair earns its `personalBigramBoost*` prior — enough
+            // to outrank base continuations in proportion to how often the
+            // user actually typed the pair, never unconditionally.
+            for entry in model.personal.continuations(
+                of: previousWord, limit: config.personalContinuationPoolLimit)
+            {
+                pool.insert(entry.word)
+            }
         }
         if pool.isEmpty {
             // No bigram followers anywhere: top-unigram fallback.
@@ -56,6 +66,9 @@ public struct Predictor {
                 for entry in lexicon.completions(of: "", limit: config.unigramPoolLimit) {
                     pool.insert(entry.word)
                 }
+            }
+            for entry in model.personal.completions(of: "", limit: config.personalContinuationPoolLimit) {
+                pool.insert(entry.word)
             }
         }
         return rank(pool: pool, previousWord: previousWord, pIcelandic: pIcelandic, limit: limit)
@@ -79,6 +92,9 @@ public struct Predictor {
                 pool.insert(entry.word)
             }
         }
+        for entry in model.personal.completions(of: lowered, limit: config.personalCompletionPoolLimit) {
+            pool.insert(entry.word)
+        }
         return rank(pool: pool, previousWord: previousWord, pIcelandic: pIcelandic, limit: limit)
     }
 
@@ -88,6 +104,9 @@ public struct Predictor {
         pIcelandic: Double,
         limit: Int
     ) -> [Suggestion] {
+        // Tombstoned words are never predicted, base-lexicon presence
+        // notwithstanding (PLAN.md learning semantics).
+        let pool = pool.filter { !model.isPersonalTombstoned($0) }
         var scored: [(word: String, score: Double)] = pool.map { word in
             let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
             return (word, s)

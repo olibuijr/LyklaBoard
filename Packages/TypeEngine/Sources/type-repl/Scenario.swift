@@ -27,6 +27,17 @@ import TypeEngine
 ///   DOT_APPLY on|off         model STOCK KeyboardKit '.'-autocorrect-apply
 ///                            (off = our action handler's deferral, the default)
 ///
+///   Personal learning (M2). Seed directives build an in-memory personal
+///   snapshot for the CURRENT scenario (replacing any `--personal` baseline
+///   until the next SCENARIO resets to it):
+///
+///   PERSONAL <word> <count>            seed a learned personal word
+///   PERSONAL_BIGRAM <a> <b> <count>    seed a personal bigram "a b"
+///   TOMBSTONE <word>                   seed a deleted (tombstoned) word
+///   LEARN <word>                       session-immediate explicit learn
+///                                      (same path as a verbatim tap /
+///                                      KeyboardKit learnWord forward)
+///
 ///   NOTE: the verbatim escape-hatch slot (the literal typed token, quoted
 ///   on device) always leads a non-empty bar; EXPECT_TOP and
 ///   EXPECT_AUTOCORRECT therefore judge the top NON-verbatim suggestion,
@@ -47,6 +58,9 @@ import TypeEngine
 ///   EXPECT_POSTERIOR_LT <x>        P(Icelandic) < x
 ///   EXPECT_COMMITS <n>             exactly n words committed so far
 ///   EXPECT_LAST_COMMIT <word>      most recent committed word (post-autocorrect)
+///   EXPECT_EVENTS <n>              exactly n learning events emitted so far
+///                                  (privacy test hook: URL/email/webSearch/
+///                                  secure fields must show 0)
 ///   EXPECT_BUFFER <text>           full proxy document equals <text> (quote for spaces)
 ///   EXPECT_CONTEXT <text>          window the session last saw equals <text>
 struct ScenarioRunner {
@@ -59,6 +73,8 @@ struct ScenarioRunner {
 
     let engine: TypeEngine
     var defaultLimit = 5
+    /// The `--personal` baseline snapshot, restored at each SCENARIO start.
+    var basePersonal: PersonalVocabulary?
 
     func run(fileAt path: String) -> Int {
         guard let raw = try? String(contentsOfFile: path, encoding: .utf8) else {
@@ -73,6 +89,11 @@ struct ScenarioRunner {
         var currentFailed = false
         var limit = defaultLimit
         var typist = Typist(engine: engine, limit: limit)
+        var seeds = SeededPersonalVocabulary()
+
+        func applySeeds() {
+            engine.setPersonalVocabulary(seeds.isEmpty ? basePersonal : seeds)
+        }
 
         func finishScenario() {
             guard scenarioCount > 0 else { return }
@@ -103,8 +124,10 @@ struct ScenarioRunner {
                 scenarioCount += 1
                 currentName = argument
                 currentFailed = false
+                seeds = SeededPersonalVocabulary()
+                applySeeds()  // back to the --personal baseline (or none)
                 typist = Typist(engine: engine, limit: limit)
-                typist.reset()
+                typist.reset()  // also clears the session-learned overlay
 
             case "LIMIT":
                 limit = Int(argument) ?? limit
@@ -177,6 +200,46 @@ struct ScenarioRunner {
             case "TAP":
                 if !typist.tapSuggestion(Self.unquote(argument)) {
                     fail("no suggestion \"\(argument)\" to tap, bar: \(Self.describe(typist.lastSuggestions))")
+                }
+
+            case "PERSONAL":
+                let parts = argument.split(separator: " ").map(String.init)
+                if parts.count == 2, let count = UInt32(parts[1]) {
+                    seeds.words[parts[0]] = count
+                    applySeeds()
+                } else {
+                    fail("usage: PERSONAL <word> <count>")
+                }
+
+            case "PERSONAL_BIGRAM":
+                let parts = argument.split(separator: " ").map(String.init)
+                if parts.count == 3, let count = UInt32(parts[2]) {
+                    seeds.bigrams["\(parts[0]) \(parts[1])"] = count
+                    applySeeds()
+                } else {
+                    fail("usage: PERSONAL_BIGRAM <first> <second> <count>")
+                }
+
+            case "TOMBSTONE":
+                if argument.isEmpty {
+                    fail("usage: TOMBSTONE <word>")
+                } else {
+                    seeds.tombstones.insert(argument)
+                    applySeeds()
+                }
+
+            case "LEARN":
+                if argument.isEmpty {
+                    fail("usage: LEARN <word>")
+                } else {
+                    typist.learnWord(argument)
+                }
+
+            case "EXPECT_EVENTS":
+                typist.collectPendingEvents()
+                let n = typist.collectedEvents.count
+                if n != Int(argument) {
+                    fail("expected \(argument) learning events, got \(n): \(typist.collectedEvents)")
                 }
 
             case "EXPECT_TOP":

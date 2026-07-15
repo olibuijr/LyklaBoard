@@ -49,12 +49,51 @@ public final class TypeEngine {
             icelandic: icelandic,
             english: english,
             morphology: morphologyProvider,
-            config: config
+            config: config,
+            personal: PersonalStore()
         )
         self.model = model
         self.corrector = Corrector(model: model, config: config)
         self.predictor = Predictor(model: model, config: config)
         self.probabilityIcelandic = 0.5
+    }
+
+    // MARK: - Personal vocabulary (M2 learning)
+
+    /// Inject (or clear) the personal-learning snapshot. Cheap O(personal
+    /// scale) index rebuild — no recalibration, no engine rebuild — so the
+    /// embedder can swap freely whenever the model file changes on disk.
+    /// Must be called on the queue that owns this engine (same confinement
+    /// contract as every other engine call); the in-session learned overlay
+    /// survives the swap (a fresh snapshot may or may not already contain
+    /// those words — double counting is bounded and harmless for a boost).
+    public func setPersonalVocabulary(_ vocabulary: PersonalVocabulary?) {
+        model.personal.setSnapshot(vocabulary)
+    }
+
+    /// Session-immediate learning: make `word` valid + suggestible RIGHT NOW
+    /// (verbatim tap / explicit learn signals must not wait for the app's
+    /// compaction). The overlay lives until `clearSessionVocabulary()`.
+    public func learnSessionWord(_ word: String) {
+        model.personal.learnSession(word)
+    }
+
+    /// Drop the in-session learned overlay (session reset).
+    public func clearSessionVocabulary() {
+        model.personal.clearSession()
+    }
+
+    /// Diagnostics (REPL `:learned`, tests): canonical surfaces of the
+    /// injected snapshot's words, sorted.
+    public var personalSnapshotWords: [String] { model.personal.snapshotWords }
+
+    /// Diagnostics: words learned in this session (overlay), sorted.
+    public var sessionLearnedWords: [String] { model.personal.sessionWords }
+
+    /// Whether `word` is currently valid personal vocabulary (snapshot or
+    /// session overlay), case-insensitively.
+    public func isPersonalWord(_ word: String) -> Bool {
+        model.personal.isValidWord(word)
     }
 
     /// Suggestions for the suggestion bar.
@@ -70,10 +109,12 @@ public final class TypeEngine {
         let trimmed = currentWord.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
-            return predictor.nextWords(
-                previousWord: previous,
-                pIcelandic: probabilityIcelandic,
-                limit: limit
+            return restorePersonalSurfaces(
+                predictor.nextWords(
+                    previousWord: previous,
+                    pIcelandic: probabilityIcelandic,
+                    limit: limit
+                )
             )
         }
 
@@ -83,10 +124,11 @@ public final class TypeEngine {
             pIcelandic: probabilityIcelandic,
             limit: limit
         )
+        let suggestions = restorePersonalSurfaces(result.suggestions)
 
         // Preserve the user's leading capitalization.
         if let first = trimmed.first, first.isUppercase {
-            return result.suggestions.map {
+            return suggestions.map {
                 Suggestion(
                     text: $0.text.prefix(1).uppercased() + $0.text.dropFirst(),
                     isAutocorrect: $0.isAutocorrect,
@@ -94,7 +136,23 @@ public final class TypeEngine {
                 )
             }
         }
-        return result.suggestions
+        return suggestions
+    }
+
+    /// Personal surface forms are byte-exact and case-preserving
+    /// ("Miðeind") while the correction/prediction pipeline works in
+    /// lowercase — restore the canonical personal casing on the way out.
+    private func restorePersonalSurfaces(_ suggestions: [Suggestion]) -> [Suggestion] {
+        suggestions.map { suggestion in
+            guard let surface = model.personal.displaySurface(of: suggestion.text) else {
+                return suggestion
+            }
+            return Suggestion(
+                text: surface,
+                isAutocorrect: suggestion.isAutocorrect,
+                confidence: suggestion.confidence
+            )
+        }
     }
 
     /// Update the language posterior after the user commits a word

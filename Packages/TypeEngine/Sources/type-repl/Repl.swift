@@ -20,6 +20,9 @@ struct Repl {
               :reset            fresh field (document, session, posterior)
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
+              :learn <w>        session-immediate explicit learn (verbatim-tap path)
+              :learned          list personal snapshot + session-learned words
+              :events           list learning events emitted so far
               :timing           toggle per-keystroke latency listing
               :context          show proxy window vs full document
               :cursor <pos>     move caret (+n / -n relative, n absolute, start, end)
@@ -82,6 +85,34 @@ struct Repl {
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":learn":
+            guard !argument.isEmpty else {
+                print("usage: :learn <word>")
+                break
+            }
+            typist.learnWord(argument)
+            if engine.isPersonalWord(argument) {
+                print("session-learned \"\(argument)\" (valid + suggestible immediately)")
+            } else {
+                print(
+                    "NOT learned: \"\(argument)\" is not a learnable word here "
+                        + "(field kind \(typist.session.fieldKind.rawValue), or fails EventLog validation)"
+                )
+            }
+        case ":learned":
+            let snapshot = engine.personalSnapshotWords
+            let session = engine.sessionLearnedWords
+            print("  snapshot (\(snapshot.count)): \(snapshot.isEmpty ? "-" : snapshot.joined(separator: " "))")
+            print("  session  (\(session.count)): \(session.isEmpty ? "-" : session.joined(separator: " "))")
+        case ":events":
+            typist.collectPendingEvents()
+            if typist.collectedEvents.isEmpty {
+                print("  (no learning events)")
+            } else {
+                for event in typist.collectedEvents {
+                    print("  \(event)")
+                }
+            }
         case ":timing":
             showPerCharTiming.toggle()
             print("per-keystroke timing \(showPerCharTiming ? "on" : "off")")

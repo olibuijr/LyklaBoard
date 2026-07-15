@@ -173,6 +173,46 @@ public struct EngineConfig: Sendable {
     /// stickiness prior. Evidence is graded above the dead zone, not binary.
     public var laneEvidenceDeadZone: Double = 1.0
 
+    // --- Personal vocabulary (M2 learning; PLAN.md "Learning" +
+    // "Lemma-level learning constraint"). Personal words get an ADDITIVE
+    // score prior, never a probability blend: `PersonalLexicon
+    // .totalUnigramTokens` is thousands of tokens against the base corpora's
+    // hundreds of millions, so normalized personal probabilities would be
+    // exactly the apples-to-oranges trap LexiconCalibration exists to fix.
+    // boost = min(cap, base + scale·log(1 + personalCount)) for any valid
+    // (learned/user-added/session-learned, non-tombstoned) word, plus
+    // min(bigramCap, bigramScale·log(1 + pairCount)) when the personal store
+    // attests the (previous, word) pair — the "blend, don't hard-prepend"
+    // weight that lets personal continuations outrank base continuations
+    // proportionally to how often the user actually typed the pair.
+
+    /// Flat additive prior for any valid personal word (nats). Ensures a
+    /// just-learned word (count 1) is already competitively suggestible.
+    public var personalBoostBase: Double = 2.0
+    /// Additional nats per log(1 + personal unigram count).
+    public var personalBoostScale: Double = 0.75
+    /// Cap on the total personal unigram boost (keeps a heavily-typed
+    /// personal word from steamrolling exact-typed base words).
+    public var personalBoostCap: Double = 6.0
+    /// Nats per log(1 + personal bigram count) for (previous, word) pairs.
+    public var personalBigramBoostScale: Double = 2.0
+    /// Cap on the personal bigram boost.
+    public var personalBigramBoostCap: Double = 6.0
+    /// Calibrated-z floor applied per language to any personally-attested
+    /// candidate (valid personal word, or follower of a personal bigram)
+    /// before blending. Rationale: an OOV personal word otherwise pays the
+    /// full corpus-junk penalty (z ≈ −4σ on the real artifacts) that no
+    /// sane additive boost should have to bridge — personal attestation is
+    /// evidence the word is real vocabulary, so its typicality is floored
+    /// near the base lexicons' noise tier and the additive boosts do the
+    /// RANKING on top. Base-attested words above the floor are unaffected
+    /// (max, not override).
+    public var personalScoreFloor: Double = -0.5
+    /// How many personal prefix completions feed correction candidates.
+    public var personalCompletionPoolLimit: Int = 8
+    /// How many personal bigram followers feed next-word prediction.
+    public var personalContinuationPoolLimit: Int = 8
+
     public init() {}
 }
 
@@ -257,17 +297,23 @@ struct BlendedLanguageModel {
     let config: EngineConfig
     let icelandicCalibration: LexiconCalibration
     let englishCalibration: LexiconCalibration
+    /// Personal vocabulary holder, shared BY REFERENCE with the engine and
+    /// every corrector/predictor copy of this struct — a snapshot swap on
+    /// the engine queue is visible everywhere without any rebuild.
+    let personal: PersonalStore
 
     init(
         icelandic: Lexicon,
         english: Lexicon,
         morphology: MorphologyProviding?,
-        config: EngineConfig
+        config: EngineConfig,
+        personal: PersonalStore = PersonalStore()
     ) {
         self.icelandic = icelandic
         self.english = english
         self.morphology = morphology
         self.config = config
+        self.personal = personal
         self.icelandicCalibration = LexiconCalibration.measure(icelandic, addK: config.addK)
         self.englishCalibration = LexiconCalibration.measure(english, addK: config.addK)
     }
@@ -285,6 +331,51 @@ struct BlendedLanguageModel {
         icelandic.frequency(of: word) != nil
             || english.frequency(of: word) != nil
             || morphology?.isKnown(word) == true
+    }
+
+    /// Valid personal vocabulary: learned, user-added or session-learned —
+    /// suggestible and protected from autocorrect.
+    func isPersonalValid(_ word: String) -> Bool {
+        personal.isValidWord(word)
+    }
+
+    /// Deleted in the dictionary editor: never suggest, never predict.
+    func isPersonalTombstoned(_ word: String) -> Bool {
+        personal.isTombstoned(word)
+    }
+
+    /// Validity for the TYPED word (autocorrect conservatism): base-known,
+    /// personal-valid, or tombstoned. Tombstoned words count as valid here
+    /// on purpose — deleting a word means "stop suggesting it", never
+    /// "start correcting it when I type it" (PLAN.md learning semantics).
+    func isValidTypedWord(_ word: String) -> Bool {
+        isKnownAnywhere(word) || personal.isValidWord(word) || personal.isTombstoned(word)
+    }
+
+    /// Additive personal-source prior for a candidate (see the
+    /// `personalBoost*` tunables): unigram part for valid personal words,
+    /// bigram part when the personal store attests the (previous, word)
+    /// pair. Zero for everything else — and always zero for tombstoned
+    /// words, which never reach scoring anyway.
+    func personalBoost(of word: String, previous: String?) -> Double {
+        guard personal.isActive else { return 0 }
+        var boost = 0.0
+        if personal.isValidWord(word), !personal.isTombstoned(word) {
+            let count = Double(personal.count(of: word))
+            boost = min(
+                config.personalBoostCap,
+                config.personalBoostBase + config.personalBoostScale * log(1 + count)
+            )
+        }
+        if let previous, let pairCount = personal.bigramCount(previous, word),
+            !personal.isTombstoned(word)
+        {
+            boost += min(
+                config.personalBigramBoostCap,
+                config.personalBigramBoostScale * log(1 + Double(pairCount))
+            )
+        }
+        return boost
     }
 
     /// Effective unigram frequency, applying the BÍN floor for Icelandic
@@ -372,15 +463,27 @@ struct BlendedLanguageModel {
     }
 
     /// Blended language score, in nats:
-    /// log( P(IS)·exp(τ·z_IS) + P(EN)·exp(τ·z_EN) ).
-    /// Replaces the raw probability blend — see LexiconCalibration.
+    /// log( P(IS)·exp(τ·z_IS) + P(EN)·exp(τ·z_EN) ) + personalBoost.
+    /// Replaces the raw probability blend — see LexiconCalibration. The
+    /// additive personal-source prior rides on top of the calibrated blend
+    /// (see `personalBoost(of:previous:)`); it deliberately does NOT touch
+    /// the lane posterior or the per-language z-scores.
     func blendedScore(of word: String, previous: String?, pIcelandic: Double) -> Double {
         let p = min(max(pIcelandic, 1e-6), 1 - 1e-6)
         let tau = config.calibrationTemperature
-        let a = log(p) + tau * calibratedScore(of: word, previous: previous, language: .icelandic)
-        let b = log(1 - p) + tau * calibratedScore(of: word, previous: previous, language: .english)
+        let boost = personalBoost(of: word, previous: previous)
+        var zIS = calibratedScore(of: word, previous: previous, language: .icelandic)
+        var zEN = calibratedScore(of: word, previous: previous, language: .english)
+        if boost > 0 {
+            // Personally-attested: don't pay the OOV corpus-junk penalty
+            // (see personalScoreFloor docs).
+            zIS = max(zIS, config.personalScoreFloor)
+            zEN = max(zEN, config.personalScoreFloor)
+        }
+        let a = log(p) + tau * zIS
+        let b = log(1 - p) + tau * zEN
         let m = max(a, b)
-        return m + log(exp(a - m) + exp(b - m))
+        return m + log(exp(a - m) + exp(b - m)) + boost
     }
 
     /// Blended language score of a two-word PHRASE, in nats:
@@ -404,18 +507,26 @@ struct BlendedLanguageModel {
     ) -> Double {
         let p = min(max(pIcelandic, 1e-6), 1 - 1e-6)
         let tau = config.calibrationTemperature
+        let firstBoost = personalBoost(of: first, previous: previous)
+        let secondBoost = personalBoost(of: second, previous: first)
+        // Personally-attested halves skip the OOV corpus-junk penalty,
+        // exactly like blendedScore (see personalScoreFloor docs).
+        func z(_ word: String, _ prev: String?, _ language: Language, floored: Bool) -> Double {
+            let score = calibratedScore(of: word, previous: prev, language: language)
+            return floored ? max(score, config.personalScoreFloor) : score
+        }
         let a =
             log(p)
             + tau
-                * (calibratedScore(of: first, previous: previous, language: .icelandic)
-                    + calibratedScore(of: second, previous: first, language: .icelandic))
+                * (z(first, previous, .icelandic, floored: firstBoost > 0)
+                    + z(second, first, .icelandic, floored: secondBoost > 0))
         let b =
             log(1 - p)
             + tau
-                * (calibratedScore(of: first, previous: previous, language: .english)
-                    + calibratedScore(of: second, previous: first, language: .english))
+                * (z(first, previous, .english, floored: firstBoost > 0)
+                    + z(second, first, .english, floored: secondBoost > 0))
         let m = max(a, b)
-        return m + log(exp(a - m) + exp(b - m))
+        return m + log(exp(a - m) + exp(b - m)) + firstBoost + secondBoost
     }
 
     /// Touch representative pages of both lexicons and the morphology binary

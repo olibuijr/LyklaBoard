@@ -1,4 +1,5 @@
 import Foundation
+import Learning
 import TypeEngine
 
 // type-repl: headless macOS harness for the TypeEngine typing pipeline,
@@ -15,6 +16,10 @@ import TypeEngine
 //   --lemma <path>   lemma-is.bin override  (default <repo>/data/is/lemma-is.bin)
 //   --no-morph       skip BÍN morphology
 //   --limit <n>      suggestion bar size    (default 5; bench default 3 = extension)
+//   --personal <p>   personal-model JSON (Learning.PersonalModel file, the
+//                    same personal-model.json the app writes to the App
+//                    Group container) injected as the engine's personal
+//                    vocabulary snapshot
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
@@ -38,6 +43,7 @@ let isOverride = takeOption("--is")
 let lemmaOverride = takeOption("--lemma")
 let noMorph = takeFlag("--no-morph")
 let limitOverride = takeOption("--limit").flatMap(Int.init)
+let personalOverride = takeOption("--personal")
 
 var resolvedPaths = Artifacts.defaultPaths()
 if resolvedPaths == nil, let en = enOverride, let is_ = isOverride {
@@ -65,13 +71,32 @@ do {
     exit(2)
 }
 
+// Personal-learning snapshot (M2): same injection path as the extension.
+var basePersonal: PersonalVocabulary?
+if let personalOverride {
+    do {
+        let model = try PersonalModel(contentsOf: URL(fileURLWithPath: personalOverride))
+        let snapshot = PersonalSnapshot(model: model)
+        basePersonal = snapshot
+        engine.setPersonalVocabulary(snapshot)
+        warn("personal model loaded: \(engine.personalSnapshotWords.count) words")
+    } catch {
+        warn("failed to load personal model: \(error)")
+        exit(2)
+    }
+}
+
 switch arguments.first {
 case "run":
     guard arguments.count >= 2 else {
         warn("usage: type-repl run <file.scenarios>")
         exit(2)
     }
-    let runner = ScenarioRunner(engine: engine, defaultLimit: limitOverride ?? 5)
+    let runner = ScenarioRunner(
+        engine: engine,
+        defaultLimit: limitOverride ?? 5,
+        basePersonal: basePersonal
+    )
     exit(Int32(runner.run(fileAt: arguments[1])))
 
 case "bench":

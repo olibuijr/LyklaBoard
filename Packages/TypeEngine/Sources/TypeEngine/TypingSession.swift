@@ -1,17 +1,25 @@
 import Foundation
+import Learning
 
 /// The kind of text field the session is typing into. UIKit-free mirror of
 /// the field types that must never auto-correct (PLAN.md "Verbatim escape
 /// hatch + URL handling", layer 2): URL/email/web-search fields keep their
 /// suggestions (tap-only), but no suggestion may carry `isAutocorrect`.
+/// `.secure` additionally covers password fields (`isSecureTextEntry`).
 public enum FieldKind: String, Equatable, Sendable {
     case standard
     case url
     case email
     case webSearch
+    case secure
 
     /// Whether autocorrect (auto-apply on delimiter) is suppressed.
     public var suppressesAutocorrect: Bool { self != .standard }
+
+    /// HARD privacy gate (Learning invariant #3): learning events may only
+    /// be buffered/emitted from plain standard fields — never URL, email,
+    /// web-search or secure ones.
+    public var allowsLearning: Bool { self == .standard }
 }
 
 /// Proxy edit the extension (or harness) must perform to undo the last
@@ -133,6 +141,25 @@ public final class TypingSession {
     /// change/reset.
     private var verbatimChoice: String?
 
+    // MARK: - Learning-event state (M2)
+
+    /// Learning events buffered since the last drain. Only ever appended to
+    /// while `fieldKind.allowsLearning` (HARD privacy gate — URL/email/
+    /// web-search/secure fields emit nothing); the embedder drains and
+    /// flushes batches to the App Group `EventLog` at word-commit
+    /// boundaries, never per keystroke.
+    private var pendingEvents: [LearningEvent] = []
+    /// The word that preceded the next commit, for `wordCommitted
+    /// .previousWord` bigram evidence. Cleared across sentence boundaries,
+    /// external changes and resets so a pair never spans a discontinuity.
+    private var previousCommittedForEvents: String?
+    /// The token most recently learned via an explicit signal (verbatim tap
+    /// / `learnWordImmediately`). Its imminent commit must not ALSO emit a
+    /// `wordCommitted` — the tap already carries the stronger signal, and a
+    /// double event would double-count in the model. Cleared once consumed,
+    /// and on external change/reset.
+    private var tapLearnedWord: String?
+
     public init(engine: TypeEngine) {
         self.engine = engine
     }
@@ -202,6 +229,48 @@ public final class TypingSession {
     /// token the user just chose verbatim.
     public func noteVerbatimChoice(_ token: String) {
         verbatimChoice = token
+        // The verbatim tap is the strongest explicit "this is a real word"
+        // signal: session-immediate learn + a wordTapped event (both gated
+        // on field kind and learnability inside learnWordImmediately).
+        learnWordImmediately(token)
+    }
+
+    /// Explicit learn signal (verbatim tap, or KeyboardKit's `learnWord`
+    /// forwarded by the extension): the word becomes valid + suggestible in
+    /// this session immediately (engine overlay), and a `wordTapped` event
+    /// is buffered so the app-side model learns it permanently (no
+    /// day-threshold — explicit signals skip it, see `PersonalModel`).
+    ///
+    /// Gates (all HARD):
+    /// - `fieldKind.allowsLearning` — nothing from URL/email/webSearch/
+    ///   secure fields, not even the in-session overlay (an email address
+    ///   must not become suggestible in other fields mid-session),
+    /// - `EventLog.isLearnableWord` — no whitespace/emoji/letterless junk,
+    /// - not verbatim-class (internal '.'/'@') — URL/email-shaped tokens
+    ///   are never learned even in standard fields.
+    public func learnWordImmediately(_ word: String) {
+        guard fieldKind.allowsLearning else { return }
+        let token = Self.strippedEventToken(word)
+        guard Self.isEventWord(token) else { return }
+        guard token != tapLearnedWord else { return }  // duplicate signal for one tap
+        engine.learnSessionWord(token)
+        tapLearnedWord = token
+        pendingEvents.append(.wordTapped(word: token))
+    }
+
+    // MARK: - Learning-event buffer (M2)
+
+    /// Whether any learning events await a flush.
+    public var hasPendingLearningEvents: Bool { !pendingEvents.isEmpty }
+
+    /// Hand over (and clear) the buffered learning events. The embedder
+    /// appends them to the App Group `EventLog` inside ONE short
+    /// `CoordinatedFileAccess.coordinateWrite` block — batched at word
+    /// boundaries, never per keystroke (events only accrue at commits,
+    /// taps and reverts, so "drain when non-empty" IS that batching).
+    public func drainLearningEvents() -> [LearningEvent] {
+        defer { pendingEvents.removeAll() }
+        return pendingEvents
     }
 
     /// Revert-on-continuation decision (PLAN.md layer 4). The embedder
@@ -231,6 +300,18 @@ public final class TypingSession {
             lastSeenWindow = String(window.dropLast(memo.corrected.count)) + memo.original
         }
         previousCurrentWord = memo.original
+        // The user rejected our correction — a correctionReverted event
+        // (the model counts the original as a plain, non-explicit commit).
+        // Same gates as every event; the original is usually a URL stem in
+        // progress, so the verbatim-class filter often drops it later —
+        // here both tokens are still dot-free stems.
+        if fieldKind.allowsLearning {
+            let original = Self.strippedEventToken(memo.original)
+            let applied = Self.strippedEventToken(memo.corrected)
+            if original != applied, Self.isEventWord(original), Self.isEventWord(applied) {
+                pendingEvents.append(.correctionReverted(original: original, applied: applied))
+            }
+        }
         return RevertInstruction(deleteCount: memo.corrected.count, text: memo.original)
     }
 
@@ -280,6 +361,11 @@ public final class TypingSession {
         verbatimChoice = nil
         punctuationAttachmentArmed = false
         lastEmittedSuggestionTexts = []
+        // Bigram evidence never spans a discontinuity, and a pending tap
+        // memo can no longer be matched to its commit. Already-buffered
+        // events stay: they were validated genuine commits when buffered.
+        previousCommittedForEvents = nil
+        tapLearnedWord = nil
     }
 
     /// Window-aware variant, safe to forward from the extension's
@@ -310,7 +396,11 @@ public final class TypingSession {
         committedWordCount = 0
         posteriorUpdateCount = 0
         lastCommittedWord = nil
+        pendingEvents = []
+        previousCommittedForEvents = nil
+        tapLearnedWord = nil
         engine.resetLanguagePosterior()
+        engine.clearSessionVocabulary()
     }
 
     // MARK: - Suggestion building (verbatim + URL layers)
@@ -551,13 +641,25 @@ public final class TypingSession {
                     $0 == joined || $0 == joined + "."
                 })
             else { return }
+            // A split correction commits each word in order; each is logged
+            // as a wordCommitted (chaining previousWord), which is exactly
+            // the pair evidence the personal model wants ("smellir á"). No
+            // suggestionAccepted here: the event schema is single-word.
             for (index, token) in appendedTokens.enumerated() {
                 confirm(token, sentenceBoundary: boundary && index == appendedTokens.count - 1)
             }
             return
         }
         guard let committed = Self.lastWord(in: context) else { return }
-        confirm(committed, sentenceBoundary: boundary)
+        // Committed text differing from the pending token, matching a
+        // suggestion the previous bar offered = that suggestion was applied
+        // (tap or autocorrect-on-delimiter) — a suggestionAccepted event
+        // (the raw typed token is a typo by definition, never learned).
+        let typedToken = Self.strippedEventToken(previousCurrentWord)
+        let accepted =
+            committed != previousCurrentWord && committed != typedToken
+            && lastEmittedSuggestionTexts.contains(committed)
+        confirm(committed, sentenceBoundary: boundary, acceptedFromTyped: accepted ? typedToken : nil)
     }
 
     /// The proxy's ". " sentence cut collapsed the window in the same
@@ -583,8 +685,15 @@ public final class TypingSession {
             carriedContext = lastCommittedWord
             return
         }
-        for (index, word) in words.enumerated() {
-            confirm(word, sentenceBoundary: index == words.count - 1)
+        // Single word recovered from an applied autocorrect = a suggestion
+        // acceptance (same event mapping as the visible-window commit path).
+        let typedStem = Self.strippedEventToken(previousCurrentWord)
+        if words.count == 1, lastEmittedAutocorrect != nil, words[0] != typedStem {
+            confirm(words[0], sentenceBoundary: true, acceptedFromTyped: typedStem)
+        } else {
+            for (index, word) in words.enumerated() {
+                confirm(word, sentenceBoundary: index == words.count - 1)
+            }
         }
         carriedContext = words.last
     }
@@ -606,7 +715,11 @@ public final class TypingSession {
         punctuationAttachmentArmed = true
     }
 
-    private func confirm(_ committed: String, sentenceBoundary: Bool) {
+    private func confirm(
+        _ committed: String,
+        sentenceBoundary: Bool,
+        acceptedFromTyped: String? = nil
+    ) {
         let before = engine.probabilityIcelandic
         engine.confirmWord(committed)
         committedWordCount += 1
@@ -615,6 +728,7 @@ public final class TypingSession {
         if engine.probabilityIcelandic != before {
             posteriorUpdateCount += 1
         }
+        bufferCommitEvent(for: committed, acceptedFromTyped: acceptedFromTyped)
         // The delimiter that committed this word is the only place a
         // sentence boundary is observable (the ". " proxy truncation fires
         // one keystroke later, on the space — same boundary, so decaying
@@ -622,6 +736,65 @@ public final class TypingSession {
         if sentenceBoundary {
             engine.noteSentenceBoundary()
         }
+        // Bigram evidence never spans a sentence boundary.
+        previousCommittedForEvents = sentenceBoundary ? nil : committed
+    }
+
+    /// Learning-event mapping for one genuine word commit. Exactly ONE of
+    /// wordCommitted / suggestionAccepted / (nothing, after a verbatim tap
+    /// whose wordTapped already covers this commit) is buffered per commit —
+    /// never two, so the app-side model never double-counts a word.
+    /// Everything is gated on `fieldKind.allowsLearning` plus per-word
+    /// validation (see `isEventWord`).
+    private func bufferCommitEvent(for committed: String, acceptedFromTyped typed: String?) {
+        guard fieldKind.allowsLearning else { return }
+        let word = Self.strippedEventToken(committed)
+        guard Self.isEventWord(word) else { return }
+        if let typed, typed != word, Self.isEventWord(typed) {
+            pendingEvents.append(.suggestionAccepted(typed: typed, accepted: word))
+        } else if word == tapLearnedWord {
+            // Verbatim tap: wordTapped was already buffered by
+            // learnWordImmediately; consuming the memo here keeps this a
+            // single event per tap.
+            tapLearnedWord = nil
+        } else {
+            let previous = previousCommittedForEvents
+                .map(Self.strippedEventToken)
+                .flatMap { Self.isEventWord($0) ? $0 : nil }
+            pendingEvents.append(
+                .wordCommitted(
+                    word: word,
+                    previousWord: previous,
+                    languageHint: languageHint(for: word)
+                )
+            )
+        }
+    }
+
+    /// Per-word language attribution for wordCommitted events, from the
+    /// word's own graded lane evidence (calibrated per-lexicon z-margin) —
+    /// NOT from the running lane posterior: attribution must reflect what
+    /// the word itself says, or a sletta typed in a strong lane would be
+    /// mislabeled and later feed wrong lane statistics back.
+    private func languageHint(for word: String) -> LanguageHint {
+        let evidence = engine.laneDiagnostics(for: word).evidence
+        if evidence > 0 { return .icelandic }
+        if evidence < 0 { return .english }
+        return .unknown
+    }
+
+    /// A word admissible into the learning log: passes EventLog's own
+    /// validation (single token, has a letter, no emoji/control) AND is not
+    /// verbatim-class (internal '.'/'@' — URL/domain/e-mail-shaped tokens
+    /// are never logged, an extra privacy layer on top of the field gate).
+    static func isEventWord(_ word: String) -> Bool {
+        EventLog.isLearnableWord(word) && !isVerbatimClassToken(word)
+    }
+
+    /// Strip the single trailing deferred dot a pending token may carry
+    /// ("hestur." → "hestur") so events store clean words.
+    static func strippedEventToken(_ token: String) -> String {
+        token.hasSuffix(".") ? String(token.dropLast()) : token
     }
 
     /// Record a host-side '.'-triggered auto-replacement of the pending

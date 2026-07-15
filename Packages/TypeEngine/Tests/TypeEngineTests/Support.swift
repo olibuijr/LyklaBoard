@@ -7,6 +7,43 @@ final class FakeMorphology: MorphologyProviding {
     func isKnown(_ word: String) -> Bool { words.contains(word) }
 }
 
+/// In-memory personal vocabulary (stands in for the production
+/// `PersonalSnapshot(model:)` adapter over `Learning.PersonalModel`).
+struct FakePersonal: PersonalVocabulary {
+    var words: [String: UInt32] = [:]
+    var bigrams: [String: UInt32] = [:]  // "first second"
+    var tombstones: Set<String> = []
+
+    func allWords() -> [(word: String, count: UInt32)] {
+        words
+            .filter { !tombstones.contains($0.key) }
+            .map { (word: $0.key, count: $0.value) }
+    }
+
+    func continuations(of first: String, limit: Int) -> [(word: String, count: UInt32)] {
+        guard limit > 0 else { return [] }
+        let prefix = first + " "
+        return bigrams
+            .compactMap { key, count -> (word: String, count: UInt32)? in
+                guard key.hasPrefix(prefix) else { return nil }
+                let follower = String(key.dropFirst(prefix.count))
+                guard !tombstones.contains(follower) else { return nil }
+                return (word: follower, count: count)
+            }
+            .sorted { $0.count > $1.count || ($0.count == $1.count && $0.word < $1.word) }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    func bigramCount(_ first: String, _ second: String) -> UInt32? {
+        bigrams["\(first) \(second)"]
+    }
+
+    func isTombstoned(_ word: String) -> Bool {
+        tombstones.contains(word)
+    }
+}
+
 enum Fixtures {
     /// Small Icelandic lexicon.
     static let icelandic = DictLexicon(

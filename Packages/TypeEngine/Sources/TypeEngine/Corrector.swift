@@ -101,7 +101,11 @@ public struct Corrector {
             return CorrectionResult(suggestions: [], typedWordIsValid: true)
         }
 
-        let typedIsValid = model.isKnownAnywhere(typed)
+        // Personal-learning semantics fold in here (PLAN.md "Learning"):
+        // learned/user-added words are valid (never auto-corrected away) —
+        // and so are TOMBSTONED words, because deletion means "stop
+        // suggesting", never "punish typing" (isValidTypedWord docs).
+        let typedIsValid = model.isValidTypedWord(typed)
 
         // ---- Candidate generation ----------------------------------------
         // word -> spatial cost
@@ -109,6 +113,9 @@ public struct Corrector {
 
         func admit(_ word: String) {
             guard word != typed, candidates[word] == nil else { return }
+            // Tombstoned words are never offered, base-lexicon presence
+            // notwithstanding (every generation pass funnels through here).
+            guard !model.isPersonalTombstoned(word) else { return }
             candidates[word] = spatialCost(typedChars: typedChars, candidate: word)
         }
 
@@ -150,6 +157,15 @@ public struct Corrector {
             }
         }
 
+        // 3b. Personal-vocabulary completions: learned/user-added words are
+        // always suggestible, including OOV ones the base pools can never
+        // produce ("veitingahusid" typed as "veitingahusi" must complete).
+        for completion in model.personal.completions(
+            of: typed, limit: config.personalCompletionPoolLimit)
+        {
+            admit(completion.word)
+        }
+
         // 4. Completions of slightly shorter prefixes — but only when no
         // good close candidate exists yet (same gate as edits2): covers
         // suffix-area typos that neither edits1 nor typed-prefix completions
@@ -164,6 +180,11 @@ public struct Corrector {
                     for completion in lexicon.completions(of: prefix, limit: config.completionPoolLimit) {
                         admit(completion.word)
                     }
+                }
+                for completion in model.personal.completions(
+                    of: prefix, limit: config.personalCompletionPoolLimit)
+                {
+                    admit(completion.word)
                 }
             }
         }
@@ -393,12 +414,13 @@ public struct Corrector {
         func admit(_ word: String, _ cost: Double) {
             guard cost <= config.splitHalfRepairMaxCost else { return }
             guard word.count > 1 || isGenuineSingleCharWord(word) else { return }
+            guard !model.isPersonalTombstoned(word) else { return }
             if let existing = best[word], existing <= cost { return }
             best[word] = cost
         }
 
         let text = String(chars)
-        if model.isKnownAnywhere(text) { admit(text, 0) }
+        if model.isKnownAnywhere(text) || model.isPersonalValid(text) { admit(text, 0) }
         for variant in Self.diacriticVariants(of: chars)
         where isCandidateWord(variant, checkMorphology: true) {
             admit(variant, spatialCost(typedChars: chars, candidate: variant))
@@ -464,10 +486,14 @@ public struct Corrector {
         guard word.contains("-") else { return false }
         let parts = word.split(separator: "-")
         guard !parts.isEmpty else { return false }
-        return parts.allSatisfy { model.isKnownAnywhere(String($0)) }
+        // Typed-word protection semantics (personal words count, and so do
+        // tombstoned ones — see isValidTypedWord).
+        return parts.allSatisfy { model.isValidTypedWord(String($0)) }
     }
 
     private func isCandidateWord(_ word: String, checkMorphology: Bool) -> Bool {
+        guard !model.isPersonalTombstoned(word) else { return false }
+        if model.isPersonalValid(word) { return true }
         if model.icelandic.frequency(of: word) != nil { return true }
         if model.english.frequency(of: word) != nil { return true }
         if checkMorphology, model.morphology?.isKnown(word) == true { return true }

@@ -104,7 +104,26 @@ final class KeyboardViewController: KeyboardInputViewController {
         // standard KeyboardView toolbar (`toolbar: { $0.view }` below)
         // renders `AutocompleteContext.suggestions`, and the action handler
         // applies `.autocorrect` suggestions on space/delimiter.
-        services.autocompleteService = BetterKeyboardAutocompleteService()
+        //
+        // M2: the App Group id enables personal learning — the service
+        // loads the app-compacted personal model (personal-model.json) as
+        // the engine's personal vocabulary and appends learning events to
+        // learning-events.log. Both fully optional: no App Group access
+        // (Full Access denied) degrades to base-model-only, no logging.
+        services.autocompleteService = BetterKeyboardAutocompleteService(
+            appGroupId: KeyboardApp.betterKeyboard.appGroupId
+        )
+
+        // M2 learning: KeyboardKit auto-learns a tapped `.unknown`
+        // suggestion (our quoted verbatim escape-hatch slot) by calling
+        // `AutocompleteService.learnWord` — but only when this setting is
+        // on (defaults to false in vendored 9.9.1). Set explicitly every
+        // launch for the same @AppStorage-persistence reason as
+        // spaceLongPressBehavior above. Side effect: the same flag enables
+        // `tryAutocompleteIgnoreCurrentWord` (auto-ignore on backspace
+        // after an autocorrect), which is harmless here — our service's
+        // `ignoreWord` is a documented no-op.
+        state.autocompleteContext.settings.isAutolearnEnabled = true
 
         // Verbatim escape hatch + URL handling (PLAN.md): our
         // `StandardActionHandler` subclass (below) excludes '.' from the
@@ -120,9 +139,24 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // Push the field kind (URL/email/webSearch autocorrect gate) before
-        // the first keystroke of a newly focused field can be autocompleted.
+        // Push the field kind (URL/email/webSearch/secure autocorrect +
+        // learning gate) before the first keystroke of a newly focused
+        // field can be autocompleted.
         forwardTextContextChange()
+        // M2: re-stat the personal model (the containing app compacts it on
+        // its own schedule) — one mtime check per keyboard presentation,
+        // reload only when the file actually changed.
+        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+            .refreshPersonalSnapshotIfNeeded()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // M2: don't lose a verbatim tap/commit buffered right before the
+        // keyboard is dismissed (events normally flush on the autocomplete
+        // pass after each commit; this covers the last one).
+        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+            .flushPendingLearningEvents()
     }
 
     // MARK: - Text / selection change forwarding

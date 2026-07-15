@@ -214,13 +214,19 @@ final class TypingSessionTests: XCTestCase {
         XCTAssertEqual(bar.first?.isVerbatim, true)
     }
 
-    func testVerbatimChoiceMemoIsClearedByCommit() {
+    func testVerbatimTapProtectsTheTokenForTheRestOfTheSession() {
+        // M2 semantics: the verbatim tap is an explicit learn signal, so
+        // the token becomes session-learned vocabulary — protected from
+        // autocorrect for the REST of the session, not just (as in M1) via
+        // the one-keystroke verbatim memo. The memo itself is still cleared
+        // by the commit; protection now comes from the learned overlay.
         let s = session()
         typeThrough(s, "teh")
         s.noteVerbatimChoice("teh")
         typeThrough(s, "teh og ")  // "og" commits: memo gone
+        XCTAssertTrue(s.engine.isPersonalWord("teh"))
         let bar = s.suggestions(for: "teh og teh")
-        XCTAssertTrue(bar.contains { $0.isAutocorrect })
+        XCTAssertFalse(bar.contains { $0.isAutocorrect })
     }
 
     // MARK: - Field-type gate (layer 2)

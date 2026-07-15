@@ -22,6 +22,7 @@
 
 import Foundation
 import KeyboardKit
+import Learning
 import LemmaCore
 import Lexicon
 import TypeEngine
@@ -51,6 +52,17 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// Latest known field kind, kept even while the session is still
     /// bootstrapping so it can be applied the moment the session exists.
     private var fieldKind: FieldKind = .standard
+
+    // Personal learning (M2). All nil/absent when the App Group container
+    // is unavailable (Full Access denied, simulator oddities): the engine
+    // then runs with no personal model and no event logging — never a crash.
+    private let appGroupId: String?
+    private var engine: TypeEngine?
+    private var personalModelURL: URL?
+    private var eventLogURL: URL?
+    /// mtime of the personal-model file at the last (re)load, so the
+    /// viewWillAppear re-stat only re-reads a genuinely changed file.
+    private var personalModelDate: Date?
 
     // MARK: - Cross-queue fast path (lock-guarded, NOT queue-confined)
 
@@ -96,9 +108,20 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// text that the suggestion is not stale before applying.
     static let pendingTokenInfoKey = "is.betterkeyboard.pendingToken"
 
+    /// Filenames inside the App Group container. MUST match the app-side
+    /// constants in `App/AppModel.swift` (`personalModelFileName` /
+    /// `learningEventLogFileName`) — the extension appends events to the
+    /// log and reads the model; the app compacts the log into the model.
+    static let personalModelFileName = "personal-model.json"
+    static let learningEventLogFileName = "learning-events.log"
+
     // MARK: - Init
 
-    init() {
+    /// - Parameter appGroupId: the shared App Group
+    ///   (`KeyboardApp.betterKeyboard.appGroupId`, "group.is.lyklabord");
+    ///   nil disables personal learning entirely (tests).
+    init(appGroupId: String? = nil) {
+        self.appGroupId = appGroupId
         // Kick the bootstrap immediately (but asynchronously, off-main) so
         // the engine is usually ready by the first keystroke. Until it is,
         // `autocomplete(_:)` just returns empty suggestions.
@@ -147,8 +170,30 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     func updateFieldKind(_ kind: FieldKind) {
         queue.async { [weak self] in
             guard let self else { return }
+            // Flush BEFORE the kind changes: any buffered events were
+            // gated under the field they were typed in; flushing them under
+            // a later (possibly sensitive) field kind would trip the
+            // privacy assertion for events that are actually legitimate.
+            self.flushLearningEventsOnQueue()
             self.fieldKind = kind
             self.session?.fieldKind = kind
+        }
+    }
+
+    /// Re-stat the personal-model file and reload the engine's snapshot if
+    /// it changed (the app compacts on its own schedule). Called from the
+    /// controller's `viewWillAppear` — one stat per keyboard presentation.
+    func refreshPersonalSnapshotIfNeeded() {
+        queue.async { [weak self] in
+            self?.reloadPersonalSnapshotIfChanged()
+        }
+    }
+
+    /// Flush any buffered learning events (e.g. from `viewWillDisappear`,
+    /// so a verbatim tap right before dismissal isn't lost).
+    func flushPendingLearningEvents() {
+        queue.async { [weak self] in
+            self?.flushLearningEventsOnQueue()
         }
     }
 
@@ -192,19 +237,47 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
-    // Word learning/ignoring is M2 (LearningStore + personal dictionary).
-    // `StandardActionHandler` auto-learns tapped `.unknown` suggestions via
-    // `learnWord`, so these must exist but stay no-ops for now.
-    var canIgnoreWords: Bool { false }
-    var canLearnWords: Bool { false }
-    var ignoredWords: [String] { [] }
-    var learnedWords: [String] { [] }
-    func hasIgnoredWord(_ word: String) -> Bool { false }
-    func hasLearnedWord(_ word: String) -> Bool { false }
-    func ignoreWord(_ word: String) {}
-    func learnWord(_ word: String) {}
-    func removeIgnoredWord(_ word: String) {}
+    // MARK: - Word learning (M2)
+
+    // KeyboardKit's `StandardActionHandler.tryAutolearnSuggestion` calls
+    // `learn(suggestion)` → `learnWord(text)` when a tapped suggestion
+    // `isUnknown` — i.e. exactly our verbatim escape-hatch slot — gated on
+    // `AutocompleteSettings.isAutolearnEnabled` (enabled in
+    // KeyboardViewController.viewDidLoad). Our own action handler ALSO
+    // forwards the tap via `noteVerbatimChoice`; the session deduplicates
+    // the two signals into one wordTapped event + one session-learn.
+    var canLearnWords: Bool { true }
+
+    func learnWord(_ word: String) {
+        queue.async { [weak self] in
+            guard let self, let session = self.session else { return }
+            session.learnWordImmediately(word)
+            self.flushLearningEventsOnQueue()
+        }
+    }
+
+    /// Deliberate no-op (documented decision, M2 wave 2): un-learning is
+    /// deletion, and deletion must tombstone — a durable, synced user
+    /// decision that lives in the containing app's dictionary editor
+    /// (`PersonalModel.remove(word:)`), not in a keyboard-side callback.
+    /// The event log has no tombstone event by design (the extension can
+    /// only ever ADD evidence); KeyboardKit never calls this from any UI we
+    /// ship, so a silent no-op is safe.
     func unlearnWord(_ word: String) {}
+
+    // The learned-word listing lives in the app's dictionary editor (the
+    // PersonalModel is the source of truth); KeyboardKit never renders
+    // these in our setup, and answering would require a cross-queue hop.
+    var learnedWords: [String] { [] }
+    func hasLearnedWord(_ word: String) -> Bool { false }
+
+    // Word ignoring stays off: our conservatism rules (valid words are
+    // never auto-replaced; tombstones live in the app) cover its purpose.
+    var canIgnoreWords: Bool { false }
+    var ignoredWords: [String] { [] }
+    func hasIgnoredWord(_ word: String) -> Bool { false }
+    func ignoreWord(_ word: String) {}
+    func removeIgnoredWord(_ word: String) {}
 
     // MARK: - Bootstrap (on `queue`)
 
@@ -250,6 +323,12 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             // keystrokes don't pay page-fault costs (PLAN.md cold-start
             // quirk). Runs on this queue, before the session is published.
             engine.warmUp()
+            self.engine = engine
+            // Personal learning (M2): resolve the App Group container and
+            // load the personal snapshot. Fully graceful — no container,
+            // no model file, or a corrupt file all degrade to a nil
+            // snapshot + no event logging.
+            setupPersonalLearning()
             let newSession = TypingSession(engine: engine)
             newSession.fieldKind = fieldKind
             session = newSession
@@ -267,6 +346,85 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    // MARK: - Personal learning (on `queue`)
+
+    /// Resolve the App Group container and do the initial snapshot load.
+    /// Missing container (Full Access denied / entitlement oddity) leaves
+    /// every URL nil: the engine runs personal-model-free and the event
+    /// flush becomes a silent drop — no crash, no retry storm.
+    private func setupPersonalLearning() {
+        guard let appGroupId else { return }
+        guard
+            let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroupId
+            )
+        else {
+            NSLog("[better-keyboard] App Group container unavailable; personal learning off")
+            return
+        }
+        personalModelURL = container.appendingPathComponent(Self.personalModelFileName)
+        eventLogURL = container.appendingPathComponent(Self.learningEventLogFileName)
+        reloadPersonalSnapshotIfChanged()
+    }
+
+    /// Stat the model file; (re)load and inject a fresh snapshot when its
+    /// mtime differs from the last load. The app writes the file atomically
+    /// and the extension loads its own exclusive `PersonalModel` copy, so a
+    /// short coordinated read is all the synchronization needed.
+    private func reloadPersonalSnapshotIfChanged() {
+        guard let engine, let personalModelURL else { return }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: personalModelURL.path)
+        let modified = attributes?[.modificationDate] as? Date
+        guard modified != personalModelDate else { return }
+        personalModelDate = modified
+        guard modified != nil else {
+            // Model file disappeared (user reset / first run): clear.
+            engine.setPersonalVocabulary(nil)
+            return
+        }
+        do {
+            let model = try CoordinatedFileAccess.coordinateRead(at: personalModelURL) { url in
+                try PersonalModel(contentsOf: url)
+            }
+            engine.setPersonalVocabulary(PersonalSnapshot(model: model))
+            NSLog("[better-keyboard] personal snapshot loaded (%d words)", engine.personalSnapshotWords.count)
+        } catch {
+            // Corrupt/unreadable model: keep typing, drop personal ranking.
+            engine.setPersonalVocabulary(nil)
+            NSLog("[better-keyboard] personal model load failed: %@", String(describing: error))
+        }
+    }
+
+    /// Drain the session's buffered events and append them to the App Group
+    /// event log inside ONE short coordinated write. Events only accrue at
+    /// word commits / verbatim taps / correction reverts, so this is the
+    /// batch-at-word-boundaries flush the EventLog contract requires (never
+    /// per keystroke). Failures drop the batch — learning data is
+    /// lossy-tolerant by design (CoordinatedFileAccess docs).
+    private func flushLearningEventsOnQueue() {
+        guard let session, session.hasPendingLearningEvents else { return }
+        let events = session.drainLearningEvents()
+        guard let eventLogURL else { return }  // no App Group: drop silently
+        // Belt-and-braces: the session only buffers in standard fields, so
+        // this assertion firing would mean the session-side gate broke.
+        LearningPrivacy.assertLoggableFieldContext(
+            isSecureTextEntry: fieldKind == .secure,
+            isSensitiveKeyboardType: fieldKind == .url || fieldKind == .email
+                || fieldKind == .webSearch
+        )
+        guard fieldKind.allowsLearning else { return }
+        do {
+            try CoordinatedFileAccess.coordinateWrite(at: eventLogURL) { url in
+                try EventLog(url: url).append(contentsOf: events)
+            }
+        } catch {
+            NSLog(
+                "[better-keyboard] learning-event flush failed (%d events dropped): %@",
+                events.count, String(describing: error)
+            )
+        }
+    }
+
     // MARK: - Autocomplete (on `queue`)
 
     private func performAutocomplete(_ text: String) -> Autocomplete.ServiceResult {
@@ -279,6 +437,9 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         let suggestions = session.suggestions(for: text, limit: 3)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
         setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
+        // Word-commit boundary flush: the pass that detected a commit (or a
+        // tap/revert) is the pass whose drain carries those events.
+        flushLearningEventsOnQueue()
         let pendingToken = TypingSession.splitCurrentWord(of: text).currentWord
         return .init(
             inputText: text,
@@ -353,7 +514,12 @@ extension BetterKeyboardAutocompleteService {
     /// KeyboardKit's own keyboard type with the host field's `UIKeyboardType`
     /// (the same dual sourcing as `KeyboardContext.prefersAutocomplete`,
     /// since many native field types never map to a KeyboardKit type).
+    /// Secure text entry wins over everything: password fields must never
+    /// autocorrect and never feed learning.
     static func fieldKind(for context: KeyboardContext) -> FieldKind {
+        if context.textDocumentProxy.isSecureTextEntry == true {
+            return .secure
+        }
         switch context.keyboardType {
         case .url: return .url
         case .email: return .email

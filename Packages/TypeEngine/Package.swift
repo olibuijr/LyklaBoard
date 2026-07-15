@@ -15,6 +15,7 @@ let package = Package(
     dependencies: [
         .package(path: "../LemmaCore"),
         .package(path: "../Lexicon"),
+        .package(path: "../Learning"),
     ],
     targets: [
         .target(
@@ -22,6 +23,13 @@ let package = Package(
             dependencies: [
                 .product(name: "LemmaCore", package: "LemmaCore"),
                 .product(name: "Lexicon", package: "Lexicon"),
+                // Personal-learning integration (M2): `PersonalSnapshot`
+                // adapts `Learning.PersonalModel` into the engine's
+                // `PersonalVocabulary` seam, and `TypingSession` buffers
+                // `Learning.LearningEvent`s (word commits, suggestion
+                // accepts, verbatim taps, correction reverts) for the
+                // extension to flush into the App Group event log.
+                .product(name: "Learning", package: "Learning"),
             ]
         ),
         .executableTarget(
@@ -37,6 +45,8 @@ let package = Package(
                 "TypeEngine",
                 .product(name: "LemmaCore", package: "LemmaCore"),
                 .product(name: "Lexicon", package: "Lexicon"),
+                // `--personal <model.json>` loads a real PersonalModel file.
+                .product(name: "Learning", package: "Learning"),
             ]
         ),
         .testTarget(
