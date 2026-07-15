@@ -2,33 +2,36 @@ name: BetterKeyboard
 options:
   bundleIdPrefix: is.betterkeyboard
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   createIntermediateGroups: true
 
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 packages:
   LemmaCore:
     path: Packages/LemmaCore
   KeyboardKit:
-    url: https://github.com/KeyboardKit/KeyboardKit.git
+    path: Packages/KeyboardKit
     # NOTE: KeyboardKit switched to a closed-source binary (XCFramework) +
     # LicenseKit distribution as of v10.0, which conflicts with this repo's
     # locked decision that the free tier stays MIT/auditable and the
     # extension ships zero network code (LicenseKit performs license
     # validation). 9.9.1 is the last tag that ships full MIT Swift source
-    # with no license-key machinery. Revisit if that decision changes.
-    exactVersion: 9.9.1
+    # with no license-key machinery — vendored in-repo (see
+    # Packages/KeyboardKit, research/keyboardkit-v10-delta.md) rather than
+    # resolved via SPM against the upstream tag, so we're no longer at the
+    # mercy of the remote repo's tags. We own this fork going forward; there
+    # is no `swift package update` for KeyboardKit in this project's future.
 
 targets:
   BetterKeyboard:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: App
     info:
@@ -58,7 +61,7 @@ targets:
   BetterKeyboardExt:
     type: app-extension
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: KeyboardExt
       - path: data/is/lemma-is.bin
