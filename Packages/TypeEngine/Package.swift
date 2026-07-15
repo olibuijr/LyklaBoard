@@ -10,6 +10,7 @@ let package = Package(
     products: [
         .library(name: "TypeEngine", targets: ["TypeEngine"]),
         .executable(name: "type-eval", targets: ["type-eval"]),
+        .executable(name: "type-repl", targets: ["type-repl"]),
     ],
     dependencies: [
         .package(path: "../LemmaCore"),
@@ -28,6 +29,14 @@ let package = Package(
             dependencies: ["TypeEngine"],
             resources: [
                 .copy("Resources/eval-fixture.tsv")
+            ]
+        ),
+        .executableTarget(
+            name: "type-repl",
+            dependencies: [
+                "TypeEngine",
+                .product(name: "LemmaCore", package: "LemmaCore"),
+                .product(name: "Lexicon", package: "Lexicon"),
             ]
         ),
         .testTarget(

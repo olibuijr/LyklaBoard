@@ -11,6 +11,12 @@
 //  `.autocorrect` are auto-applied by `KeyboardAction.StandardActionHandler`
 //  when the user types a word/sentence delimiter (space etc.).
 //
+//  All session logic (context/current-word parsing, the ≥2-char gate,
+//  word-commit detection feeding the language posterior) lives in
+//  `TypeEngine.TypingSession`, shared verbatim with the macOS `type-repl`
+//  harness — this file only owns threading, artifact bootstrap, and the
+//  KeyboardKit suggestion mapping.
+//
 //  Privacy: no networking, no typed content in logs (only timings/counts).
 //
 
@@ -26,9 +32,9 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     /// All engine access is funneled through this serial queue:
     ///
-    /// - `TypeEngine` is NOT thread-safe (it owns a mutable running language
-    ///   posterior that `confirmWord` updates), so every call — bootstrap,
-    ///   suggestions, confirmWord — happens on this one queue.
+    /// - `TypingSession`/`TypeEngine` are NOT thread-safe (running language
+    ///   posterior + commit detection state), so every call — bootstrap,
+    ///   suggestions, commit detection — happens on this one queue.
     /// - Utility QoS keeps the mmap bootstrap and per-keystroke work off the
     ///   main thread. This is the launch-flicker mitigation recorded in
     ///   PLAN.md: `viewDidLoad` only enqueues the loader; no mmap open or
@@ -40,11 +46,8 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     // MARK: - Queue-confined state (touch ONLY on `queue`)
 
-    private var engine: TypeEngine?
+    private var session: TypingSession?
     private var bootstrapFailed = false
-    /// The `currentWord` parsed from the previous `autocomplete(_:)` call,
-    /// used to detect the word-commit transition (see `confirmIfCommitted`).
-    private var previousCurrentWord = ""
 
     // MARK: - Init
 
@@ -97,7 +100,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// paged, so this is fast (~1ms per artifact) and nearly free against
     /// the extension's dirty-memory jetsam cap (see data/README.md).
     private func bootstrapIfNeeded() {
-        guard engine == nil, !bootstrapFailed else { return }
+        guard session == nil, !bootstrapFailed else { return }
         let bundle = Bundle(for: Self.self)
         let start = CFAbsoluteTimeGetCurrent()
         do {
@@ -124,11 +127,12 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 NSLog("[better-keyboard] lemma-is.bin missing from extension bundle; continuing without morphology")
             }
 
-            engine = TypeEngine(
+            let engine = TypeEngine(
                 icelandic: icelandic,
                 english: english,
                 morphology: morphology
             )
+            session = TypingSession(engine: engine)
             let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
             NSLog(
                 "[better-keyboard] TypeEngine ready in %.1f ms (is: %d unigrams, en: %d unigrams, morphology: %@)",
@@ -149,28 +153,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         bootstrapIfNeeded()
         // Engine still loading (or permanently failed): stay silent. The
         // toolbar simply shows no suggestions for the first keystroke(s).
-        guard let engine else {
+        guard let session else {
             return .init(inputText: text, suggestions: [])
         }
-
-        let (context, currentWord) = Self.splitCurrentWord(of: text)
-        confirmIfCommitted(context: context, currentWord: currentWord, engine: engine)
-        previousCurrentWord = currentWord
-
-        // Require ≥2 typed characters before completion/correction-style
-        // suggestions: single-letter prefixes hit the 20k-entry completion
-        // scan cap on is.lex (~2.8 ms/call — data/README.md bench); 2+ char
-        // prefixes have far smaller ranges. Empty word = next-word
-        // prediction, which is cheap.
-        if currentWord.count == 1 {
-            return .init(inputText: text, suggestions: [])
-        }
-
-        let suggestions = engine.suggestions(
-            context: context,
-            currentWord: currentWord,
-            limit: 3
-        )
+        let suggestions = session.suggestions(for: text, limit: 3)
         return .init(
             inputText: text,
             suggestions: suggestions.map(Self.bridge)
@@ -188,60 +174,5 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             type: suggestion.isAutocorrect ? .autocorrect : .regular,
             additionalInfo: ["confidence": String(format: "%.3f", suggestion.confidence)]
         )
-    }
-
-    // MARK: - Word commit (on `queue`)
-
-    /// Minimal word-commit detection for the language posterior (full
-    /// learning integration is M2): a word counts as committed when the
-    /// previous call had a word in progress and this call doesn't — i.e. the
-    /// user just typed a delimiter (space/period/…) after it, or applied a
-    /// toolbar suggestion / autocorrect (both insert the word + a space,
-    /// which lands here on the next text change). The confirmed word is read
-    /// back out of the committed text so it reflects any applied correction,
-    /// not the raw typed fragment.
-    private func confirmIfCommitted(
-        context: String,
-        currentWord: String,
-        engine: TypeEngine
-    ) {
-        guard currentWord.isEmpty, !previousCurrentWord.isEmpty else { return }
-        guard let committed = Self.lastWord(in: context) else { return }
-        engine.confirmWord(committed)
-    }
-
-    // MARK: - Text parsing
-
-    /// Word delimiters: KeyboardKit's canonical set (punctuation, brackets,
-    /// whitespace, newlines). Note apostrophes are NOT delimiters, so
-    /// English contractions stay one word.
-    private static let delimiters: Set<Character> = Set(
-        String.wordDelimiters.compactMap(\.first)
-    )
-
-    /// Split the proxy-provided text (everything before the cursor) into
-    /// (committed context, word currently being typed). The current word is
-    /// the trailing run of non-delimiter characters; empty when the text
-    /// ends with a delimiter (word just committed / sentence start).
-    static func splitCurrentWord(of text: String) -> (context: String, currentWord: String) {
-        guard let index = text.lastIndex(where: { delimiters.contains($0) }) else {
-            return (context: "", currentWord: text)
-        }
-        let wordStart = text.index(after: index)
-        return (
-            context: String(text[..<wordStart]),
-            currentWord: String(text[wordStart...])
-        )
-    }
-
-    /// Trailing word of committed text, with surrounding delimiters
-    /// stripped; nil if there is none.
-    static func lastWord(in text: String) -> String? {
-        let word = text
-            .split(whereSeparator: { delimiters.contains($0) })
-            .last
-            .map(String.init)
-        guard let word, !word.isEmpty else { return nil }
-        return word
     }
 }

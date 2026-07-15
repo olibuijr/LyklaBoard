@@ -1,0 +1,242 @@
+# core.scenarios — starter regression suite for the TypeEngine typing path.
+#
+# Run:  swift run -c release type-repl run Scenarios/core.scenarios
+#
+# Encodes CURRENT behavior against the real artifacts (data/en/en.lex,
+# data/is/is.lex, data/is/lemma-is.bin) so regressions are caught; scenarios
+# marked QUIRK document behavior that is arguably wrong — when a quirk is
+# fixed the scenario should be updated deliberately.
+#
+# The harness simulates the device typing loop: keystrokes go through a
+# proxy window (iOS-style truncation: cut at sentence boundary, 200-char
+# cap), and a delimiter keystroke first applies a pending autocorrect
+# suggestion, exactly like KeyboardKit's space-commit.
+
+LIMIT 5
+
+# ---------------------------------------------------------------------------
+# Corrections and completions
+# ---------------------------------------------------------------------------
+
+SCENARIO hestr offers hestur among completions
+T hestr
+EXPECT_CONTAINS hestur
+EXPECT_NO_AUTOCORRECT hestr
+# QUIRK: top-1 is "hester" (attested in the lexicons), not "hestur".
+EXPECT_TOP hester
+
+SCENARIO teh autocorrects to the
+T teh
+EXPECT_AUTOCORRECT the
+
+SCENARIO teh plus space commits corrected word and drifts posterior EN
+T "teh "
+EXPECT_BUFFER "the "
+EXPECT_LAST_COMMIT the
+EXPECT_COMMITS 1
+EXPECT_POSTERIOR_LT 0.5
+
+SCENARIO islenska offers accented íslenska on top
+T islenska
+EXPECT_TOP íslenska
+# QUIRK: autocorrect does not fire because unaccented "islensk*" noise forms
+# are attested in is.lex, so the margin rule is starved.
+EXPECT_NO_AUTOCORRECT islenska
+
+SCENARIO capitalization is preserved on suggestions
+T Hestr
+EXPECT_CONTAINS Hestur
+
+# ---------------------------------------------------------------------------
+# Valid words are never auto-replaced (conservatism invariant)
+# ---------------------------------------------------------------------------
+
+SCENARIO valid borða never auto-replaced
+T borða
+EXPECT_NO_AUTOCORRECT borða
+
+SCENARIO valid koma never auto-replaced
+T koma
+EXPECT_NO_AUTOCORRECT koma
+
+SCENARIO valid the never auto-replaced
+T the
+EXPECT_NO_AUTOCORRECT the
+
+SCENARIO valid hús never auto-replaced
+T hús
+EXPECT_NO_AUTOCORRECT hús
+
+SCENARIO valid word commits unchanged through space
+T "borða "
+EXPECT_BUFFER "borða "
+EXPECT_LAST_COMMIT borða
+
+# ---------------------------------------------------------------------------
+# Known bilingual-ranking quirks (PLAN.md follow-ups)
+# ---------------------------------------------------------------------------
+
+SCENARIO hus at neutral posterior ranks his above hús
+T hus
+# QUIRK (PLAN.md known miss): EN "his" beats IS "hús" at the 50/50 prior.
+EXPECT_TOP his
+EXPECT_CONTAINS hús
+EXPECT_NO_AUTOCORRECT hus
+
+SCENARIO hus after icelandic warm-up
+T "hestur borða koma hus"
+EXPECT_POSTERIOR_GT 0.7
+EXPECT_CONTAINS hús
+# QUIRK: PLAN.md says posterior warm-up fixes the hus->his miss, but even at
+# P(IS)=0.79 "his" still wins top-1. Margin/prior follow-up needed.
+EXPECT_TOP his
+
+# ---------------------------------------------------------------------------
+# Language posterior
+# ---------------------------------------------------------------------------
+
+SCENARIO posterior drifts icelandic after three IS words
+T "ég er að "
+EXPECT_COMMITS 3
+EXPECT_POSTERIOR_GT 0.7
+
+SCENARIO posterior drifts english after three EN words
+T "the with and "
+EXPECT_COMMITS 3
+EXPECT_POSTERIOR_LT 0.3
+
+SCENARIO mixed sentence keeps both languages usable
+T "þetta er very gott "
+EXPECT_COMMITS 4
+EXPECT_POSTERIOR_GT 0.2
+EXPECT_POSTERIOR_LT 0.8
+T borð
+EXPECT_CONTAINS borða
+BACKSPACE 4
+T afte
+EXPECT_CONTAINS after
+
+# ---------------------------------------------------------------------------
+# Completion gate + next-word prediction
+# ---------------------------------------------------------------------------
+
+SCENARIO one typed character yields no suggestions
+T h
+EXPECT_EMPTY
+
+SCENARIO two typed characters yield suggestions
+T he
+EXPECT_NONEMPTY
+
+SCENARIO next-word prediction after a committed word
+T "takk "
+# QUIRK: the bar is EMPTY here. FrequencyLexicon.completions(of: "") returns
+# no entries, so Predictor.nextWords has an empty candidate pool with the
+# real artifacts — next-word prediction is dead on device (works only in
+# unit tests, whose DictLexicon handles the empty prefix). Needs the
+# continuations(of:limit:) Lexicon API flagged in PLAN.md.
+EXPECT_EMPTY
+
+# ---------------------------------------------------------------------------
+# Punctuation / word-commit edge cases
+# ---------------------------------------------------------------------------
+
+SCENARIO word then comma commits once
+T "hestur,"
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT hestur
+
+SCENARIO double space commits only once
+T "hestur  "
+EXPECT_COMMITS 1
+
+SCENARIO sentence period commits and truncates the context window
+T "hestur er stór. "
+EXPECT_COMMITS 3
+EXPECT_LAST_COMMIT stór
+# iOS-style truncation: after ". " the proxy window restarts at the new
+# sentence, so the next word is typed with NO bigram context.
+EXPECT_CONTEXT ""
+
+SCENARIO hyphenated word stays one word and merges on autocorrect
+T vel-þekkt
+EXPECT_COMMITS 0
+# QUIRK-ish: the hyphenated form is unknown, the merged compound is valid,
+# so autocorrect strips the hyphen (fine for IS compounds, debatable
+# elsewhere). Also the slowest path in the suite (edits2 on 9 chars).
+EXPECT_AUTOCORRECT velþekkt
+
+SCENARIO apostrophe contraction is one word
+T "she don"
+T "'t"
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT she
+
+SCENARIO don't autocorrects its apostrophe away
+T don't
+# QUIRK: en.lex has no apostrophe forms (contractions were stripped at build
+# time), so valid English contractions are unknown and get auto-replaced by
+# their apostrophe-less twins. Top English-typing pain; needs contractions
+# in en.lex or apostrophe-aware validation.
+EXPECT_AUTOCORRECT dont
+T " "
+EXPECT_BUFFER "dont "
+EXPECT_LAST_COMMIT dont
+
+SCENARIO i'm autocorrects to ibm
+T I'm
+# QUIRK (same root cause as don't): "I'm" is unknown, and IBM wins the
+# candidate race. Capitalization preservation turns it into "Ibm".
+EXPECT_AUTOCORRECT Ibm
+
+# ---------------------------------------------------------------------------
+# Proxy-contract scenarios (cursor jumps, truncation, host mutation, stale)
+# ---------------------------------------------------------------------------
+
+SCENARIO cursor jump into earlier word causes no spurious commit
+T "hestur borða"
+EXPECT_COMMITS 1
+CURSOR_MOVE -3
+EXPECT_COMMITS 1
+EXPECT_NONEMPTY
+
+SCENARIO commit still detected after cursor returns to end
+T "hestur borða"
+CURSOR_MOVE -3
+CURSOR_MOVE end
+T " "
+EXPECT_COMMITS 2
+EXPECT_LAST_COMMIT borða
+
+SCENARIO tight context window truncates mid-sentence
+TRUNCATE_AT 10
+T "hestur borða koma"
+EXPECT_CONTEXT "borða koma"
+EXPECT_COMMITS 2
+
+SCENARIO typing at the start of an empty field
+REFRESH
+EXPECT_EMPTY
+T ta
+EXPECT_NONEMPTY
+EXPECT_COMMITS 0
+
+SCENARIO host autofill is not credited as user commits
+HOST_SET "jokull@triptojapan.com "
+EXPECT_COMMITS 0
+T "er "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT er
+
+SCENARIO host replacing text mid-word causes no spurious commit
+T hest
+HOST_SET "completely different "
+EXPECT_COMMITS 0
+
+SCENARIO stale proxy reads lag the bar by one keystroke
+STALE_READS on
+T hestur
+EXPECT_CONTEXT hestu
+STALE_READS off
+REFRESH
+EXPECT_CONTEXT hestur
