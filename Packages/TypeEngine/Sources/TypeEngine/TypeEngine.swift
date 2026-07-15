@@ -15,8 +15,10 @@ public final class TypeEngine {
     private let corrector: Corrector
     private let predictor: Predictor
 
-    /// Running language posterior P(Icelandic), clamped to
-    /// [posteriorFloor, posteriorCeiling]. Starts at 0.5.
+    /// Lane posterior P(lane = Icelandic): the forward probability of the
+    /// two-state IS/EN switching model over committed words, clamped to
+    /// [posteriorFloor, posteriorCeiling] so it never saturates. Starts at
+    /// the neutral 0.5 prior.
     public private(set) var probabilityIcelandic: Double
 
     /// Production initializer: BÍN morphology via LemmaCore.
@@ -98,50 +100,57 @@ public final class TypeEngine {
     /// Update the language posterior after the user commits a word
     /// (typed through, tapped a suggestion, or accepted an autocorrect).
     ///
-    /// Posterior discipline: only STRONGLY attributable words move the
-    /// posterior — known in exactly one lexicon at a non-junk calibrated
-    /// score (or BÍN-valid, which is Icelandic by construction), or known
-    /// in both with a clear calibrated-score margin. OOV, noise-tier and
-    /// ambiguous words leave it unchanged (harness finding: junk like
-    /// "dont", present in is.lex web noise, must never drag the posterior
-    /// toward Icelandic).
+    /// One forward step of the two-lane (IS/EN) switching model — typing is
+    /// either Icelandic-with-slettur or English, lanes are sticky but not
+    /// strict (PLAN.md "Bilingual blending — lane model"):
+    ///
+    ///   predict: p' = (1-s)·p + s·(1-p)          s = laneSwitchProbability
+    ///   update:  p  = p'·e_IS / (p'·e_IS + (1-p')·e_EN)
+    ///
+    /// where log(e_IS/e_EN) is the word's graded emission evidence from the
+    /// calibrated per-lexicon z-scores (see BlendedLanguageModel.laneEvidence).
+    /// The capped evidence + low switch prior make one sletta a bounded
+    /// nudge (the lane holds) while 2–3 consecutive off-lane words flip it.
+    /// Words with no attributable evidence (OOV, junk-tier like "dont" in
+    /// is.lex web noise, ambiguous both-lexicon words) have ~uniform
+    /// emissions: they only apply the predict step, i.e. a gentle decay of
+    /// the lane toward neutral — never a drag toward either language.
     public func confirmWord(_ word: String) {
         let w = word.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !w.isEmpty else { return }
 
-        // Posterior evidence comes from corpus attestation only. BÍN
-        // validity still drives validity/suggestions elsewhere, but its 3M
-        // surface forms collide with English-looking junk (BÍN knows
-        // "dont"!), so morphology alone never moves the posterior.
-        let knownIS = model.icelandic.frequency(of: w) != nil
-        let knownEN = model.english.frequency(of: w) != nil
-
-        let signal: Double
-        switch (knownIS, knownEN) {
-        case (true, false):
-            guard
-                model.calibratedUnigramScore(of: w, language: .icelandic)
-                    >= config.posteriorAttributionFloor
-            else { return }
-            signal = 1
-        case (false, true):
-            guard
-                model.calibratedUnigramScore(of: w, language: .english)
-                    >= config.posteriorAttributionFloor
-            else { return }
-            signal = 0
-        case (true, true):
-            let zIS = model.calibratedUnigramScore(of: w, language: .icelandic)
-            let zEN = model.calibratedUnigramScore(of: w, language: .english)
-            guard abs(zIS - zEN) >= config.posteriorAttributionMargin else { return }
-            signal = zIS > zEN ? 1 : 0
-        case (false, false):
-            return
-        }
-
-        let alpha = config.posteriorAlpha
-        let updated = (1 - alpha) * probabilityIcelandic + alpha * signal
+        let s = config.laneSwitchProbability
+        let predicted = (1 - s) * probabilityIcelandic + s * (1 - probabilityIcelandic)
+        let evidence = model.laneEvidence(of: w)
+        let odds = (predicted / (1 - predicted)) * exp(evidence)
+        let updated = odds / (1 + odds)
         probabilityIcelandic = min(max(updated, config.posteriorFloor), config.posteriorCeiling)
+    }
+
+    /// Relax the lane posterior toward the neutral 0.5 prior across a
+    /// sentence boundary (". ", "!", "?"): sheds laneBoundaryDecay of the
+    /// distance to neutral — the lane weakens with discourse distance but
+    /// does not reset. TypingSession calls this when a committed word's
+    /// trailing delimiter is a sentence terminator.
+    public func noteSentenceBoundary() {
+        let decay = config.laneBoundaryDecay
+        probabilityIcelandic = 0.5 + (probabilityIcelandic - 0.5) * (1 - decay)
+    }
+
+    /// Lane-model diagnostics for a word (REPL `:word` command): per-lexicon
+    /// attestation + calibrated z-scores and the resulting emission evidence
+    /// log(e_IS/e_EN) in nats (0 = uniform, does not move the lane).
+    public func laneDiagnostics(for word: String)
+        -> (frequencyIS: UInt32?, frequencyEN: UInt32?, zIS: Double, zEN: Double, evidence: Double)
+    {
+        let w = word.lowercased()
+        return (
+            frequencyIS: model.icelandic.frequency(of: w),
+            frequencyEN: model.english.frequency(of: w),
+            zIS: model.calibratedUnigramScore(of: w, language: .icelandic),
+            zEN: model.calibratedUnigramScore(of: w, language: .english),
+            evidence: model.laneEvidence(of: w)
+        )
     }
 
     /// Touch representative pages of the mmap-ed artifacts (spread unigram,
@@ -151,7 +160,8 @@ public final class TypeEngine {
         model.warmUp()
     }
 
-    /// Reset the posterior to the 50/50 prior (e.g. new text field).
+    /// Reset the lane posterior to the neutral 50/50 prior — the full-decay
+    /// case of the boundary relaxation (new text field, session reset).
     public func resetLanguagePosterior() {
         probabilityIcelandic = 0.5
     }

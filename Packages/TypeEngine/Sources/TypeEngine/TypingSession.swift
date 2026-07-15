@@ -31,8 +31,10 @@ public final class TypingSession {
 
     /// Number of word commits detected so far (i.e. `confirmWord` calls).
     public private(set) var committedWordCount = 0
-    /// Number of commits that actually moved the language posterior (words
-    /// not strongly attributable to one language leave it unchanged).
+    /// Number of commits that actually moved the lane posterior. Words with
+    /// no attributable language evidence leave a neutral posterior unchanged
+    /// (from a non-neutral one they still apply the lane model's gentle
+    /// decay toward 0.5, which counts as movement).
     public private(set) var posteriorUpdateCount = 0
     /// The most recently committed word, as read back out of the committed
     /// text (so it reflects an applied autocorrect, not the raw fragment).
@@ -209,9 +211,13 @@ public final class TypingSession {
         return .external
     }
 
+    private static func isSentenceTerminator(_ character: Character) -> Bool {
+        character == "." || character == "!" || character == "?"
+    }
+
     private static func endsWithSentenceTerminator(_ text: String) -> Bool {
         guard let last = text.last(where: { !$0.isWhitespace }) else { return false }
-        return last == "." || last == "!" || last == "?"
+        return isSentenceTerminator(last)
     }
 
     // MARK: - Word commit
@@ -243,6 +249,13 @@ public final class TypingSession {
         lastCommittedWord = committed
         if engine.probabilityIcelandic != before {
             posteriorUpdateCount += 1
+        }
+        // The delimiter that committed this word is the only place a
+        // sentence boundary is observable (the ". " proxy truncation fires
+        // one keystroke later, on the space — same boundary, so decaying
+        // there too would double-count): relax the lane toward neutral.
+        if appendedAfterContext.contains(where: Self.isSentenceTerminator) {
+            engine.noteSentenceBoundary()
         }
     }
 

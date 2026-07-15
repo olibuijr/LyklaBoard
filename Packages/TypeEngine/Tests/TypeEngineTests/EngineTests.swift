@@ -53,6 +53,75 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(engine.probabilityIcelandic, 0.5)
     }
 
+    // MARK: Two-lane switching model (stickiness, flips, decay)
+
+    /// Saturate the lane Icelandic with three strong IS words.
+    private func icelandicLaneEngine() -> TypeEngine {
+        let engine = Fixtures.engine()
+        for word in ["og", "að", "er"] { engine.confirmWord(word) }
+        XCTAssertEqual(engine.probabilityIcelandic, 0.9, accuracy: 1e-9)
+        return engine
+    }
+
+    func testSingleOffLaneWordDoesNotFlipLane() {
+        // One sletta from a saturated IS lane: a bounded nudge, never a
+        // flip — the capped emission + low switch prior guarantee P(IS)
+        // stays above 0.6.
+        let engine = icelandicLaneEngine()
+        engine.confirmWord("the")
+        XCTAssertGreaterThan(engine.probabilityIcelandic, 0.6)
+        XCTAssertLessThan(engine.probabilityIcelandic, 0.9)
+    }
+
+    func testThreeConsecutiveOffLaneWordsFlipLane() {
+        // A sustained switch DOES flip the lane: three strongly-EN words
+        // from a saturated IS lane push P(EN) past 0.7.
+        let engine = icelandicLaneEngine()
+        for word in ["the", "and", "with"] { engine.confirmWord(word) }
+        XCTAssertLessThan(engine.probabilityIcelandic, 0.3)
+    }
+
+    func testLaneRecoversAfterSingleSletta() {
+        // IS run, one EN word, then IS again: the lane snaps back.
+        let engine = icelandicLaneEngine()
+        engine.confirmWord("the")
+        engine.confirmWord("og")
+        XCTAssertGreaterThan(engine.probabilityIcelandic, 0.7)
+    }
+
+    func testNonEvidenceWordOnlyDecaysLaneTowardNeutral() {
+        // OOV words have uniform emissions: only the transition step
+        // applies — one step of decay toward 0.5, exactly
+        // (1-s)·p + s·(1-p), never a pull toward either language.
+        let engine = icelandicLaneEngine()
+        engine.confirmWord("xyzzyq")
+        let s = engine.config.laneSwitchProbability
+        XCTAssertEqual(engine.probabilityIcelandic, (1 - s) * 0.9 + s * 0.1, accuracy: 1e-9)
+    }
+
+    func testSentenceBoundaryDecayRelaxesButDoesNotReset() {
+        let engine = icelandicLaneEngine()
+        engine.noteSentenceBoundary()
+        let d = engine.config.laneBoundaryDecay
+        XCTAssertEqual(engine.probabilityIcelandic, 0.5 + 0.4 * (1 - d), accuracy: 1e-9)
+        XCTAssertGreaterThan(engine.probabilityIcelandic, 0.7, "boundary must relax, not reset")
+    }
+
+    func testSentenceBoundaryDecayIsNeutralAtPrior() {
+        let engine = Fixtures.engine()
+        engine.noteSentenceBoundary()
+        XCTAssertEqual(engine.probabilityIcelandic, 0.5)
+    }
+
+    func testOffLaneCandidatesRemainReachableFromSaturatedLane() {
+        // Candidate starvation guard: even at the IS ceiling, an
+        // unambiguously English input still surfaces the English word
+        // (discounted, not blocked).
+        let engine = icelandicLaneEngine()
+        let texts = engine.suggestions(context: "", currentWord: "gree", limit: 3).map(\.text)
+        XCTAssertTrue(texts.contains("green"), "off-lane candidate must stay reachable: \(texts)")
+    }
+
     // MARK: Posterior discipline (strong attribution only)
 
     func testNoiseTierSingleLexiconWordDoesNotMovePosterior() {

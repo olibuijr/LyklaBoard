@@ -131,12 +131,83 @@ SCENARIO mixed sentence keeps both languages usable
 T "þetta er very gott "
 EXPECT_COMMITS 4
 EXPECT_POSTERIOR_GT 0.2
-EXPECT_POSTERIOR_LT 0.8
+# Lane model (2026-07-15): "very" is a sletta inside an IS sentence — the
+# sticky lane absorbs it as a bounded nudge instead of dragging near
+# neutral like the old EMA did (was LT 0.8; lane lands ≈0.81). Both
+# languages must still be usable below, which is the point of the scenario.
+EXPECT_POSTERIOR_LT 0.9
 T borð
 EXPECT_CONTAINS borða
 BACKSPACE 4
 T afte
 EXPECT_CONTAINS after
+
+# ---------------------------------------------------------------------------
+# Two-lane switching model (PLAN.md "Bilingual blending — lane model")
+# ---------------------------------------------------------------------------
+
+SCENARIO icelandic sentence with a sletta stays in the icelandic lane
+T "við þurfum að klára "
+EXPECT_POSTERIOR_GT 0.8
+# "deadline" is a classic sletta: attested in en.lex, absent from is.lex,
+# but at unremarkable within-EN typicality — ~uniform lane emission. It is
+# valid, so it is never mangled by autocorrect...
+T deadline
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT deadline
+# ...and the lane holds Icelandic through the sletta (only the stickiness
+# decay applies — P(IS) 0.9 -> ~0.84, far above the 0.6 spec floor).
+EXPECT_POSTERIOR_GT 0.7
+# The word after the sletta is ranked by the IS lane again: "fy" completes
+# to "fyrir", not an English fy- word.
+T fy
+EXPECT_TOP fyrir
+T "rir "
+EXPECT_POSTERIOR_GT 0.8
+T "morgundaginn"
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO one strongly english word does not flip the icelandic lane
+T "við þurfum að "
+EXPECT_POSTERIOR_GT 0.8
+# "because" is strongly EN (capped emission) — a single occurrence is a
+# bounded nudge, the lane stays IS.
+T "because "
+EXPECT_POSTERIOR_GT 0.5
+
+SCENARIO three consecutive english words flip the lane
+T "við þurfum að "
+EXPECT_POSTERIOR_GT 0.8
+# A sustained switch is honored: P(EN) > 0.7 after three strong EN words.
+T "because they wanted "
+EXPECT_POSTERIOR_LT 0.3
+
+SCENARIO english run with one icelandic word stays in the english lane
+T "because they wanted "
+EXPECT_POSTERIOR_LT 0.2
+# "takk" dropped into English chat (weak-but-real IS evidence): symmetric
+# sletta absorption — the lane stays EN.
+T "takk "
+EXPECT_LAST_COMMIT takk
+EXPECT_POSTERIOR_LT 0.4
+
+SCENARIO off-lane candidates stay reachable from a saturated lane
+T "við þurfum að "
+EXPECT_POSTERIOR_GT 0.8
+# Unambiguously English input while the lane is IS: the English word is
+# discounted, never blocked — no candidate starvation.
+T becaus
+EXPECT_CONTAINS because
+
+SCENARIO sentence boundary relaxes the lane toward neutral without reset
+T "við þurfum að klára"
+EXPECT_POSTERIOR_GT 0.85
+T ". "
+# ". " sheds laneBoundaryDecay (20%) of the distance to 0.5: 0.9 -> 0.82.
+# Relaxed, but the lane survives into the next sentence.
+EXPECT_POSTERIOR_LT 0.86
+EXPECT_POSTERIOR_GT 0.78
 
 SCENARIO junk dont commit never moves posterior toward icelandic
 T "dont "

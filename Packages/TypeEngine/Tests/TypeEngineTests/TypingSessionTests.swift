@@ -266,6 +266,38 @@ final class TypingSessionTests: XCTestCase {
         XCTAssertNotEqual(predictions.first?.text, "dag")
     }
 
+    // MARK: - Sentence-boundary lane decay
+
+    func testSentenceTerminatorDecaysLaneTowardNeutral() {
+        // Same words, one committed by ". " instead of " ": the sentence
+        // boundary must shed laneBoundaryDecay of the distance to 0.5 —
+        // relax, not reset.
+        let spaceSession = session()
+        typeThrough(spaceSession, "og að er ")
+        let boundarySession = session()
+        typeThrough(boundarySession, "og að er. ")
+        let d = boundarySession.engine.config.laneBoundaryDecay
+        XCTAssertEqual(
+            boundarySession.probabilityIcelandic,
+            0.5 + (spaceSession.probabilityIcelandic - 0.5) * (1 - d),
+            accuracy: 1e-9
+        )
+        XCTAssertGreaterThan(boundarySession.probabilityIcelandic, 0.6, "lane must survive the boundary")
+    }
+
+    func testCommaDoesNotDecayLane() {
+        let spaceSession = session()
+        typeThrough(spaceSession, "og að er ")
+        let commaSession = session()
+        typeThrough(commaSession, "og að er, ")
+        XCTAssertEqual(
+            commaSession.probabilityIcelandic,
+            spaceSession.probabilityIcelandic,
+            accuracy: 1e-9,
+            "only sentence terminators decay the lane"
+        )
+    }
+
     // MARK: - Reset
 
     func testResetClearsPosteriorAndCounters() {

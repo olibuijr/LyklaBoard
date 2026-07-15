@@ -19,6 +19,7 @@ struct Repl {
             punctuation) to commit the word. Commands:
               :reset            fresh field (document, session, posterior)
               :posterior        print P(Icelandic)
+              :word <w>         per-lexicon attestation, calibrated z, lane evidence
               :timing           toggle per-keystroke latency listing
               :context          show proxy window vs full document
               :cursor <pos>     move caret (+n / -n relative, n absolute, start, end)
@@ -67,6 +68,20 @@ struct Repl {
             print("reset: empty document, P(IS)=0.500")
         case ":posterior":
             print("P(IS) = \(String(format: "%.3f", typist.session.probabilityIcelandic))")
+        case ":word":
+            guard !argument.isEmpty else {
+                print("usage: :word <word>")
+                break
+            }
+            let d = engine.laneDiagnostics(for: argument)
+            let fIS = d.frequencyIS.map(String.init) ?? "-"
+            let fEN = d.frequencyEN.map(String.init) ?? "-"
+            print("  is.lex  f=\(fIS)  z=\(String(format: "%+.2f", d.zIS))")
+            print("  en.lex  f=\(fEN)  z=\(String(format: "%+.2f", d.zEN))")
+            print(
+                "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
+                    + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
+            )
         case ":timing":
             showPerCharTiming.toggle()
             print("per-keystroke timing \(showPerCharTiming ? "on" : "off")")

@@ -74,19 +74,48 @@ public struct EngineConfig: Sendable {
     /// "edits2 latency landmine").
     public var edits2TimeBudget: TimeInterval = 0.008
 
-    /// EMA step for the language posterior update per confirmed word.
-    public var posteriorAlpha: Double = 0.25
+    // --- Two-lane language switching model (PLAN.md "Bilingual blending —
+    // lane model"). The posterior P(IS) is the forward probability of a
+    // two-state (IS/EN) HMM over committed words: per commit,
+    //   predict: p' = (1-s)·p + s·(1-p)              (lane stickiness/decay)
+    //   update:  p  ∝ p'·e_IS(word) vs (1-p')·e_EN(word)   (graded evidence)
+    // Emission likelihood ratios come from the calibrated per-lexicon
+    // z-scores (see laneEvidence). Replaces the earlier flat EMA.
+
+    /// s: per-word prior probability that the writer switched lanes.
+    /// Low = sticky lanes — a single off-lane word (a sletta) cannot flip
+    /// the lane, while 2–3 consecutive off-lane words can. Also acts as the
+    /// natural distance decay: words with ~uniform emissions (OOV, junk,
+    /// ambiguous) relax the posterior toward 0.5 at this rate.
+    public var laneSwitchProbability: Double = 0.08
+    /// Fraction of the lane posterior's distance to the neutral 0.5 prior
+    /// that is shed at each sentence boundary (". ", "!", "?"): the lane
+    /// relaxes but does not reset — 0.9 becomes 0.82 at the default.
+    public var laneBoundaryDecay: Double = 0.2
+    /// η: emission temperature — nats of emission log-likelihood ratio per σ
+    /// of calibrated z-score margin between the two lexicons.
+    public var laneEmissionTemperature: Double = 1.0
+    /// Cap on a single word's emission log-likelihood ratio, in nats. Bounds
+    /// how much any one word can move the lane: together with
+    /// laneSwitchProbability this guarantees one strongly-off-lane word
+    /// leaves a saturated lane above 0.6 while three flip it past 0.7.
+    public var laneEmissionMaxLogRatio: Double = 1.1
     /// The posterior never saturates past 90/10 in either direction.
     public var posteriorFloor: Double = 0.1
     public var posteriorCeiling: Double = 0.9
-    /// A committed word known in exactly one lexicon only moves the posterior
-    /// when its calibrated z-score there is at least this (junk/noise-tier
-    /// entries — web scrapings, typos baked into the corpus — are not
-    /// language evidence). BÍN-valid words bypass the floor for Icelandic.
-    public var posteriorAttributionFloor: Double = -1.25
-    /// A committed word known in both lexicons only moves the posterior when
-    /// its calibrated z-scores differ by at least this many σ.
-    public var posteriorAttributionMargin: Double = 1.0
+    /// z floor for lane evidence: attestation at or below this calibrated
+    /// z-score is indistinguishable from absence (junk/noise-tier entries —
+    /// web scrapings, typos baked into the corpus — are not language
+    /// evidence; the harness "dont" finding). Unattested words score exactly
+    /// this floor, so junk-vs-absent comparisons cancel to zero evidence.
+    /// BÍN validity never contributes (its 3M forms collide with junk).
+    public var laneEvidenceFloor: Double = -1.25
+    /// Soft dead zone subtracted from the |z_IS - z_EN| margin before it
+    /// becomes emission evidence: weakly attributable words (known in both
+    /// lexicons at comparable typicality, or barely above the noise floor in
+    /// one) contribute ~uniform emissions and leave the lane to the
+    /// stickiness prior. Evidence is graded above the dead zone, not binary.
+    public var laneEvidenceDeadZone: Double = 1.0
 
     public init() {}
 }
@@ -257,6 +286,33 @@ struct BlendedLanguageModel {
     /// attribution of committed words.
     func calibratedUnigramScore(of word: String, language: Language) -> Double {
         calibratedScore(of: word, previous: nil, language: language)
+    }
+
+    /// Lane emission evidence for a committed word:
+    /// log( e_IS(word) / e_EN(word) ), the emission log-likelihood ratio of
+    /// the two-lane switching model, in nats. Positive = Icelandic evidence.
+    ///
+    /// Derivation from the calibrated z-scores (graded, not binary):
+    ///   z̃_L = max(z_L, floor) when attested in L's frequency table,
+    ///         floor when unattested (or junk-tier — same thing)
+    ///   ℓ   = sign(Δz̃) · η · max(0, |Δz̃| - deadZone), clipped to ±cap
+    /// Corpus attestation only: BÍN morphology validates 3M surface forms
+    /// including English-looking junk, so it is never lane evidence.
+    func laneEvidence(of word: String) -> Double {
+        let floor = config.laneEvidenceFloor
+        let zIS =
+            icelandic.frequency(of: word) != nil
+            ? max(calibratedUnigramScore(of: word, language: .icelandic), floor)
+            : floor
+        let zEN =
+            english.frequency(of: word) != nil
+            ? max(calibratedUnigramScore(of: word, language: .english), floor)
+            : floor
+        let margin = zIS - zEN
+        let graded = max(0, abs(margin) - config.laneEvidenceDeadZone)
+        guard graded > 0 else { return 0 }
+        let nats = min(config.laneEmissionTemperature * graded, config.laneEmissionMaxLogRatio)
+        return margin > 0 ? nats : -nats
     }
 
     /// Blended language score, in nats:
