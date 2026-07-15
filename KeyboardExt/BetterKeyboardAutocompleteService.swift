@@ -79,6 +79,20 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    /// Forward a host text/selection change (`textDidChange` /
+    /// `selectionDidChange` on the controller) to the typing session, so
+    /// cursor jumps and host-app mutations never masquerade as word commits.
+    /// Safe to call for changes caused by our own insertions too: the
+    /// session's window-aware note is idempotent — it ignores any window
+    /// that is a valid typing evolution of its own last-seen state and only
+    /// resets on genuinely inconsistent windows (the session also detects
+    /// most external changes internally; this is belt-and-braces).
+    func noteTextContextChange(_ textBeforeCursor: String) {
+        queue.async { [weak self] in
+            self?.session?.noteExternalTextChange(window: textBeforeCursor)
+        }
+    }
+
     // Word learning/ignoring is M2 (LearningStore + personal dictionary).
     // `StandardActionHandler` auto-learns tapped `.unknown` suggestions via
     // `learnWord`, so these must exist but stay no-ops for now.
@@ -132,6 +146,11 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 english: english,
                 morphology: morphology
             )
+            // Touch representative pages of the mmap-ed artifacts (spread
+            // unigram/bigram/morphology lookups) so the first real
+            // keystrokes don't pay page-fault costs (PLAN.md cold-start
+            // quirk). Runs on this queue, before the session is published.
+            engine.warmUp()
             session = TypingSession(engine: engine)
             let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
             NSLog(

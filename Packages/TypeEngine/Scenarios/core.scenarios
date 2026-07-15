@@ -1,4 +1,4 @@
-# core.scenarios — starter regression suite for the TypeEngine typing path.
+# core.scenarios — regression suite for the TypeEngine typing path.
 #
 # Run:  swift run -c release type-repl run Scenarios/core.scenarios
 #
@@ -6,6 +6,14 @@
 # data/is/is.lex, data/is/lemma-is.bin) so regressions are caught; scenarios
 # marked QUIRK document behavior that is arguably wrong — when a quirk is
 # fixed the scenario should be updated deliberately.
+#
+# 2026-07-15 fix wave: expectations updated for (1) the edits2 latency
+# budget + hyphen-compound validity, (2) apostrophe conservatism, (3)
+# calibrated cross-language scoring, (4) posterior attribution discipline,
+# (5) internal cursor-jump detection, (6) continuations-based next-word
+# prediction, (8) sentence-truncation bigram-context carry. Several
+# expectations also depend on the v2 artifacts (en.lex with contractions,
+# is.lex denoised) rebuilt the same day.
 #
 # The harness simulates the device typing loop: keystrokes go through a
 # proxy window (iOS-style truncation: cut at sentence boundary, 200-char
@@ -22,8 +30,9 @@ SCENARIO hestr offers hestur among completions
 T hestr
 EXPECT_CONTAINS hestur
 EXPECT_NO_AUTOCORRECT hestr
-# QUIRK: top-1 is "hester" (attested in the lexicons), not "hestur".
-EXPECT_TOP hester
+# Top-1 is "hest" (drop-the-extra-r reading, most frequent hest* form in
+# is.lex); the old "hester" noise entry no longer wins after calibration.
+EXPECT_TOP hest
 
 SCENARIO teh autocorrects to the
 T teh
@@ -36,12 +45,18 @@ EXPECT_LAST_COMMIT the
 EXPECT_COMMITS 1
 EXPECT_POSTERIOR_LT 0.5
 
-SCENARIO islenska offers accented íslenska on top
+SCENARIO islenska autocorrects to accented íslenska
 T islenska
-EXPECT_TOP íslenska
-# QUIRK: autocorrect does not fire because unaccented "islensk*" noise forms
-# are attested in is.lex, so the margin rule is starved.
-EXPECT_NO_AUTOCORRECT islenska
+# Fixed quirk: unaccented "islensk*" noise is gone from is.lex v2 and the
+# diacritic-restoration pass finds the accented form at floor spatial cost,
+# so accent restoration now auto-applies.
+EXPECT_AUTOCORRECT íslenska
+
+SCENARIO godan restores two diacritics
+T godan
+# o→ó and d→ð is edit-distance 2 — reached by the targeted diacritic pass,
+# not an edits2 walk.
+EXPECT_TOP góðan
 
 SCENARIO capitalization is preserved on suggestions
 T Hestr
@@ -73,26 +88,33 @@ EXPECT_BUFFER "borða "
 EXPECT_LAST_COMMIT borða
 
 # ---------------------------------------------------------------------------
-# Known bilingual-ranking quirks (PLAN.md follow-ups)
+# Cross-language calibration (PLAN.md "hus → his even at P(IS)=0.79")
 # ---------------------------------------------------------------------------
 
 SCENARIO hus at neutral posterior ranks his above hús
 T hus
-# QUIRK (PLAN.md known miss): EN "his" beats IS "hús" at the 50/50 prior.
+# At the 50/50 prior the English stopword still wins top-1 (acceptable);
+# both readings are in the bar and nothing auto-applies.
 EXPECT_TOP his
 EXPECT_CONTAINS hús
 EXPECT_NO_AUTOCORRECT hus
 
-SCENARIO hus after icelandic warm-up
-T "hestur borða koma hus"
+SCENARIO hus after two icelandic context words ranks hús first
+T "hestur er hus"
 EXPECT_POSTERIOR_GT 0.7
-EXPECT_CONTAINS hús
-# QUIRK: PLAN.md says posterior warm-up fixes the hus->his miss, but even at
-# P(IS)=0.79 "his" still wins top-1. Margin/prior follow-up needed.
+# Fixed quirk: with per-lexicon calibrated scores the Icelandic posterior
+# actually decides this; before, raw cross-corpus probabilities let "his"
+# win even at P(IS)=0.79.
+EXPECT_TOP hús
+EXPECT_CONTAINS his
+
+SCENARIO hus in english context ranks his first
+T "he took hus"
+EXPECT_POSTERIOR_LT 0.3
 EXPECT_TOP his
 
 # ---------------------------------------------------------------------------
-# Language posterior
+# Language posterior (attribution discipline)
 # ---------------------------------------------------------------------------
 
 SCENARIO posterior drifts icelandic after three IS words
@@ -116,6 +138,16 @@ BACKSPACE 4
 T afte
 EXPECT_CONTAINS after
 
+SCENARIO junk dont commit never moves posterior toward icelandic
+T "dont "
+EXPECT_COMMITS 1
+# Fixed quirk: "dont" is only attested as web noise in is.lex (and BÍN
+# happens to contain it) — attribution discipline (noise floor on the
+# calibrated z-score, morphology excluded from posterior evidence) leaves
+# the posterior at the prior instead of drifting IS.
+EXPECT_POSTERIOR_GT 0.49
+EXPECT_POSTERIOR_LT 0.51
+
 # ---------------------------------------------------------------------------
 # Completion gate + next-word prediction
 # ---------------------------------------------------------------------------
@@ -130,11 +162,17 @@ EXPECT_NONEMPTY
 
 SCENARIO next-word prediction after a committed word
 T "takk "
-# QUIRK: the bar is EMPTY here. FrequencyLexicon.completions(of: "") returns
-# no entries, so Predictor.nextWords has an empty candidate pool with the
-# real artifacts — next-word prediction is dead on device (works only in
-# unit tests, whose DictLexicon handles the empty prefix). Needs the
-# continuations(of:limit:) Lexicon API flagged in PLAN.md.
+# Fixed quirk: Lexicon.continuations(of:limit:) enumerates bigram followers
+# from the real artifacts, so the bar predicts instead of going dark
+# ("takk fyrir" is the canonical follower).
+EXPECT_NONEMPTY
+EXPECT_CONTAINS fyrir
+
+SCENARIO prediction at the very start of an empty field is empty
+REFRESH
+# No context at all: FrequencyLexicon returns no empty-prefix completions,
+# and there is no previous word for continuations — bar stays dark (known
+# limitation, needs a top-unigram artifact section or personal LM).
 EXPECT_EMPTY
 
 # ---------------------------------------------------------------------------
@@ -150,21 +188,46 @@ SCENARIO double space commits only once
 T "hestur  "
 EXPECT_COMMITS 1
 
+SCENARIO backspacing away a started word does not recommit
+T "hestur bo"
+EXPECT_COMMITS 1
+BACKSPACE 2
+# Old quirk: deleting the word-in-progress re-committed "hestur".
+EXPECT_COMMITS 1
+
 SCENARIO sentence period commits and truncates the context window
 T "hestur er stór. "
 EXPECT_COMMITS 3
 EXPECT_LAST_COMMIT stór
 # iOS-style truncation: after ". " the proxy window restarts at the new
-# sentence, so the next word is typed with NO bigram context.
+# sentence...
 EXPECT_CONTEXT ""
+# ...but the session carries its own last-committed word as bigram context
+# across the pure truncation (fix 8): prediction stays alive ("stór hluti").
+EXPECT_NONEMPTY
+EXPECT_CONTAINS hluti
 
-SCENARIO hyphenated word stays one word and merges on autocorrect
+SCENARIO truncation context carry does not survive a cursor jump
+T "hestur er stór. "
+CURSOR_MOVE start
+# Jump to the document start: window is also empty, but the external change
+# clears the carried context — the bar must go dark, not predict "stór …".
+EXPECT_EMPTY
+
+# ---------------------------------------------------------------------------
+# Hyphens and apostrophes are word characters
+# ---------------------------------------------------------------------------
+
+SCENARIO hyphenated compound with valid parts is left alone
 T vel-þekkt
 EXPECT_COMMITS 0
-# QUIRK-ish: the hyphenated form is unknown, the merged compound is valid,
-# so autocorrect strips the hyphen (fine for IS compounds, debatable
-# elsewhere). Also the slowest path in the suite (edits2 on 9 chars).
-EXPECT_AUTOCORRECT velþekkt
+# Fixed quirk: both parts are valid, so the compound is treated as valid —
+# no correction, no hyphen-stripping autocorrect, and no edits2 walk (this
+# was also the slowest path in the suite: 300–2000 ms/keystroke).
+EXPECT_EMPTY
+T " "
+EXPECT_BUFFER "vel-þekkt "
+EXPECT_LAST_COMMIT vel-þekkt
 
 SCENARIO apostrophe contraction is one word
 T "she don"
@@ -172,22 +235,23 @@ T "'t"
 EXPECT_COMMITS 1
 EXPECT_LAST_COMMIT she
 
-SCENARIO don't autocorrects its apostrophe away
+SCENARIO don't is valid and never loses its apostrophe
 T don't
-# QUIRK: en.lex has no apostrophe forms (contractions were stripped at build
-# time), so valid English contractions are unknown and get auto-replaced by
-# their apostrophe-less twins. Top English-typing pain; needs contractions
-# in en.lex or apostrophe-aware validation.
-EXPECT_AUTOCORRECT dont
+# Fixed quirk (needs en.lex v2 contractions): "don't" is attested, so it is
+# never auto-replaced; the apostrophe-conservatism guard additionally
+# forbids "dont" from ever auto-applying even without the new artifacts.
+EXPECT_NO_AUTOCORRECT
 T " "
-EXPECT_BUFFER "dont "
-EXPECT_LAST_COMMIT dont
+EXPECT_BUFFER "don't "
+EXPECT_LAST_COMMIT don't
 
-SCENARIO i'm autocorrects to ibm
+SCENARIO i'm keeps its apostrophe
 T I'm
-# QUIRK (same root cause as don't): "I'm" is unknown, and IBM wins the
-# candidate race. Capitalization preservation turns it into "Ibm".
-EXPECT_AUTOCORRECT Ibm
+# Fixed quirk: "i'm" is attested in en.lex v2, and the apostrophe guard
+# blocks the old "I'm"→"Ibm" auto-replacement regardless of artifacts.
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "I'm "
 
 # ---------------------------------------------------------------------------
 # Proxy-contract scenarios (cursor jumps, truncation, host mutation, stale)
@@ -200,6 +264,23 @@ CURSOR_MOVE -3
 EXPECT_COMMITS 1
 EXPECT_NONEMPTY
 
+SCENARIO unnotified cursor jump is detected internally
+T "hestur borða"
+EXPECT_COMMITS 1
+# No noteExternalTextChange here — the session's own window-change
+# classifier must recognize the non-append change (fix 5 belt-and-braces).
+CURSOR_MOVE_SILENT -6
+EXPECT_COMMITS 1
+T "x"
+EXPECT_COMMITS 1
+
+SCENARIO unnotified jump into mid-word causes no spurious commit
+T "hestur borða"
+CURSOR_MOVE_SILENT -9
+EXPECT_COMMITS 1
+CURSOR_MOVE_SILENT end
+EXPECT_COMMITS 1
+
 SCENARIO commit still detected after cursor returns to end
 T "hestur borða"
 CURSOR_MOVE -3
@@ -207,6 +288,19 @@ CURSOR_MOVE end
 T " "
 EXPECT_COMMITS 2
 EXPECT_LAST_COMMIT borða
+
+SCENARIO forwarded window notes never disturb normal typing
+T teh
+# The extension forwards textDidChange/selectionDidChange after our own
+# insertions too; the window-aware note must be a no-op then, so the
+# pending autocorrect + commit flow stays intact.
+NOTE_WINDOW
+EXPECT_AUTOCORRECT the
+T " "
+NOTE_WINDOW
+EXPECT_BUFFER "the "
+EXPECT_LAST_COMMIT the
+EXPECT_COMMITS 1
 
 SCENARIO tight context window truncates mid-sentence
 TRUNCATE_AT 10
@@ -231,6 +325,13 @@ EXPECT_LAST_COMMIT er
 SCENARIO host replacing text mid-word causes no spurious commit
 T hest
 HOST_SET "completely different "
+EXPECT_COMMITS 0
+
+SCENARIO unnotified host replacement causes no spurious commit
+T hest
+# Even without the external-change note, a multi-word window change is a
+# host paste/autofill, never a user keystroke commit.
+HOST_SET_SILENT "completely different "
 EXPECT_COMMITS 0
 
 SCENARIO stale proxy reads lag the bar by one keystroke

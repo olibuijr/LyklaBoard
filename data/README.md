@@ -126,34 +126,128 @@ read by `Packages/Lexicon`'s `FrequencyLexicon` (mmap, lazy offset reads, no
 upfront parsing — same strategy as `BinaryLemmatizer`). Format is documented
 in `Packages/Lexicon/FORMAT.md`.
 
-- **en/en.lex** (4,265,360 bytes / 4.07 MB) — built from `en-80k.txt` +
-  `frequency_bigramdictionary_en_243_342.txt`. 79,851 unigrams, 240,966
-  bigrams (1,376 dropped: word not in unigram set after filtering).
-  Frequencies scaled by /7 (unigrams) and /42 (bigrams) to fit `UInt32`
-  (source Google Ngram counts exceed 4.29B).
-- **is/is.lex** (10,935,572 bytes / 10.43 MB) — built from `unigrams.json.gz`
-  + `bigrams.json.gz`. 308,649 unigrams, 381,547 bigrams (7,294 dropped).
-  Icelandic counts fit `UInt32` natively — no scaling (divisor 1, exact
-  source counts preserved).
+Both builds drop tokens with non-letter characters (digits, punctuation) but
+now allow a single **internal** apostrophe (`'`/`'`, curly folded to
+straight) so contractions survive — see "Contraction fix" below and
+FORMAT.md for the exact filter and the u32-scaling algorithm.
 
-Both builds drop tokens with non-letter characters (digits, punctuation,
-apostrophes) — see FORMAT.md for the exact filter and the u32-scaling
-algorithm.
+**Rebuilt 2026-07-15** to fix two harness-found quirks (contractions
+destroyed in en.lex, unaccented/junk ranking noise in is.lex — see PLAN.md
+"Harness-found quirk list"). Old sizes kept here for the record:
 
-Bench (`swift run -c release lex-bench <path>`, macOS, 1000 iterations each):
+| artifact | before (2026-07-15 AM) | after (2026-07-15 PM) |
+|---|---|---|
+| en/en.lex | 4,265,360 bytes / 4.07 MB — 79,851 unigrams, 240,966 bigrams | 4,267,624 bytes / 4.07 MB — **80,000** unigrams, 240,966 bigrams |
+| is/is.lex | 10,935,572 bytes / 10.43 MB — 308,649 unigrams, 381,547 bigrams | 9,658,112 bytes / 9.21 MB — **242,835** unigrams, 380,092 bigrams |
+
+### Contraction fix (en.lex)
+
+**Root cause**: format v1's builder filter (`WORD_RE = ^[a-zþðæöáéíóúý]+$`)
+disallowed apostrophes entirely, so every contraction was silently dropped
+after loading — even though `en-80k.txt` already contains them with real
+frequencies (`don't 188045`, `i'm 93673`, etc., from the SymSpell/Google
+Ngram source). This is what caused the harness-observed corruption
+(`don't` → `dont` → autocorrected to `Ibm`). Fix: `WORD_RE` now allows a
+single internal apostrophe cluster
+(`^[a-zþðæöáéíóúý]+('[a-zþðæöáéíóúý]+)*$`, leading/trailing/doubled
+apostrophes still rejected), and the curly apostrophe (U+2019) is folded to
+straight (`'`) before matching/storing — both at build time
+(`build-lexicon.py`'s `normalize_word`) and at query time
+(`FrequencyLexicon.normalizedKey`, since iOS text input commonly emits curly
+apostrophes for contractions). No format change was needed — apostrophe is
+just another UTF-8 byte in the string pool.
+
+Result: en.lex unigrams 79,851 → 80,000 (+149, all apostrophe forms that
+were previously being silently dropped). All 22 curated contractions
+(`don't`, `i'm`, `it's`, `can't`, `won't`, `isn't`, `you're`, `we're`,
+`they're`, `i've`, `i'll`, `didn't`, `doesn't`, `wasn't`, `aren't`,
+`couldn't`, `wouldn't`, `shouldn't`, `that's`, `there's`, `what's`, `let's`)
+were already present in the source once the filter allowed them — none
+needed the fallback derivation. That fallback (opt-in via
+`--contraction-backfill`, English-only) exists for future source drift: if a
+curated contraction is ever missing, its frequency is derived as
+`bigram_freq(uncontracted_phrase) // 2` from the raw SymSpell bigram source
+(e.g. `freq("don't") ≈ bigram_freq("do", "not") // 2` — a same-corpus proxy,
+since Google Ngram unigram/bigram counts are comparable orders of
+magnitude). The SymSpell bigram source itself contains zero apostrophes, so
+contractions get unigram frequencies (ranking) but no bigram/continuation
+entries from this source — not fabricated, since there's no grounded way to
+derive them.
+
+### Ranking-noise pruning (is.lex)
+
+is.lex is **ranking-only** — validity comes from BÍN via `lemma-is.bin` in
+the engine, so aggressive pruning here is safe (a pruned word just stops
+being suggested/ranked, it doesn't become "invalid"). Two prunes now run via
+`--bin-lookup`/`--bin-lemmas` (pointing at lemma-is's
+`data-dist/lookup.tsv.gz` and `data-dist/lemmas.txt.gz`):
+
+1. **BÍN-membership prune**: drop any unigram that isn't a BÍN surface form,
+   *except* the top 10,000 most frequent non-BÍN words (`--bin-topk`,
+   default 10000) and any non-BÍN word at/above frequency 2,000
+   (`--bin-high-freq`, default 2000) — these two escape hatches keep
+   legitimate non-BÍN vocabulary a news-corpus-trained table is full of:
+   foreign proper nouns, sports teams/clubs, orgs, abbreviations, English
+   loanwords ("united", "manchester", "arsenal", "esb", "bbc", "rúv", single
+   letters used as initials). **Gotcha found during implementation**:
+   `lookup.tsv.gz` alone is *not* the full BÍN form set — lemma-is's
+   `build-data.py` deliberately omits any word that is its own lemma with no
+   other lemma/POS ambiguity (a lemma-lookup index has nothing useful to say
+   about a word already equal to its own lemma). That skip rule excludes
+   huge swaths of basic vocabulary: pronouns (`hann`, `ég`), nominative
+   singular nouns (`hestur`), common adverbs (`einnig`), proper nouns
+   (`reykjavík`) — none of these are in `lookup.tsv.gz`, but all are in
+   `lemmas.txt.gz`. The builder unions both files; using `lookup.tsv.gz`
+   alone would have flagged ~35% of common Icelandic vocabulary as "non-BÍN
+   noise" and pruned it. Result: 308,649 → 243,258 unigrams (65,391 dropped
+   as non-BÍN noise, 10,000 non-BÍN words kept via the escape hatches).
+2. **Accent-dominance filter** (`--accent-ratio`, default 10): drop an
+   unaccented word when an accented variant exists (folding `á,é,í,ó,ú,ý,ö`
+   — each an NFD-decomposable base+diacritic — down to its ASCII base
+   letter; `þ,ð,æ` are independent letters with no ASCII fallback and are
+   left alone) whose frequency is ≥10x the unaccented word's. This targets
+   the specific "accents dropped by a non-Icelandic input method" noise
+   pattern. Result: 243,258 → 242,835 unigrams (423 dropped), e.g. `i`
+   (37,299) dominated by `í` (25,371,808), `a` (106,173) dominated by `á`
+   (18,227,685), `eg` (6,359) dominated by `ég` (1,907,515).
+
+**Spot-check** (both filters combined, verified in
+`Packages/Lexicon/Tests/LexiconTests/FrequencyLexiconTests.swift`):
+- `islenskar`/`islensk` (unaccented noise): **gone** — dropped by the
+  accent-dominance filter (their accented counterparts `íslenskar`/`íslensk`
+  outweigh them >1000x), and also not in the BÍN top-K/high-freq escape
+  hatch (freq 5/7, deep in the non-BÍN tail).
+- `hester` (junk form, freq 57): **gone** — not a BÍN form (not in
+  `lookup.tsv.gz` or `lemmas.txt.gz`), and its frequency puts it well
+  outside the top-10,000 non-BÍN escape hatch.
+- `íslenskar` (15,388), `íslensk` (37,988), `hestur` (422, kept via
+  `lemmas.txt.gz` despite `lookup.tsv.gz`'s gap), `hann` (3,772,234), `ég`
+  (1,907,515), `reykjavík` (kept via the non-BÍN top-K escape hatch): **all
+  survive** with their real frequencies.
+
+**Total**: is.lex unigrams 308,649 → 242,835 (66,238 dropped, ~21.5%
+reduction); bigrams 381,547 → 380,092 (1,455 fewer, since bigrams referencing
+a now-pruned word are dropped along with it — same rule as always: bigrams
+never grow or preserve vocabulary beyond the unigram table). File size
+10.43 MB → 9.21 MB (12% smaller, roughly proportional-ish to the unigram
+count drop — string pool + fixed-width arrays both shrink).
+
+Bench (`swift run -c release lex-bench <path>`, macOS, 1000 iterations each,
+rebuilt artifacts):
 
 | artifact | load | frequency() | bigramFrequency() | completions() |
 |---|---|---|---|---|
-| en.lex | 0.64 ms | 17.8 µs/call | 6.0 µs/call | 227 µs/call |
-| is.lex | 0.48 ms | 14.4 µs/call | 5.5 µs/call | 2824 µs/call |
+| en.lex | 0.26 ms | 2.0 µs/call | 5.5 µs/call | 135.5 µs/call |
+| is.lex | 0.43 ms | 7.0 µs/call | 5.0 µs/call | 846.5 µs/call |
 
 `completions()` cost is dominated by short single-letter prefixes in the
 bench word mix, which hit the documented 20k-entry scan cap on the larger
 Icelandic table; real keyboard prefixes are typically ≥2 characters, where
 ranges are far smaller. phys_footprint delta after load + 3000 mixed lookups:
-+0.97 MB (en.lex), +2.63 MB (is.lex) — both file-backed mmap, so this is
++0.86 MB (en.lex), +2.13 MB (is.lex) — both file-backed mmap, so this is
 almost entirely the materialized `String`/tuple results, not resident file
-pages.
+pages. Footprint stayed flat vs. the pre-rebuild bench (+0.97 MB / +2.63 MB)
+— if anything slightly better, since is.lex itself shrank.
 
 ## CI Checks (Future)
 

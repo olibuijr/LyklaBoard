@@ -53,6 +53,59 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(engine.probabilityIcelandic, 0.5)
     }
 
+    // MARK: Posterior discipline (strong attribution only)
+
+    func testNoiseTierSingleLexiconWordDoesNotMovePosterior() {
+        // "dont" attested only as junk in the Icelandic table (web noise —
+        // the harness "dont drags posterior toward IS" finding): far below
+        // the lexicon's own distribution, so it is NOT Icelandic evidence.
+        var unigrams = ["dont": UInt32(1)]
+        for (word, freq) in ["og": UInt32(2000), "að": 1800, "er": 1500, "ekki": 900,
+                             "hestur": 500, "hús": 400, "takk": 350, "borða": 300] {
+            unigrams[word] = freq
+        }
+        let engine = TypeEngine(
+            icelandic: DictLexicon(unigrams: unigrams),
+            english: Fixtures.english,
+            morphologyProvider: nil
+        )
+        engine.confirmWord("dont")
+        XCTAssertEqual(engine.probabilityIcelandic, 0.5, "junk-tier word must not move the posterior")
+    }
+
+    func testAmbiguousBothKnownWordDoesNotMovePosterior() {
+        // Known in both lexicons at comparable within-lexicon typicality:
+        // no clear margin, no update.
+        let engine = TypeEngine(
+            icelandic: DictLexicon(unigrams: ["bar": 300, "og": 2000, "er": 1500, "hestur": 500]),
+            english: DictLexicon(unigrams: ["bar": 300, "the": 2000, "and": 1500, "with": 900]),
+            morphologyProvider: nil
+        )
+        engine.confirmWord("bar")
+        XCTAssertEqual(engine.probabilityIcelandic, 0.5, "ambiguous word must not move the posterior")
+    }
+
+    func testBothKnownWordWithClearMarginMovesPosterior() {
+        // Head word in EN, junk-tier in IS: strong EN attribution.
+        let engine = TypeEngine(
+            icelandic: DictLexicon(unigrams: ["the": 1, "og": 2000, "er": 1500, "hestur": 500]),
+            english: Fixtures.english,
+            morphologyProvider: nil
+        )
+        engine.confirmWord("the")
+        XCTAssertLessThan(engine.probabilityIcelandic, 0.5)
+    }
+
+    func testBinOnlyValidWordDoesNotMovePosterior() {
+        // Morphologically valid but unattested in the frequency tables:
+        // BÍN's 3M surface forms collide with English-looking junk (BÍN
+        // knows "dont"), so morphology alone is NOT posterior evidence —
+        // only corpus attestation is.
+        let engine = Fixtures.engine(morphology: FakeMorphology(["hestunum"]))
+        engine.confirmWord("hestunum")
+        XCTAssertEqual(engine.probabilityIcelandic, 0.5)
+    }
+
     // MARK: Conservatism through the facade
 
     func testValidWordsInEitherLanguageNeverAutocorrect() {

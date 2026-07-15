@@ -37,4 +37,20 @@ public struct DictLexicon: Lexicon {
             .prefix(limit)
             .map { (word: $0.key, frequency: $0.value) }
     }
+
+    /// Bigram followers of `word`, descending bigram frequency (linear scan
+    /// over the bigram table — test-double quality, mirrors
+    /// `FrequencyLexicon.continuations(of:limit:)` semantics).
+    public func continuations(of word: String, limit: Int) -> [(word: String, frequency: UInt32)] {
+        guard limit > 0 else { return [] }
+        let prefix = "\(word) "
+        return bigrams
+            .compactMap { key, freq -> (word: String, frequency: UInt32)? in
+                guard key.hasPrefix(prefix) else { return nil }
+                return (word: String(key.dropFirst(prefix.count)), frequency: freq)
+            }
+            .sorted { $0.frequency > $1.frequency || ($0.frequency == $1.frequency && $0.word < $1.word) }
+            .prefix(limit)
+            .map { $0 }
+    }
 }

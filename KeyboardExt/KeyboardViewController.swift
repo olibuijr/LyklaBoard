@@ -106,6 +106,33 @@ final class KeyboardViewController: KeyboardInputViewController {
         services.autocompleteService = BetterKeyboardAutocompleteService()
     }
 
+    // MARK: - Text / selection change forwarding
+
+    // Forward host text and selection changes to the autocomplete service so
+    // TypingSession never misreads a cursor jump or host-app mutation
+    // (autofill, undo, programmatic set) as a user word commit. Both
+    // callbacks ALSO fire after our own insertions; the session's
+    // window-aware note is idempotent for windows that are valid typing
+    // evolutions of its own last-seen state, and the session additionally
+    // detects non-append window changes internally — this forwarding is the
+    // belt-and-braces layer for cases internal detection cannot see.
+
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        forwardTextContextChange()
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        forwardTextContextChange()
+    }
+
+    private func forwardTextContextChange() {
+        guard let service = services.autocompleteService as? BetterKeyboardAutocompleteService
+        else { return }
+        service.noteTextContextChange(textDocumentProxy.documentContextBeforeInput ?? "")
+    }
+
     override func viewWillSetupKeyboardView() {
         setupKeyboardView { controller in
             // No explicit `layout:` — the default `KeyboardView` init falls

@@ -57,11 +57,18 @@ of section 7.
 
 ## Lookup algorithms
 
-- **`frequency(of:)`**: lowercase + NFC-normalize the word, binary-search the
-  word arrays (offsets/lengths) by raw UTF-8 byte comparison (same
-  byte-exact, code-point-order comparison `BinaryLemmatizer` uses — never
-  Swift `String ==`, which would apply Unicode canonical equivalence).
-  Return `wordFreqs[id]` or `nil`.
+- **`frequency(of:)`**: fold curly apostrophe (U+2019) to straight (`'`),
+  lowercase + NFC-normalize the word, binary-search the word arrays
+  (offsets/lengths) by raw UTF-8 byte comparison (same byte-exact,
+  code-point-order comparison `BinaryLemmatizer` uses — never Swift
+  `String ==`, which would apply Unicode canonical equivalence). Return
+  `wordFreqs[id]` or `nil`. The apostrophe fold matters because iOS text
+  input commonly emits curly apostrophes for contractions ("don't" via
+  smart quotes) while the builder stores the straight-apostrophe spelling
+  (see "Builder normalization rules" below) — every lookup entry point
+  (`frequency`, `bigramFrequency`, `completions`, `continuations`) shares
+  one `normalizedKey` helper that does this fold, so they all match
+  consistently.
 - **`bigramFrequency(_:_:)`**: resolve both words to ids via the word binary
   search (nil if either is unknown), then binary-search the bigram id arrays
   for `(id1, id2)`.
@@ -79,6 +86,19 @@ of section 7.
   `completions` O(bounded) instead of O(range) for pathological short
   prefixes; real keyboard prefixes are typically ≥2 characters by the time
   completions are shown, where ranges are small.
+- **`continuations(of:limit:)`**: resolve `word` to a word id via the word
+  binary search (`[]` if unknown). Bigrams are sorted by
+  `(firstWordId, secondWordId)`, so every bigram beginning with that id forms
+  a single contiguous range in the bigram arrays — two binary searches over
+  `bigramFirstIds` alone (leftmost id `>= firstId`, leftmost id `> firstId`)
+  find its bounds, no different from the two-binary-search shape
+  `completions` uses over the word table. Scan the range (same 20,000-entry
+  cap as `completions`, for the same defensive reason — real per-word bigram
+  fan-out is far smaller in practice), collect `(secondWord, freq)`, sort by
+  descending frequency (ties broken by ascending word order), and return the
+  top `limit`. No format or on-disk layout change was needed: this method
+  reads exactly the sections `bigramFrequency` already reads, just scanning a
+  range instead of probing one pair.
 
 ## Scaling to u32
 
@@ -108,16 +128,44 @@ two shipped languages' files, only within a single file.
 
 ## Builder normalization rules (`scripts/build-lexicon.py`)
 
-- Lowercase, then Unicode NFC-normalize every word.
-- Keep only words matching `^[a-zþðæöáéíóúý]+$` after lowercasing (ASCII
-  letters + Icelandic-specific letters). Anything else (digits, punctuation,
-  apostrophes, multi-token phrases) is dropped. This removes things like
-  `.`, `,`, `nr.`, `o'clock` from the raw sources.
+- Lowercase, fold curly apostrophe (U+2019, `’`) to the straight ASCII
+  apostrophe (`'`), then Unicode NFC-normalize every word.
+- Keep only words matching `^[a-zþðæöáéíóúý]+('[a-zþðæöáéíóúý]+)*$` after
+  lowercasing (ASCII letters + Icelandic-specific letters, with **internal**
+  apostrophes allowed so contractions/possessives like `don't`, `o'clock`,
+  `y'all` survive — a leading, trailing, or doubled apostrophe still fails
+  the match). Anything else (digits, punctuation, multi-token phrases) is
+  dropped. This removes things like `.`, `,`, `nr.` from the raw sources
+  while keeping apostrophe forms that pass the pattern.
+  - **History**: format v1 originally disallowed apostrophes entirely
+    (`^[a-zþðæöáéíóúý]+$`), which silently deleted every contraction in
+    `en-80k.txt` even though the source already contained them (e.g.
+    `don't 188045`, `i'm 93673`) — this is what caused the harness-observed
+    `don't` → `dont` → `Ibm`-style autocorrect corruption. Fixed by widening
+    `WORD_RE`; no on-disk format change, since apostrophe is just another
+    byte in the UTF-8 string pool.
+- **Contraction backfill**: after loading unigrams, a curated list of common
+  English contractions (`CONTRACTION_EXPANSIONS` in the builder — `don't`,
+  `i'm`, `it's`, `can't`, `won't`, `isn't`, `you're`, `we're`, `they're`,
+  `i've`, `i'll`, `didn't`, `doesn't`, `wasn't`, `aren't`, `couldn't`,
+  `wouldn't`, `shouldn't`, `that's`, `there's`, `what's`, `let's`) is checked
+  against the unigram table. Ones already present (all of them, for the
+  current `en-80k.txt`) are left untouched. Any that are still missing get a
+  derived frequency `freq(contraction) = bigram_freq(uncontracted_phrase) // 2`
+  computed from the *raw* bigram source (e.g. `freq("don't") ≈
+  bigram_freq("do", "not") // 2`) — a same-corpus proxy, since Google Ngram
+  unigram and bigram counts are comparable orders of magnitude (see
+  "Scaling to u32" below). This is a fallback for future source drift, not
+  active against the currently shipped data.
 - Bigram entries where either word fails that filter, or where either word
   is not present in the (filtered) unigram set, are **dropped** — bigrams are
   never used to grow the unigram vocabulary. This keeps the unigram table
   the single source of truth for "is this word known" and keeps
-  `bigramFrequency` reducible to two unigram lookups.
+  `bigramFrequency` reducible to two unigram lookups. Note the SymSpell
+  bigram source (`frequency_bigramdictionary_en_243_342.txt`) contains zero
+  apostrophes, so no contraction ever appears as a bigram's first or second
+  word — contractions get unigram frequencies (for `frequency(of:)`
+  ranking) but not bigram/continuation entries from this source.
 - Duplicate unigram words after normalization (e.g. two casings of the same
   word) have their counts summed before scaling.
 - Duplicate bigram pairs after normalization likewise have counts summed.

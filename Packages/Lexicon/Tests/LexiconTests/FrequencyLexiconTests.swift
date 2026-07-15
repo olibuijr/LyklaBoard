@@ -122,6 +122,73 @@ final class FrequencyLexiconTests: XCTestCase {
         XCTAssertEqual(results.map(\.word), ["að"])
     }
 
+    // MARK: - continuations(of:limit:)
+
+    func testContinuationsOrderedByDescendingFrequency() {
+        // Fixture bigrams starting with "the": "the quick" (40), "the lazy" (15).
+        let results = lexicon.continuations(of: "the", limit: 10)
+        XCTAssertEqual(results.map(\.word), ["quick", "lazy"])
+        XCTAssertEqual(results.map(\.frequency), [40, 15])
+    }
+
+    func testContinuationsRespectsLimit() {
+        let results = lexicon.continuations(of: "the", limit: 1)
+        XCTAssertEqual(results.map(\.word), ["quick"])
+    }
+
+    func testContinuationsSingleMatch() {
+        let results = lexicon.continuations(of: "fox", limit: 10)
+        XCTAssertEqual(results.map(\.word), ["jumps"])
+        XCTAssertEqual(results.map(\.frequency), [25])
+    }
+
+    func testContinuationsUnknownWordIsEmpty() {
+        XCTAssertEqual(lexicon.continuations(of: "xyzzyquux", limit: 10).count, 0)
+    }
+
+    func testContinuationsWordWithNoOutgoingBigramIsEmpty() {
+        // "dog" is a known unigram but never appears as a bigram's first word
+        // in the fixture (only as "lazy dog"'s second word).
+        XCTAssertEqual(lexicon.continuations(of: "dog", limit: 10).count, 0)
+    }
+
+    func testContinuationsZeroLimitIsEmpty() {
+        XCTAssertTrue(lexicon.continuations(of: "the", limit: 0).isEmpty)
+    }
+
+    func testContinuationsNonASCIIWord() {
+        // "þetta er" (60) is the fixture's only bigram starting with "þetta".
+        let results = lexicon.continuations(of: "þetta", limit: 10)
+        XCTAssertEqual(results.map(\.word), ["er"])
+        XCTAssertEqual(results.map(\.frequency), [60])
+    }
+
+    func testContinuationsNonASCIISecondWord() {
+        // "og þetta" (8): first word ASCII-looking ("og"), continuation is
+        // the non-ASCII word "þetta".
+        let results = lexicon.continuations(of: "og", limit: 10)
+        XCTAssertEqual(results.map(\.word), ["þetta"])
+        XCTAssertEqual(results.map(\.frequency), [8])
+    }
+
+    func testContinuationsCaseInsensitiveLookup() {
+        XCTAssertEqual(
+            lexicon.continuations(of: "THE", limit: 10).map(\.word),
+            lexicon.continuations(of: "the", limit: 10).map(\.word)
+        )
+    }
+
+    func testDefaultLexiconExtensionReturnsEmpty() {
+        struct MinimalLexicon: Lexicon {
+            var totalUnigramTokens: UInt64 { 0 }
+            func frequency(of word: String) -> UInt32? { nil }
+            func bigramFrequency(_ first: String, _ second: String) -> UInt32? { nil }
+            func completions(of prefix: String, limit: Int) -> [(word: String, frequency: UInt32)] { [] }
+        }
+        let minimal = MinimalLexicon()
+        XCTAssertTrue(minimal.continuations(of: "anything", limit: 10).isEmpty)
+    }
+
     // MARK: - Cross-check against real built artifacts
 
     /// Climbs from this test file up to the repo root
@@ -176,33 +243,131 @@ final class FrequencyLexiconTests: XCTestCase {
             "data/is/is.lex not built — run scripts/build-lexicon.py")
         let is_ = try FrequencyLexicon(contentsOf: url)
 
-        // 20 random words sampled from data/is/unigrams.json.gz (seed 42).
-        // Icelandic counts fit UInt32 directly (scale divisor=1), so these
-        // are exact source counts.
+        // 20 random words sampled from the pruned data/is/is.lex word list
+        // (seed 42, rebuilt 2026-07-15 with --bin-lookup/--bin-lemmas
+        // pruning — see data/README.md "## .lex artifacts"). Icelandic
+        // counts fit UInt32 directly (scale divisor=1), so these are exact
+        // source counts.
         let samples: [(String, UInt32)] = [
-            ("buttner", 56),
-            ("páskastemning", 6),
-            ("hverven", 12),
-            ("meðfædda", 45),
-            ("viðskiptafræðimenntun", 10),
-            ("stjórnskipaninni", 28),
-            ("meðtöldum", 14_393),
-            ("múslima", 88),
-            ("fjárfestið", 12),
-            ("flugatriði", 18),
-            ("stjörnulaga", 28),
-            ("flysjið", 93),
-            ("íþróttamiðstöðin", 48),
-            ("fkbl", 18),
-            ("staðráðnar", 210),
-            ("verklokum", 251),
-            ("lewisham", 14),
-            ("neysluvara", 232),
-            ("transportir", 16),
-            ("fiskveiðiauðlindin", 18),
+            ("skrílslæti", 13),
+            ("dómsmálagjöld", 12),
+            ("atvinnuhjólreiðamaður", 6),
+            ("tollafgreiðslunnar", 27),
+            ("heildarkvótanum", 188),
+            ("grenjandi", 201),
+            ("garðaskóli", 6),
+            ("ergo", 181),
+            ("tildur", 15),
+            ("djúpsævi", 16),
+            ("stelpna", 287),
+            ("tjónabætur", 35),
+            ("öryrkjabandalag", 777),
+            ("pisa", 258),
+            ("bókmenntaborgarinnar", 5),
+            ("sakbitinn", 10),
+            ("leiguíbúðalán", 27),
+            ("aznar", 185),
+            ("austurrískum", 73),
+            ("clásico", 106),
         ]
         for (word, expected) in samples {
             XCTAssertEqual(is_.frequency(of: word), expected, "mismatch for \(word)")
         }
+    }
+
+    // MARK: - is.lex ranking-noise pruning (harness quirk fix)
+
+    func testIcelandicArtifactPruningRemovesNoise() throws {
+        let url = Self.repoRoot().appendingPathComponent("data/is/is.lex")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: url.path),
+            "data/is/is.lex not built — run scripts/build-lexicon.py")
+        let is_ = try FrequencyLexicon(contentsOf: url)
+
+        // "islenskar"/"islensk" (unaccented) are gone: not BÍN forms, and
+        // their accented counterparts ("íslenskar"/"íslensk") dominate by
+        // >1000x — the accent-dominance filter drops them regardless of the
+        // BÍN-membership escape hatch.
+        XCTAssertNil(is_.frequency(of: "islenskar"), "unaccented noise 'islenskar' should be pruned")
+        XCTAssertNil(is_.frequency(of: "islensk"), "unaccented noise 'islensk' should be pruned")
+
+        // "hester" is neither a BÍN surface form nor a lemma, and its
+        // frequency (57) falls well outside the top-10000-by-frequency
+        // non-BÍN escape hatch — pure junk, pruned.
+        XCTAssertNil(is_.frequency(of: "hester"), "junk form 'hester' should be pruned")
+    }
+
+    func testIcelandicArtifactPruningKeepsLegitimateWords() throws {
+        let url = Self.repoRoot().appendingPathComponent("data/is/is.lex")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: url.path),
+            "data/is/is.lex not built — run scripts/build-lexicon.py")
+        let is_ = try FrequencyLexicon(contentsOf: url)
+
+        // The accented forms that dominate their pruned unaccented
+        // lookalikes must themselves survive with their real frequencies.
+        XCTAssertEqual(is_.frequency(of: "íslenskar"), 15_388)
+        XCTAssertEqual(is_.frequency(of: "íslensk"), 37_988)
+
+        // "hestur" (horse, nom. sg.) — a basic word that is its own BÍN
+        // lemma and therefore (surprisingly) absent from lemma-is's
+        // lookup.tsv.gz alone (see load_bin_forms() docstring); it must
+        // still survive because it's present in lemmas.txt.gz.
+        XCTAssertEqual(is_.frequency(of: "hestur"), 422)
+
+        // Common closed-class words ("hann"=he, "ég"=I) are also their own
+        // lemma and would be wrongly flagged as "non-BÍN noise" if
+        // lookup.tsv.gz were used without unioning lemmas.txt.gz.
+        XCTAssertEqual(is_.frequency(of: "hann"), 3_772_234)
+        XCTAssertEqual(is_.frequency(of: "ég"), 1_907_515)
+
+        // A high-frequency non-BÍN word (foreign proper noun/loanword a
+        // news corpus is full of) must survive via the top-K escape hatch.
+        XCTAssertNotNil(is_.frequency(of: "reykjavík"))
+    }
+
+    // MARK: - en.lex contraction presence (harness quirk fix)
+
+    func testEnglishArtifactContractionsPresent() throws {
+        let url = Self.repoRoot().appendingPathComponent("data/en/en.lex")
+        try XCTSkipUnless(
+            FileManager.default.fileExists(atPath: url.path),
+            "data/en/en.lex not built — run scripts/build-lexicon.py")
+        let en = try FrequencyLexicon(contentsOf: url)
+
+        // Previously destroyed by the apostrophe-stripping WORD_RE filter
+        // (harness symptom: "don't" -> "dont" -> autocorrected to "Ibm").
+        // Real per-artifact counts (scale divisor=7, see build log).
+        let contractions: [(String, UInt32)] = [
+            ("don't", 26_863),
+            ("i'm", 13_381),
+            ("it's", 4_399),
+            ("can't", 7_536),
+            ("won't", 2_493),
+            ("isn't", 2_630),
+            ("you're", 7_021),
+            ("we're", 3_007),
+            ("they're", 3_909),
+            ("i've", 4_272),
+            ("i'll", 5_874),
+            ("didn't", 5_396),
+            ("doesn't", 2_043),
+            ("wasn't", 1_927),
+            ("aren't", 966),
+            ("couldn't", 2_509),
+            ("wouldn't", 2_000),
+            ("shouldn't", 727),
+            ("that's", 1_662),
+            ("there's", 551),
+            ("what's", 7_854),
+            ("let's", 2_590),
+        ]
+        for (word, expected) in contractions {
+            XCTAssertEqual(en.frequency(of: word), expected, "mismatch for \(word)")
+        }
+
+        // Curly apostrophe (U+2019) must normalize to the same token as the
+        // straight ASCII apostrophe.
+        XCTAssertEqual(en.frequency(of: "don\u{2019}t"), en.frequency(of: "don't"))
     }
 }

@@ -80,6 +80,22 @@ final class Typist {
         refresh()
     }
 
+    /// Same event, but WITHOUT notifying the session — exercises the
+    /// session's internal non-append window-change detection (the
+    /// belt-and-braces path for hosts/timing where the extension's
+    /// selectionDidChange/textDidChange forwarding is missed).
+    func silentExternalChange() {
+        refresh()
+    }
+
+    /// Simulate the extension forwarding `textDidChange`/`selectionDidChange`
+    /// to the session: the window-aware, idempotent note. Fires after our
+    /// own insertions too on device, so scenarios use it to prove it never
+    /// disturbs normal typing.
+    func forwardWindowNote() {
+        session.noteExternalTextChange(window: proxy.contextBeforeInput)
+    }
+
     /// Re-read the proxy and re-run autocomplete (KeyboardKit does this on
     /// every text change; also useful to sync after stale reads).
     func refresh() {

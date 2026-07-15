@@ -44,6 +44,28 @@ final class PredictorTests: XCTestCase {
         XCTAssertTrue(result.map(\.text).contains("daginn"))
     }
 
+    func testContinuationsPoolSurfacesRareFollowers() {
+        // "veður" (freq 5) is a rare unigram that would never make a
+        // top-unigram pool, but it is a bigram follower of "gott" — the
+        // continuations(of:limit:) pooling must surface it.
+        let icelandic = DictLexicon(
+            unigrams: ["og": 2000, "að": 1800, "er": 1500, "gott": 150, "veður": 5],
+            bigrams: ["gott veður": 30]
+        )
+        let predictor = Predictor(icelandic: icelandic, english: Fixtures.english)
+        let result = predictor.nextWords(previousWord: "gott", pIcelandic: 0.9, limit: 3)
+        XCTAssertEqual(result.first?.text, "veður")
+    }
+
+    func testEmptyContinuationsDegradeToUnigramFallback() {
+        // A lexicon that never implements continuations (the protocol's
+        // default returns []) must degrade to the old top-unigram behavior,
+        // not crash or go empty.
+        let predictor = makePredictor()
+        let result = predictor.nextWords(previousWord: "hestur", pIcelandic: 0.9, limit: 2)
+        XCTAssertEqual(result.first?.text, "og", "no followers of hestur -> unigram fallback")
+    }
+
     func testPredictionsNeverAutocorrect() {
         let predictor = makePredictor()
         let result = predictor.nextWords(previousWord: "góðan", pIcelandic: 0.5, limit: 3)

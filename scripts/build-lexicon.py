@@ -7,12 +7,25 @@ Usage:
     python3 scripts/build-lexicon.py \\
         --unigrams data/en/en-80k.txt \\
         --bigrams data/en/frequency_bigramdictionary_en_243_342.txt \\
-        --out data/en/en.lex
+        --out data/en/en.lex \\
+        --contraction-backfill
 
     python3 scripts/build-lexicon.py \\
         --unigrams data/is/unigrams.json.gz \\
         --bigrams data/is/bigrams.json.gz \\
-        --out data/is/is.lex
+        --out data/is/is.lex \\
+        --bin-lookup /path/to/lemma-is/data-dist/lookup.tsv.gz \\
+        --bin-lemmas /path/to/lemma-is/data-dist/lemmas.txt.gz
+
+--bin-lookup/--bin-lemmas (Icelandic only) enable two ranking-noise prunes —
+see load_bin_forms(), prune_non_bin_unigrams(), accent_dominance_filter()
+docstrings below and "## .lex artifacts" in data/README.md for the full
+rationale and before/after counts:
+  1. drop unigrams that aren't BÍN surface forms, except the --bin-topk most
+     frequent non-BÍN words and any at/above --bin-high-freq (foreign names,
+     orgs, loanwords survive; typos/junk like "hester" don't)
+  2. drop an unaccented word when an accented variant has >= --accent-ratio
+     times its frequency (e.g. "islenskar" vs "íslenskar")
 
 Input formats (auto-detected by gzip magic bytes):
   --unigrams: either
@@ -27,13 +40,32 @@ Input formats (auto-detected by gzip magic bytes):
         - an object {"word1 word2": count, ...} or {word1: {word2: count}}
           (accepted defensively; not required by the shipped data)
 
-Normalization: lowercase + NFC, keep only tokens matching
-^[a-zþðæöáéíóúý]+$ (ASCII letters + Icelandic-specific letters). Everything
-else (digits, punctuation, apostrophes, multi-token phrases) is dropped.
-Bigrams where either word fails that filter, or where either word isn't in
-the (filtered) unigram set, are dropped entirely — bigrams never grow the
-unigram vocabulary. Duplicate keys (after normalization) have their counts
-summed before scaling.
+Normalization: lowercase + NFC, curly apostrophe (U+2019) folded to straight
+ASCII apostrophe ('), keep only tokens matching
+^[a-zþðæöáéíóúý]+('[a-zþðæöáéíóúý]+)*$ (ASCII letters + Icelandic-specific
+letters, with internal apostrophes allowed for contractions/possessives like
+"don't"/"o'clock" — a leading, trailing, or doubled apostrophe still fails
+the match). Everything else (digits, punctuation, multi-token phrases) is
+dropped. Bigrams where either word fails that filter, or where either word
+isn't in the (filtered) unigram set, are dropped entirely — bigrams never
+grow the unigram vocabulary. Duplicate keys (after normalization) have their
+counts summed before scaling.
+
+Contraction backfill: a curated list of common English contractions
+(CONTRACTION_EXPANSIONS below) is checked after loading unigrams. Any that
+are already present in the source are left untouched (as of the 2026-07-15
+en-80k.txt, all of them are — SymSpell's list already includes "don't",
+"i'm", "can't", etc.; the historical bug was the WORD_RE filter above
+silently deleting them after loading, not a gap in the source itself). Any
+curated contraction still missing after that is assigned a derived
+frequency: freq(contraction) = bigram_freq(uncontracted phrase) // 2, using
+the *raw* (pre-filter) bigram source's "word1 word2" count for the
+contraction's expansion (e.g. freq("don't") ≈ bigram_freq("do", "not") // 2).
+This is a same-corpus proxy (Google Ngram unigram and bigram counts are
+comparable orders of magnitude — see FORMAT.md scaling notes) used only as a
+fallback so the table degrades gracefully if a future source drops a
+contraction; it does not fire against the current shipped data. Contractions
+with no matching bigram entry are left absent rather than guessed at.
 
 Frequencies are scaled to fit u32 when source counts exceed it (English
 counts do; Icelandic counts don't). See FORMAT.md "Scaling to u32" for the
@@ -52,7 +84,40 @@ MAGIC = 0x4C58_4331  # "LXC1"
 VERSION = 1
 U32_MAX = 0xFFFFFFFF
 
-WORD_RE = re.compile(r'^[a-zþðæöáéíóúý]+$')
+WORD_RE = re.compile(r"^[a-zþðæöáéíóúý]+('[a-zþðæöáéíóúý]+)*$")
+
+# Curly/typographic apostrophe -> straight ASCII apostrophe, applied before
+# NFC so both source spellings of a contraction collapse to one token.
+_CURLY_APOSTROPHE = '’'
+
+# Common English contractions we want present with sensible frequencies even
+# if a future source list drops them. word -> two-word uncontracted phrase
+# used to derive a fallback frequency from the bigram source. See the module
+# docstring ("Contraction backfill") for the method.
+CONTRACTION_EXPANSIONS = {
+    "don't": ("do", "not"),
+    "i'm": ("i", "am"),
+    "it's": ("it", "is"),
+    "can't": ("can", "not"),
+    "won't": ("will", "not"),
+    "isn't": ("is", "not"),
+    "you're": ("you", "are"),
+    "we're": ("we", "are"),
+    "they're": ("they", "are"),
+    "i've": ("i", "have"),
+    "i'll": ("i", "will"),
+    "didn't": ("did", "not"),
+    "doesn't": ("does", "not"),
+    "wasn't": ("was", "not"),
+    "aren't": ("are", "not"),
+    "couldn't": ("could", "not"),
+    "wouldn't": ("would", "not"),
+    "shouldn't": ("should", "not"),
+    "that's": ("that", "is"),
+    "there's": ("there", "is"),
+    "what's": ("what", "is"),
+    "let's": ("let", "us"),
+}
 
 
 def is_gzip(path):
@@ -62,10 +127,36 @@ def is_gzip(path):
 
 def normalize_word(w):
     """Lowercase + NFC; return None if it doesn't survive the letter filter."""
+    w = w.replace(_CURLY_APOSTROPHE, "'")
     w = unicodedata.normalize('NFC', w.lower())
     if not WORD_RE.match(w):
         return None
     return w
+
+
+def backfill_contractions(unigram_counts, raw_bigrams):
+    """Ensure CONTRACTION_EXPANSIONS keys exist in unigram_counts. Returns the
+    list of (word, derived_freq) actually added, for logging."""
+    bigram_phrase_freq = {}
+    for w1, w2, count in raw_bigrams:
+        nw1 = normalize_word(w1)
+        nw2 = normalize_word(w2)
+        if nw1 is None or nw2 is None:
+            continue
+        key = (nw1, nw2)
+        bigram_phrase_freq[key] = bigram_phrase_freq.get(key, 0) + count
+
+    added = []
+    for contraction, phrase in CONTRACTION_EXPANSIONS.items():
+        if contraction in unigram_counts:
+            continue
+        freq = bigram_phrase_freq.get(phrase)
+        if freq is None:
+            continue
+        derived = max(1, freq // 2)
+        unigram_counts[contraction] = derived
+        added.append((contraction, derived))
+    return added
 
 
 def load_unigrams(path):
@@ -139,6 +230,121 @@ def load_bigrams(path):
     return triples
 
 
+def load_bin_forms(lookup_path, lemmas_path):
+    """Load the set of valid BÍN surface forms from lemma-is's dist data.
+
+    IMPORTANT: `lookup.tsv.gz` alone is NOT the full BÍN form set — per
+    lemma-is's `scripts/build-data.py` (see the "Skip if word is its own
+    only lemma" comment there), it deliberately *omits* any word that is its
+    own lemma with no other lemma/POS ambiguity, since a lemma-lookup index
+    has nothing useful to say about a word that already equals its own
+    lemma. That skip rule excludes basic base-form vocabulary wholesale —
+    pronouns ("hann", "ég"), nominative-singular nouns ("hestur"), adverbs
+    ("einnig"), proper nouns ("reykjavík"), etc. Using `lookup.tsv.gz` alone
+    would flag roughly a third of all common Icelandic words as "non-BÍN"
+    noise. The fix: union `lookup.tsv.gz`'s keys (inflected/ambiguous forms)
+    with `lemmas.txt.gz` (one lemma per line — the base forms) to get the
+    complete surface-form set.
+
+    `lookup.tsv.gz` format: `word\\tidx1:pos1,idx2:pos2,...` (first column is
+    the surface form; only that column is used here).
+    `lemmas.txt.gz` format: one lemma per line.
+
+    Returns a set of lowercased, NFC-normalized forms.
+    """
+    forms = set()
+    with gzip.open(lookup_path, 'rt', encoding='utf-8') as f:
+        for line in f:
+            tab = line.find('\t')
+            word = line[:tab] if tab >= 0 else line.rstrip('\n')
+            if word:
+                forms.add(unicodedata.normalize('NFC', word.lower()))
+    with gzip.open(lemmas_path, 'rt', encoding='utf-8') as f:
+        for line in f:
+            lemma = line.rstrip('\n')
+            if lemma:
+                forms.add(unicodedata.normalize('NFC', lemma.lower()))
+    return forms
+
+
+def prune_non_bin_unigrams(unigram_counts, bin_forms, topk, high_freq_threshold):
+    """Drop is.lex unigrams that are not BÍN surface forms, with two escape
+    hatches so legitimate non-BÍN vocabulary (foreign proper nouns, sports
+    teams, orgs/abbreviations, English loanwords Icelanders type constantly
+    in a news-derived corpus) survives:
+
+      1. the `topk` most frequent non-BÍN words are always kept
+      2. any non-BÍN word at or above `high_freq_threshold` is always kept,
+         even if (1) is later tuned down and would otherwise exclude it
+
+    is.lex is RANKING-only (validity comes from BÍN via lemma-is.bin in the
+    engine — see PLAN.md), so this can prune aggressively: a dropped word
+    just stops being ranked/suggested, it doesn't become "invalid".
+
+    Returns (dropped: list[(word, freq)], kept_non_bin: int) for reporting.
+    """
+    non_bin = [(w, c) for w, c in unigram_counts.items() if w not in bin_forms]
+    non_bin.sort(key=lambda kv: -kv[1])
+    keep_topk = {w for w, _ in non_bin[:topk]}
+
+    dropped = []
+    kept_non_bin = 0
+    for w, c in non_bin:
+        if w in keep_topk or c >= high_freq_threshold:
+            kept_non_bin += 1
+            continue
+        dropped.append((w, c))
+    for w, _ in dropped:
+        del unigram_counts[w]
+    return dropped, kept_non_bin
+
+
+_ACCENT_FOLD_STRIP_CATEGORY = 'Mn'  # Unicode "Mark, nonspacing"
+
+
+def strip_icelandic_accents(w):
+    """Fold NFD-decomposable accented letters (á,é,í,ó,ú,ý,ö — each is a base
+    letter + combining diacritic under NFD) down to their ASCII base letter,
+    e.g. 'ö' -> 'o'. þ, ð, æ are NOT decomposable (they're independent
+    letters, not base+diacritic) and pass through unchanged — there's no
+    single-character ASCII substitute a keyboard-without-Icelandic-support
+    would produce for them the way `a` substitutes for `á`."""
+    decomposed = unicodedata.normalize('NFD', w)
+    return ''.join(c for c in decomposed if unicodedata.category(c) != _ACCENT_FOLD_STRIP_CATEGORY)
+
+
+def accent_dominance_filter(unigram_counts, ratio):
+    """Drop an unaccented word `w` when an accented variant exists (i.e.
+    `strip_icelandic_accents(variant) == w` for some other word `variant` in
+    the table) whose frequency is >= `ratio` times `w`'s. This targets the
+    specific noise pattern of accents dropped by non-Icelandic input methods
+    (íslenska -> islenska): the correctly-accented spelling dominating by a
+    wide margin is strong evidence the unaccented spelling is typo noise
+    rather than a distinct, legitimately-unaccented word.
+
+    Returns the list of (dropped_word, dropped_freq, dominant_accented_freq)
+    for reporting.
+    """
+    folded_to_accented = {}
+    for w in unigram_counts:
+        folded = strip_icelandic_accents(w)
+        if folded != w:
+            folded_to_accented.setdefault(folded, []).append(w)
+
+    dropped = []
+    for folded, accented_variants in folded_to_accented.items():
+        if folded not in unigram_counts:
+            continue
+        unaccented_freq = unigram_counts[folded]
+        dominant_freq = max(unigram_counts[v] for v in accented_variants)
+        if dominant_freq >= ratio * unaccented_freq:
+            dropped.append((folded, unaccented_freq, dominant_freq))
+
+    for folded, _, _ in dropped:
+        del unigram_counts[folded]
+    return dropped
+
+
 def scale_to_u32(counts_by_key):
     """counts_by_key: dict key -> int count (arbitrary size).
     Returns (dict key -> scaled UInt32-safe count, divisor used)."""
@@ -153,12 +359,54 @@ def scale_to_u32(counts_by_key):
     return scaled, divisor
 
 
-def build(unigrams_path, bigrams_path, out_path):
+def build(
+    unigrams_path, bigrams_path, out_path,
+    bin_lookup_path=None, bin_lemmas_path=None,
+    bin_topk=10_000, bin_high_freq=2_000, accent_ratio=10,
+    contraction_backfill=False,
+):
     unigram_counts = load_unigrams(unigrams_path)
     if not unigram_counts:
         raise ValueError('no valid unigrams survived normalization/filtering')
+    unigram_count_before_pruning = len(unigram_counts)
 
     raw_bigrams = load_bigrams(bigrams_path)
+
+    # English-only: CONTRACTION_EXPANSIONS keys/phrases are English words, so
+    # running this against the Icelandic bigram source would occasionally
+    # match a stray English bigram in the web corpus (e.g. a quoted "do not")
+    # and inject noise like "don't" into is.lex. Opt-in via --contraction-backfill.
+    if contraction_backfill:
+        backfilled = backfill_contractions(unigram_counts, raw_bigrams)
+        if backfilled:
+            print(
+                'backfilled contractions missing from unigram source: '
+                + ', '.join(f'{w}={f}' for w, f in backfilled)
+            )
+
+    if bin_lookup_path and bin_lemmas_path:
+        bin_forms = load_bin_forms(bin_lookup_path, bin_lemmas_path)
+        dropped_non_bin, kept_non_bin = prune_non_bin_unigrams(
+            unigram_counts, bin_forms, topk=bin_topk, high_freq_threshold=bin_high_freq,
+        )
+        print(
+            f'BÍN-membership prune: {unigram_count_before_pruning} -> {len(unigram_counts)} unigrams '
+            f'({len(dropped_non_bin)} dropped as non-BÍN noise, {kept_non_bin} non-BÍN words kept '
+            f'via top-{bin_topk}/freq>={bin_high_freq} escape hatch)'
+        )
+
+        before_accent = len(unigram_counts)
+        dropped_accents = accent_dominance_filter(unigram_counts, ratio=accent_ratio)
+        print(
+            f'Accent-dominance prune (ratio>={accent_ratio}x): {before_accent} -> '
+            f'{len(unigram_counts)} unigrams ({len(dropped_accents)} unaccented-noise words dropped)'
+        )
+        if dropped_accents:
+            sample = sorted(dropped_accents, key=lambda t: -t[2])[:10]
+            print(
+                '  sample drops (unaccented, its freq, dominant accented freq): '
+                + ', '.join(f'{w}({f}, dominated by {af})' for w, f, af in sample)
+            )
 
     bigram_counts = {}
     dropped_bigrams = 0
@@ -239,8 +487,36 @@ def main():
     parser.add_argument('--unigrams', required=True, help='word-frequency source file')
     parser.add_argument('--bigrams', required=True, help='bigram-frequency source file')
     parser.add_argument('--out', required=True, help='output .lex path')
+    parser.add_argument(
+        '--bin-lookup', default=None,
+        help='lemma-is lookup.tsv.gz (inflected surface forms); combined with '
+             '--bin-lemmas to prune non-BÍN unigram noise. Icelandic build only.')
+    parser.add_argument(
+        '--bin-lemmas', default=None,
+        help='lemma-is lemmas.txt.gz (base lemma forms). Required alongside '
+             '--bin-lookup — lookup.tsv.gz alone omits base/lemma forms, see '
+             'load_bin_forms() docstring.')
+    parser.add_argument(
+        '--bin-topk', type=int, default=10_000,
+        help='always keep this many of the most frequent non-BÍN unigrams (default 10000)')
+    parser.add_argument(
+        '--bin-high-freq', type=int, default=2_000,
+        help='always keep non-BÍN unigrams at/above this frequency, regardless of --bin-topk (default 2000)')
+    parser.add_argument(
+        '--accent-ratio', type=int, default=10,
+        help='drop an unaccented word if an accented variant has >= this many times its '
+             'frequency; only runs when --bin-lookup/--bin-lemmas are given (default 10)')
+    parser.add_argument(
+        '--contraction-backfill', action='store_true',
+        help='enable the CONTRACTION_EXPANSIONS fallback (English only — see '
+             'backfill_contractions() docstring; do not pass for the Icelandic build)')
     args = parser.parse_args()
-    build(args.unigrams, args.bigrams, args.out)
+    build(
+        args.unigrams, args.bigrams, args.out,
+        bin_lookup_path=args.bin_lookup, bin_lemmas_path=args.bin_lemmas,
+        bin_topk=args.bin_topk, bin_high_freq=args.bin_high_freq, accent_ratio=args.accent_ratio,
+        contraction_backfill=args.contraction_backfill,
+    )
 
 
 if __name__ == '__main__':

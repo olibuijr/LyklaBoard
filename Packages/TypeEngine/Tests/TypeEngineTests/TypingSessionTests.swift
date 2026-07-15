@@ -55,6 +55,13 @@ final class TypingSessionTests: XCTestCase {
         XCTAssertEqual(word, "don't")
     }
 
+    func testTypographicApostropheIsNotADelimiter() {
+        // iOS smart punctuation inserts U+2019, not the straight apostrophe.
+        let (context, word) = TypingSession.splitCurrentWord(of: "she don’t")
+        XCTAssertEqual(context, "she ")
+        XCTAssertEqual(word, "don’t")
+    }
+
     func testHyphenIsNotADelimiter() {
         let (_, word) = TypingSession.splitCurrentWord(of: "vel-þekkt")
         XCTAssertEqual(word, "vel-þekkt")
@@ -159,14 +166,104 @@ final class TypingSessionTests: XCTestCase {
         XCTAssertEqual(s.committedWordCount, 1, "cursor jump must not commit")
     }
 
-    func testWithoutExternalChangeNoteCursorJumpCausesSpuriousCommit() {
-        // Documents the hazard the extension currently has (it never calls
-        // noteExternalTextChange): a cursor jump that removes the
-        // word-in-progress from the window is misread as a commit.
+    func testCursorJumpIsDetectedInternallyWithoutNote() {
+        // Even with NO noteExternalTextChange call, the session's window-
+        // change classifier must not misread a cursor jump (word-in-progress
+        // vanishing from the window without new text) as a word commit.
         let s = session()
         typeThrough(s, "hestur bor")
         s.suggestions(for: "hestur ")
-        XCTAssertEqual(s.committedWordCount, 2, "expected the documented spurious commit")
+        XCTAssertEqual(s.committedWordCount, 1, "cursor jump misread as commit")
+    }
+
+    func testBackspacingAwayWordInProgressDoesNotRecommit() {
+        // "hestur " committed once; starting a word and deleting it again
+        // must not re-commit "hestur" (old quirk: prevWord nonempty + word
+        // empty was treated as a commit even when nothing was added).
+        let s = session()
+        typeThrough(s, "hestur b")
+        XCTAssertEqual(s.committedWordCount, 1)
+        s.suggestions(for: "hestur ")  // backspace deleted the "b"
+        XCTAssertEqual(s.committedWordCount, 1, "backspace must not re-commit")
+    }
+
+    func testHostMultiWordChangeWithoutNoteIsNotCommitted() {
+        // A change that introduces several words at once is a host paste/
+        // autofill, not a user keystroke — no commit even without the note.
+        let s = session()
+        typeThrough(s, "hest")
+        s.suggestions(for: "completely different ")
+        XCTAssertEqual(s.committedWordCount, 0)
+    }
+
+    func testSlidingTruncatedWindowStillCommits() {
+        // Length-capped proxy window: the front chars fall away while
+        // typing. The session must still detect the commit.
+        let s = session()
+        s.suggestions(for: "stur borð")
+        s.suggestions(for: "stur borða")
+        s.suggestions(for: "tur borða ")  // window slid by one + space
+        XCTAssertEqual(s.committedWordCount, 1)
+        XCTAssertEqual(s.lastCommittedWord, "borða")
+    }
+
+    // MARK: - Window-aware external-change note (extension forwarding)
+
+    func testWindowNoteIsIgnoredForOwnEdits() {
+        // textDidChange fires after our own insertions too; forwarding the
+        // (new) window must not reset the pending word.
+        let s = session()
+        typeThrough(s, "teh")
+        s.noteExternalTextChange(window: "teh")  // same window: no-op
+        s.noteExternalTextChange(window: "the ")  // valid evolution: no-op
+        s.suggestions(for: "the ")
+        XCTAssertEqual(s.committedWordCount, 1, "note must not swallow the commit")
+        XCTAssertEqual(s.lastCommittedWord, "the")
+    }
+
+    func testWindowNoteClearsOnInconsistentWindow() {
+        let s = session()
+        typeThrough(s, "hestur bor")
+        // Cursor jumped somewhere unrelated: window not a typing evolution.
+        s.noteExternalTextChange(window: "annar texti allt")
+        s.suggestions(for: "hestur ")
+        XCTAssertEqual(s.committedWordCount, 1, "note should have cleared pending word")
+    }
+
+    // MARK: - Sentence-truncation bigram-context carry
+
+    func testSentenceTruncationCarriesBigramContext() {
+        // The iOS proxy cuts the before-window at ". "; the words are still
+        // on screen, so the first word of the new sentence should keep
+        // bigram context ("góðan" -> "dag" in the fixtures).
+        let s = session()
+        typeThrough(s, "góðan.")
+        XCTAssertEqual(s.lastCommittedWord, "góðan")
+        let predictions = s.suggestions(for: "")  // proxy sentence cut
+        XCTAssertEqual(predictions.first?.text, "dag", "carried bigram context should rank dag first")
+    }
+
+    func testTruncationCarryDoesNotSurviveExternalChange() {
+        let s = session()
+        typeThrough(s, "góðan.")
+        s.suggestions(for: "")
+        s.noteExternalTextChange()  // cursor jump
+        let predictions = s.suggestions(for: "")
+        XCTAssertNotEqual(predictions.first?.text, "dag", "carry must not survive external changes")
+    }
+
+    func testBackspaceToEmptyDoesNotCarryContext() {
+        // Deleting everything is not a sentence cut: no terminator in the
+        // pre-collapse window, so no carried context.
+        let s = session()
+        typeThrough(s, "góðan dag")
+        s.suggestions(for: "góðan ")
+        s.suggestions(for: "góðan")
+        s.suggestions(for: "góða")
+        s.suggestions(for: "gó")
+        s.suggestions(for: "g")
+        let predictions = s.suggestions(for: "")
+        XCTAssertNotEqual(predictions.first?.text, "dag")
     }
 
     // MARK: - Reset

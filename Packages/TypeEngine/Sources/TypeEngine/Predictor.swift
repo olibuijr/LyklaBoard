@@ -4,13 +4,13 @@ import Lexicon
 /// Next-word and mid-word prediction from bigram tables of both lexicons,
 /// blended by the language posterior, with unigram fallback.
 ///
-/// NOTE on candidate pooling: the Lexicon protocol only supports point
-/// lookups of bigram frequencies (no "followers of word" enumeration), so
-/// next-word candidates are the top unigrams of each lexicon
-/// (`completions(of: "", ...)`) re-ranked by bigram context. When no bigram
-/// context matches, this degrades exactly to top-unigram fallback. Flagged
-/// for the wiring wave: a `continuations(of:limit:)` API on the real Lexicon
-/// would let true bigram followers surface even when they are rare unigrams.
+/// Candidate pooling: next-word candidates are the bigram FOLLOWERS of the
+/// previous word (`Lexicon.continuations(of:limit:)`) from both lexicons,
+/// so rare-but-strongly-bound followers surface. When no followers exist
+/// (no context, unknown previous word, or a lexicon that doesn't implement
+/// continuations — the protocol's default returns []), the pool degrades to
+/// the top unigrams of each lexicon (`completions(of: "", ...)`), which is
+/// the old behavior.
 public struct Predictor {
     let model: BlendedLanguageModel
     let config: EngineConfig
@@ -43,9 +43,19 @@ public struct Predictor {
     ) -> [Suggestion] {
         guard limit > 0 else { return [] }
         var pool = Set<String>()
-        for lexicon in [model.icelandic, model.english] {
-            for entry in lexicon.completions(of: "", limit: config.unigramPoolLimit) {
-                pool.insert(entry.word)
+        if let previousWord {
+            for lexicon in [model.icelandic, model.english] {
+                for entry in lexicon.continuations(of: previousWord, limit: config.continuationPoolLimit) {
+                    pool.insert(entry.word)
+                }
+            }
+        }
+        if pool.isEmpty {
+            // No bigram followers anywhere: top-unigram fallback.
+            for lexicon in [model.icelandic, model.english] {
+                for entry in lexicon.completions(of: "", limit: config.unigramPoolLimit) {
+                    pool.insert(entry.word)
+                }
             }
         }
         return rank(pool: pool, previousWord: previousWord, pIcelandic: pIcelandic, limit: limit)
@@ -79,8 +89,8 @@ public struct Predictor {
         limit: Int
     ) -> [Suggestion] {
         var scored: [(word: String, score: Double)] = pool.map { word in
-            let p = model.blendedProbability(of: word, previous: previousWord, pIcelandic: pIcelandic)
-            return (word, log(p))
+            let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
+            return (word, s)
         }
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
 

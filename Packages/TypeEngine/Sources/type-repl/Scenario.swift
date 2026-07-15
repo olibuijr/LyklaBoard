@@ -11,7 +11,13 @@ import TypeEngine
 ///   T <text>                 type text char-by-char; quote to keep spaces: T "hestur "
 ///   BACKSPACE [n]            press backspace n times (default 1)
 ///   CURSOR_MOVE <pos>        move caret: +n / -n relative, n absolute, start, end
+///   CURSOR_MOVE_SILENT <pos> same, WITHOUT noteExternalTextChange (tests the
+///                            session's internal window-change detection)
 ///   HOST_SET <text>          host app replaces the document (cursor at end)
+///   HOST_SET_SILENT <text>   same, WITHOUT noteExternalTextChange
+///   NOTE_WINDOW              forward the current window to the session like
+///                            the extension's textDidChange/selectionDidChange
+///                            (idempotent window-aware note)
 ///   TRUNCATE_AT <n>          cap the context window at n chars (proxy truncation)
 ///   STALE_READS on|off       next proxy read after each edit returns pre-edit text
 ///   REFRESH                  re-read proxy + re-run autocomplete (no keystroke)
@@ -96,7 +102,7 @@ struct ScenarioRunner {
             case "BACKSPACE":
                 typist.pressBackspace(Int(argument) ?? 1)
 
-            case "CURSOR_MOVE":
+            case "CURSOR_MOVE", "CURSOR_MOVE_SILENT":
                 switch argument {
                 case "start": typist.proxy.moveCursor(to: 0)
                 case "end": typist.proxy.moveCursor(to: typist.proxy.document.count)
@@ -106,14 +112,30 @@ struct ScenarioRunner {
                     } else if let absolute = Int(argument) {
                         typist.proxy.moveCursor(to: absolute)
                     } else {
-                        fail("bad CURSOR_MOVE argument: \(argument)")
+                        fail("bad \(keyword) argument: \(argument)")
                     }
                 }
-                typist.externalChange()
+                // SILENT = no noteExternalTextChange: exercises the
+                // session's internal cursor-jump detection.
+                if keyword == "CURSOR_MOVE" {
+                    typist.externalChange()
+                } else {
+                    typist.silentExternalChange()
+                }
 
-            case "HOST_SET":
+            case "HOST_SET", "HOST_SET_SILENT":
                 typist.proxy.hostReplaceText(Self.unquote(argument))
-                typist.externalChange()
+                if keyword == "HOST_SET" {
+                    typist.externalChange()
+                } else {
+                    typist.silentExternalChange()
+                }
+
+            case "NOTE_WINDOW":
+                // The extension's textDidChange/selectionDidChange
+                // forwarding (idempotent window-aware note), which also
+                // fires after our own insertions on device.
+                typist.forwardWindowNote()
 
             case "TRUNCATE_AT":
                 if let n = Int(argument) {

@@ -183,6 +183,39 @@ public final class FrequencyLexicon: Lexicon {
         }
     }
 
+    public func continuations(of word: String, limit: Int) -> [(word: String, frequency: UInt32)] {
+        guard limit > 0 else { return [] }
+        let key = normalizedKey(word)
+        guard !key.isEmpty else { return [] }
+
+        return withBuffer { buf in
+            guard let id = findWord(key, in: buf) else { return [] }
+            let wid = UInt32(id)
+
+            let lo = bigramLowerBound(firstId: wid, in: buf)
+            guard lo < bigramCount else { return [] }
+            let hi = bigramUpperBound(firstId: wid, in: buf)
+            guard hi > lo else { return [] }
+
+            // Bigram fan-out per word is bounded by vocabulary size and in
+            // practice far smaller than unigram prefix ranges, but cap it
+            // defensively for the same reason `completions(of:)` does (see
+            // FORMAT.md) rather than assume an unbounded scan is safe.
+            let scanEnd = min(hi, lo + Self.maxCompletionScan)
+            var candidates: [(word: String, frequency: UInt32)] = []
+            candidates.reserveCapacity(scanEnd - lo)
+            for i in lo..<scanEnd {
+                let secondId = Int(readU32(buf, at: bigramSecondIdsOffset + i * 4))
+                let freq = readU32(buf, at: bigramFreqsOffset + i * 4)
+                candidates.append((wordString(at: secondId, in: buf), freq))
+            }
+            candidates.sort {
+                $0.frequency != $1.frequency ? $0.frequency > $1.frequency : $0.word < $1.word
+            }
+            return Array(candidates.prefix(limit))
+        }
+    }
+
     /// Raw buffer size in bytes (approximate *virtual* footprint; resident
     /// dirty memory stays near zero because the buffer is file-backed).
     public var bufferSize: Int { data.count }
@@ -190,10 +223,18 @@ public final class FrequencyLexicon: Lexicon {
     // MARK: - Internals (all operate on the mapped raw buffer)
 
     /// Lowercase + NFC-normalize a query word/prefix into UTF-8 bytes, the
-    /// same normalization the builder applies to stored words.
+    /// same normalization the builder applies to stored words. Also folds
+    /// the curly/typographic apostrophe (U+2019, `’`) to the straight ASCII
+    /// apostrophe (`'`), matching `build-lexicon.py`'s `normalize_word` —
+    /// iOS text input commonly produces curly apostrophes (autocorrect/
+    /// smart quotes) for contractions like "don't", but `.lex` stores the
+    /// straight form, so queries must fold to match.
     @inline(__always)
     private func normalizedKey(_ s: String) -> [UInt8] {
-        Array(s.lowercased().precomposedStringWithCanonicalMapping.utf8)
+        Array(
+            s.replacingOccurrences(of: "\u{2019}", with: "'")
+                .lowercased()
+                .precomposedStringWithCanonicalMapping.utf8)
     }
 
     @inline(__always)
@@ -299,6 +340,43 @@ public final class FrequencyLexicon: Lexicon {
             }
         }
         return nil
+    }
+
+    /// Leftmost bigram index `i` such that `bigramFirstIds[i] >= firstId`.
+    /// Bigrams are sorted by `(firstWordId, secondWordId)` (see FORMAT.md),
+    /// so binary-searching on `firstWordId` alone finds the start of the
+    /// contiguous range of every bigram beginning with `firstId` — this is
+    /// what `continuations(of:)` scans.
+    private func bigramLowerBound(firstId: UInt32, in buf: UnsafeRawBufferPointer) -> Int {
+        var lo = 0
+        var hi = bigramCount
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            let f = readU32(buf, at: bigramFirstIdsOffset + mid * 4)
+            if f >= firstId {
+                hi = mid
+            } else {
+                lo = mid + 1
+            }
+        }
+        return lo
+    }
+
+    /// Leftmost bigram index `i` such that `bigramFirstIds[i] > firstId`
+    /// (the end of the contiguous range found by `bigramLowerBound`).
+    private func bigramUpperBound(firstId: UInt32, in buf: UnsafeRawBufferPointer) -> Int {
+        var lo = 0
+        var hi = bigramCount
+        while lo < hi {
+            let mid = (lo + hi) >> 1
+            let f = readU32(buf, at: bigramFirstIdsOffset + mid * 4)
+            if f > firstId {
+                hi = mid
+            } else {
+                lo = mid + 1
+            }
+        }
+        return lo
     }
 
     /// Binary search over bigrams sorted by (firstWordId, secondWordId).

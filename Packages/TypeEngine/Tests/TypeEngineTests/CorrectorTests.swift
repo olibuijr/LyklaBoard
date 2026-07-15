@@ -115,4 +115,110 @@ final class CorrectorTests: XCTestCase {
         let result = makeCorrector().correct(typed: "te")
         XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
     }
+
+    // MARK: Apostrophe conservatism
+
+    /// Lexicons modeling the old en.lex (apostrophe forms stripped at build
+    /// time, apostrophe-less twins attested): the guard must hold even then.
+    private func apostropheHostileCorrector() -> Corrector {
+        Corrector(
+            icelandic: Fixtures.icelandic,
+            english: DictLexicon(unigrams: [
+                "dont": 800, "ibm": 400, "the": 2000, "im": 300,
+            ])
+        )
+    }
+
+    func testApostropheDeletionNeverAutocorrects() {
+        // "don't" unknown, "dont" attested: may be suggested, but never
+        // auto-applied (never delete the user's apostrophe).
+        let result = apostropheHostileCorrector().correct(typed: "don't")
+        XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+    }
+
+    func testApostropheSubstitutionNeverAutocorrects() {
+        // "i'm" unknown; "ibm"/"im" attested — neither preserves the
+        // apostrophe, so no auto-replace ("I'm" -> "Ibm" harness quirk).
+        let result = apostropheHostileCorrector().correct(typed: "i'm")
+        XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+    }
+
+    func testTypographicApostropheGetsTheSameGuard() {
+        let result = apostropheHostileCorrector().correct(typed: "don’t")
+        XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+    }
+
+    func testApostrophePreservingCorrectionMayStillAutocorrect() {
+        // The guard only blocks apostrophe-losing replacements: a slipped
+        // contraction may still be repaired to another contraction.
+        let english = DictLexicon(unigrams: ["don't": 800, "the": 2000])
+        let corrector = Corrector(icelandic: Fixtures.icelandic, english: english)
+        let result = corrector.correct(typed: "don'r")
+        XCTAssertEqual(result.suggestions.first?.text, "don't")
+        XCTAssertEqual(result.suggestions.first?.isAutocorrect, true)
+    }
+
+    // MARK: Hyphenated compounds
+
+    func testHyphenatedCompoundWithValidPartsIsValidAndUncorrected() {
+        let result = makeCorrector().correct(typed: "gott-veður")
+        XCTAssertTrue(result.typedWordIsValid)
+        XCTAssertTrue(result.suggestions.isEmpty)
+    }
+
+    func testHyphenatedCompoundHonorsMorphology() {
+        let morphology = FakeMorphology(["hestunum"])
+        let result = makeCorrector(morphology: morphology).correct(typed: "gott-hestunum")
+        XCTAssertTrue(result.typedWordIsValid)
+    }
+
+    func testHyphenatedTokenWithInvalidPartIsNotValid() {
+        let result = makeCorrector().correct(typed: "gott-zzqqx")
+        XCTAssertFalse(result.typedWordIsValid)
+    }
+
+    // MARK: Targeted distance-2 passes
+
+    func testDiacriticRestorationReachesDistanceTwo() {
+        // "godan" -> "góðan" needs two substitutions (o→ó, d→ð): outside
+        // edits1, found by the diacritic-restoration pass.
+        let result = makeCorrector().correct(typed: "godan")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "góðan" },
+            "expected góðan, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    func testGeminationRepairReachesDistanceTwo() {
+        let english = DictLexicon(unigrams: ["tomorrow": 500, "the": 2000])
+        let corrector = Corrector(icelandic: Fixtures.icelandic, english: english)
+        let result = corrector.correct(typed: "tommorow")
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "tomorrow" },
+            "expected tomorrow, got \(result.suggestions.map(\.text))"
+        )
+    }
+
+    // MARK: edits2 budgets
+
+    func testEdits2ExpansionCapFallsBackGracefully() {
+        var config = EngineConfig()
+        config.maxEdits2Expansions = 0  // edits2 fully disabled
+        let corrector = Corrector(
+            icelandic: Fixtures.icelandic, english: Fixtures.english, config: config
+        )
+        // Still produces edits1/completion candidates without crashing.
+        let result = corrector.correct(typed: "hestr")
+        XCTAssertTrue(result.suggestions.contains { $0.text == "hestur" })
+    }
+
+    func testEdits2TimeBudgetFallsBackGracefully() {
+        var config = EngineConfig()
+        config.edits2TimeBudget = 0  // immediate wall-clock abort
+        let corrector = Corrector(
+            icelandic: Fixtures.icelandic, english: Fixtures.english, config: config
+        )
+        let result = corrector.correct(typed: "qqqqqzz")
+        XCTAssertFalse(result.typedWordIsValid)  // and no hang / crash
+    }
 }

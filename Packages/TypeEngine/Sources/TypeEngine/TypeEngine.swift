@@ -97,25 +97,44 @@ public final class TypeEngine {
 
     /// Update the language posterior after the user commits a word
     /// (typed through, tapped a suggestion, or accepted an autocorrect).
-    /// Words unknown to both languages leave the posterior unchanged.
+    ///
+    /// Posterior discipline: only STRONGLY attributable words move the
+    /// posterior — known in exactly one lexicon at a non-junk calibrated
+    /// score (or BÍN-valid, which is Icelandic by construction), or known
+    /// in both with a clear calibrated-score margin. OOV, noise-tier and
+    /// ambiguous words leave it unchanged (harness finding: junk like
+    /// "dont", present in is.lex web noise, must never drag the posterior
+    /// toward Icelandic).
     public func confirmWord(_ word: String) {
         let w = word.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !w.isEmpty else { return }
 
-        let knownIS = model.effectiveFrequency(of: w, language: .icelandic) != nil
+        // Posterior evidence comes from corpus attestation only. BÍN
+        // validity still drives validity/suggestions elsewhere, but its 3M
+        // surface forms collide with English-looking junk (BÍN knows
+        // "dont"!), so morphology alone never moves the posterior.
+        let knownIS = model.icelandic.frequency(of: w) != nil
         let knownEN = model.english.frequency(of: w) != nil
 
         let signal: Double
         switch (knownIS, knownEN) {
         case (true, false):
+            guard
+                model.calibratedUnigramScore(of: w, language: .icelandic)
+                    >= config.posteriorAttributionFloor
+            else { return }
             signal = 1
         case (false, true):
+            guard
+                model.calibratedUnigramScore(of: w, language: .english)
+                    >= config.posteriorAttributionFloor
+            else { return }
             signal = 0
         case (true, true):
-            let pIS = model.unigramProbability(of: w, language: .icelandic)
-            let pEN = model.unigramProbability(of: w, language: .english)
-            if pIS == pEN { return }
-            signal = pIS > pEN ? 1 : 0
+            let zIS = model.calibratedUnigramScore(of: w, language: .icelandic)
+            let zEN = model.calibratedUnigramScore(of: w, language: .english)
+            guard abs(zIS - zEN) >= config.posteriorAttributionMargin else { return }
+            signal = zIS > zEN ? 1 : 0
         case (false, false):
             return
         }
@@ -123,6 +142,13 @@ public final class TypeEngine {
         let alpha = config.posteriorAlpha
         let updated = (1 - alpha) * probabilityIcelandic + alpha * signal
         probabilityIcelandic = min(max(updated, config.posteriorFloor), config.posteriorCeiling)
+    }
+
+    /// Touch representative pages of the mmap-ed artifacts (spread unigram,
+    /// bigram and morphology lookups) so first keystrokes don't pay page
+    /// faults. Call once after load, on the same queue that owns the engine.
+    public func warmUp() {
+        model.warmUp()
     }
 
     /// Reset the posterior to the 50/50 prior (e.g. new text field).
