@@ -1,6 +1,6 @@
 name: BetterKeyboard
 options:
-  bundleIdPrefix: is.betterkeyboard
+  bundleIdPrefix: is.lyklabord
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -41,6 +41,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
+        CFBundleDisplayName: Lyklaborð
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -48,10 +49,10 @@ targets:
       path: App/BetterKeyboard.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.is.betterkeyboard
+          - group.is.lyklabord
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.betterkeyboard.app
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.app
         PRODUCT_NAME: BetterKeyboard
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -79,7 +80,7 @@ targets:
       properties:
         # Required for install (installd rejects keyboard appexes without a
         # display name); also the name shown in Settings > Keyboards.
-        CFBundleDisplayName: Better Keyboard
+        CFBundleDisplayName: Lyklaborð
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
@@ -92,10 +93,10 @@ targets:
       path: KeyboardExt/BetterKeyboardExt.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.is.betterkeyboard
+          - group.is.lyklabord
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.betterkeyboard.app.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.app.keyboard
         PRODUCT_NAME: BetterKeyboardExt
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

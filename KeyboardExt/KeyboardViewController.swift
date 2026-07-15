@@ -24,8 +24,8 @@ import TypeEngine
 extension KeyboardApp {
     static var betterKeyboard: Self {
         .init(
-            name: "Better Keyboard",
-            appGroupId: "group.is.betterkeyboard",
+            name: "Lyklaborð",
+            appGroupId: "group.is.lyklabord",
             locales: [.icelandic]
         )
     }

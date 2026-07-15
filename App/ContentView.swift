@@ -18,7 +18,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Better Keyboard")
+                        Text("Lyklaborð")
                             .font(.largeTitle.bold())
                         Text("A privacy-first Icelandic + English keyboard. Zero network code in the keyboard extension — everything runs on your device.")
                             .foregroundStyle(.secondary)
@@ -29,8 +29,8 @@ struct ContentView: View {
                             .font(.title2.bold())
 
                         stepRow(number: 1, text: "Open Settings → General → Keyboard → Keyboards")
-                        stepRow(number: 2, text: "Tap \"Add New Keyboard…\" and choose Better Keyboard")
-                        stepRow(number: 3, text: "Tap Better Keyboard again and enable \"Allow Full Access\" (optional — the keyboard works fully without it; Full Access only enables iCloud sync of your personal dictionary in a later version)")
+                        stepRow(number: 2, text: "Tap \"Add New Keyboard…\" and choose Lyklaborð")
+                        stepRow(number: 3, text: "Tap Lyklaborð again and enable \"Allow Full Access\" (optional — the keyboard works fully without it; Full Access only enables iCloud sync of your personal dictionary in a later version)")
 
                         Button {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -46,7 +46,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Try it out")
                             .font(.title2.bold())
-                        Text("Switch to Better Keyboard with the globe key (🌐) and type here:")
+                        Text("Switch to Lyklaborð with the globe key (🌐) and type here:")
                             .foregroundStyle(.secondary)
 
                         TextField("Skrifaðu eitthvað…", text: $sampleText, axis: .vertical)
@@ -57,7 +57,7 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Better Keyboard")
+            .navigationTitle("Lyklaborð")
         }
     }
 
