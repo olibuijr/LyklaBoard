@@ -14,7 +14,6 @@
 //
 
 import KeyboardKit
-import LemmaCore
 import SwiftUI
 
 /// The `KeyboardApp` descriptor shared by the app and the extension. Kept
@@ -53,23 +52,16 @@ final class KeyboardViewController: KeyboardInputViewController {
         // "Icelandic Layout" / "Icelandic Callouts" sections at the bottom
         // of this file.
 
-        // M0 smoke: mmap the full BÍN binary from the extension bundle and
-        // prove the LemmaCore chain works inside the keyboard process.
-        // TODO(M1): replace with LemmaCoreAutocompleteService wired into
-        //   services.autocompleteService (mmap-backed BÍN-aware
-        //   corrector/predictor) instead of the default `.disabled` one.
-        if let url = Bundle(for: Self.self).url(forResource: "lemma-is", withExtension: "bin") {
-            do {
-                let lemmatizer = try BinaryLemmatizer(contentsOf: url)
-                let probe = lemmatizer.lemmatize("hestinum")
-                NSLog("[better-keyboard] LemmaCore loaded: %d word forms, hestinum -> %@",
-                      lemmatizer.wordFormCount, probe.joined(separator: ","))
-            } catch {
-                NSLog("[better-keyboard] LemmaCore load FAILED: %@", String(describing: error))
-            }
-        } else {
-            NSLog("[better-keyboard] lemma-is.bin missing from extension bundle")
-        }
+        // M1: bilingual IS/EN autocomplete via TypeEngine. The service
+        // bootstraps itself lazily on its own utility-QoS serial queue (mmap
+        // of lemma-is.bin + en.lex + is.lex happens off the main thread —
+        // the launch-flicker mitigation in PLAN.md; nothing heavy runs in
+        // viewDidLoad). Until the engine is ready it returns empty
+        // suggestions. Replaces the default `.disabled` service; the
+        // standard KeyboardView toolbar (`toolbar: { $0.view }` below)
+        // renders `AutocompleteContext.suggestions`, and the standard action
+        // handler applies `.autocorrect` suggestions on space/delimiter.
+        services.autocompleteService = BetterKeyboardAutocompleteService()
     }
 
     override func viewWillSetupKeyboardView() {

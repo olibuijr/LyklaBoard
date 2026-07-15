@@ -116,6 +116,45 @@ Device-based tiering was designed before the Swift mmap bench proved footprint i
 
 **Note**: mmap pages are file-backed and do not count against the extension dirty-memory (jetsam) limit. Paging is lazy and demand-driven.
 
+## .lex artifacts
+
+Compact mmap-able unigram+bigram frequency tables for ranking/prediction,
+distinct from the lemma-is `.bin` trie above (which answers "is this a valid
+form + what's its lemma", not "how frequent is it"). Built by
+`scripts/build-lexicon.py` from the sources documented earlier in this file;
+read by `Packages/Lexicon`'s `FrequencyLexicon` (mmap, lazy offset reads, no
+upfront parsing — same strategy as `BinaryLemmatizer`). Format is documented
+in `Packages/Lexicon/FORMAT.md`.
+
+- **en/en.lex** (4,265,360 bytes / 4.07 MB) — built from `en-80k.txt` +
+  `frequency_bigramdictionary_en_243_342.txt`. 79,851 unigrams, 240,966
+  bigrams (1,376 dropped: word not in unigram set after filtering).
+  Frequencies scaled by /7 (unigrams) and /42 (bigrams) to fit `UInt32`
+  (source Google Ngram counts exceed 4.29B).
+- **is/is.lex** (10,935,572 bytes / 10.43 MB) — built from `unigrams.json.gz`
+  + `bigrams.json.gz`. 308,649 unigrams, 381,547 bigrams (7,294 dropped).
+  Icelandic counts fit `UInt32` natively — no scaling (divisor 1, exact
+  source counts preserved).
+
+Both builds drop tokens with non-letter characters (digits, punctuation,
+apostrophes) — see FORMAT.md for the exact filter and the u32-scaling
+algorithm.
+
+Bench (`swift run -c release lex-bench <path>`, macOS, 1000 iterations each):
+
+| artifact | load | frequency() | bigramFrequency() | completions() |
+|---|---|---|---|---|
+| en.lex | 0.64 ms | 17.8 µs/call | 6.0 µs/call | 227 µs/call |
+| is.lex | 0.48 ms | 14.4 µs/call | 5.5 µs/call | 2824 µs/call |
+
+`completions()` cost is dominated by short single-letter prefixes in the
+bench word mix, which hit the documented 20k-entry scan cap on the larger
+Icelandic table; real keyboard prefixes are typically ≥2 characters, where
+ranges are far smaller. phys_footprint delta after load + 3000 mixed lookups:
++0.97 MB (en.lex), +2.63 MB (is.lex) — both file-backed mmap, so this is
+almost entirely the materialized `String`/tuple results, not resident file
+pages.
+
 ## CI Checks (Future)
 
 - [ ] Verify total binary sizes on each tier ≤ 35 MB in app bundle (ipa)

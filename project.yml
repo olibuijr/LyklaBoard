@@ -14,6 +14,10 @@ settings:
 packages:
   LemmaCore:
     path: Packages/LemmaCore
+  Lexicon:
+    path: Packages/Lexicon
+  TypeEngine:
+    path: Packages/TypeEngine
   KeyboardKit:
     path: Packages/KeyboardKit
     # NOTE: KeyboardKit switched to a closed-source binary (XCFramework) +
@@ -66,9 +70,16 @@ targets:
       - path: KeyboardExt
       - path: data/is/lemma-is.bin
         buildPhase: resources
+      - path: data/en/en.lex
+        buildPhase: resources
+      - path: data/is/is.lex
+        buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
       properties:
+        # Required for install (installd rejects keyboard appexes without a
+        # display name); also the name shown in Settings > Keyboards.
+        CFBundleDisplayName: Better Keyboard
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
@@ -95,6 +106,10 @@ targets:
         product: KeyboardKit
       - package: LemmaCore
         product: LemmaCore
+      - package: Lexicon
+        product: Lexicon
+      - package: TypeEngine
+        product: TypeEngine
 
 schemes:
   BetterKeyboard:
