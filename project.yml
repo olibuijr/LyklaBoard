@@ -12,6 +12,8 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 packages:
+  Learning:
+    path: Packages/Learning
   LemmaCore:
     path: Packages/LemmaCore
   Lexicon:
@@ -62,6 +64,8 @@ targets:
     dependencies:
       - target: BetterKeyboardExt
         embed: true
+      - package: Learning
+        product: Learning
 
   BetterKeyboardExt:
     type: app-extension
@@ -109,6 +113,8 @@ targets:
         product: LemmaCore
       - package: Lexicon
         product: Lexicon
+      - package: Learning
+        product: Learning
       - package: TypeEngine
         product: TypeEngine
 
