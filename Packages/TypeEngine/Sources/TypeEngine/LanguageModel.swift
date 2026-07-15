@@ -50,6 +50,15 @@ public struct EngineConfig: Sendable {
     /// Auto-replace only fires when the top candidate beats the runner-up by
     /// this many nats (conservatism: under-correct rather than over-correct).
     public var autocorrectMargin: Double = 1.25
+    /// Typicality floor for a single-word auto-replacement: the winning
+    /// candidate must be ATTESTED in a frequency table (personal words are
+    /// exempt — personal attestation is stronger evidence) with a calibrated
+    /// z-score at or above this. BÍN-only forms (z pinned at the BÍN floor,
+    /// ≈ −2.9 on the real artifacts) are never auto-applied: BÍN's 3M
+    /// surface forms sit one edit from everything, and replacing a typo
+    /// with morphology-validated junk is the dogfood "faralega → garalega"
+    /// landmine. Suggestions are unaffected — this gates the flag only.
+    public var autocorrectMinZ: Double = -2.5
     /// Auto-replace never fires when the top candidate's spatial cost exceeds
     /// this (wild rewrites are suggestion-bar-only).
     public var autocorrectMaxSpatialCost: Double = 6.0
@@ -129,6 +138,80 @@ public struct EngineConfig: Sendable {
     /// positions are explored best-evidence-first (substitution before
     /// insertion, center-out), so an abort sheds the least likely splits.
     public var splitTimeBudget: TimeInterval = 0.006
+    /// Raised auto-apply margin for SPLIT candidates (vs the ordinary
+    /// `autocorrectMargin`): rewriting one token into two words is a bigger
+    /// intervention than repairing it, so the evidence bar is higher
+    /// (dogfood "fara lega" tightening). Splits below this margin stay
+    /// bar-only.
+    public var splitAutocorrectMargin: Double = 2.5
+    /// A split may auto-apply only when NO attested (or personal)
+    /// single-word candidate exists at spatial cost at or below this
+    /// generous bound — if a plausible one-word repair exists, the split is
+    /// offered but never auto-applied. BÍN-only forms don't count (junk one
+    /// edit from everything must not veto genuine splits like
+    /// "helloworld").
+    public var splitAutoApplySingleWordCutoff: Double = 2.5
+
+    // --- Dotted-token space-miss escape (dogfood "sem.er"): the '.' key
+    // sits directly right of the spacebar, so '.' is a space-adjacent miss
+    // target. A dotted token of shape word.word where BOTH halves are
+    // common valid words IN THE SAME language, that is not URL-shaped (no
+    // known-TLD final segment, no "www" stem, exactly one dot — shape
+    // checks live in TypingSession), may be offered as "word word".
+    // Real URLs/domains stay verbatim-class protected.
+
+    /// Both halves must be attested with a calibrated z-score at or above
+    /// this, in one common language, for the escape to be OFFERED. z ≈ 1σ
+    /// above the lexicon mean keeps it to genuinely common words (IS "sem"
+    /// +3.1, "er" +3.1) — rare words next to a dot are far more likely a
+    /// real domain/file token. One-letter halves must additionally clear
+    /// `splitSingleCharHalfMinZ` (genuine one-letter words only).
+    public var dottedEscapeMinHalfZ: Double = 1.0
+    /// Stricter half-typicality bar for AUTO-APPLYING the escape (the
+    /// item-2 raised-margin rule instantiated for the dotted channel):
+    /// both halves at z ≥ 2σ — extreme-frequency words like "sem er".
+    /// Between the two bars the escape is offered tap-only.
+    public var dottedEscapeAutoApplyMinHalfZ: Double = 2.0
+    /// Channel penalty of reading the '.' as a missed spacebar tap. Kept
+    /// near `splitSubstitutionPenalty`: the tap evidence is the same kind
+    /// (a tap landed one key off the spacebar), slightly dearer because
+    /// the '.' key is smaller and farther into the corner.
+    public var dottedEscapePenalty: Double = 2.0
+
+    // --- Single-letter accent restoration (dogfood "giskar a allt"): the
+    // accent vowels live behind long-press, and a→á / i→í are among the
+    // most frequent Icelandic words. A committed bare vowel whose accented
+    // twin is a genuinely frequent IS word gets the twin offered — and
+    // auto-applied only when the lane is confidently Icelandic AND the
+    // bare letter is not itself Icelandic vocabulary ("a" is not an IS
+    // word; in an EN lane "a" is never touched).
+
+    /// The accented one-letter word must be attested in is.lex at or above
+    /// this calibrated z ("á" +3.3, "í" +3.4 qualify; "é" −0.7, "ý" −1.1
+    /// are corpus noise and never offered).
+    public var accentRestoreMinZ: Double = 1.5
+    /// Offer the accent suggestion only when P(IS) is at least this —
+    /// in a strongly English lane the accented variant is noise.
+    public var accentOfferMinPosterior: Double = 0.35
+    /// Auto-apply (the one sanctioned exception to `minAutocorrectLength`)
+    /// only when P(IS) is at least this AND the bare letter is not genuine
+    /// Icelandic vocabulary. Never fires in an English or uncertain lane.
+    public var accentAutoApplyMinPosterior: Double = 0.65
+
+    // --- Diacritic-restored prefix completions (dogfood "faralega"):
+    // an unknown token may combine missing accents in its PREFIX with an
+    // ordinary omission/typo in its tail ("faralega" = "fáránlega" minus
+    // the n and both accents) — reachable by completing diacritic variants
+    // of typed prefixes ("fárá" → "fáránlega"), never by edits1/edits2.
+
+    /// The pass runs only when no ATTESTED (or personal) candidate exists
+    /// at spatial cost at or below this after the cheap passes — same
+    /// philosophy (and default) as `edits2Gate`; ordinary typos with a real
+    /// close fix never pay for it. BÍN-only candidates don't suppress it.
+    public var diacriticCompletionGate: Double = 4.5
+    /// Cap on diacritic prefix variants expanded (each costs one bounded
+    /// lexicon completions() range scan).
+    public var diacriticCompletionMaxLookups: Int = 24
 
     // --- Two-lane language switching model (PLAN.md "Bilingual blending —
     // lane model"). The posterior P(IS) is the forward probability of a

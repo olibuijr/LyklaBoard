@@ -456,8 +456,36 @@ public final class TypingSession {
                     )
                 }
             }
-        } else if stem.count >= 2 {
-            // ≥2-char gate (see type doc, point 4).
+            // Dotted-token space-miss escape (dogfood "sem.er" → "sem er"):
+            // the '.' key sits right of the spacebar, so the dot may BE a
+            // missed space. Escape hatch out of the verbatim class, only in
+            // standard fields, only for word.word shapes that are not
+            // URL-shaped (one dot, all-letter halves, no known TLD, no
+            // www — see `spaceEscapeHalves`), and only when the engine
+            // finds both halves genuinely common (real domains like
+            // "tilvinstri.is" never reach the engine call at all).
+            if fieldKind == .standard, let halves = Self.spaceEscapeHalves(of: stem) {
+                let effectiveContext = context.isEmpty ? (carriedContext ?? "") : context
+                if let escape = engine.dottedSpaceMiss(
+                    left: halves.left,
+                    right: halves.right,
+                    context: effectiveContext
+                ) {
+                    engineSuggestions.insert(
+                        Suggestion(
+                            text: escape.text + (pendingDot ? "." : ""),
+                            isAutocorrect: escape.isAutocorrect,
+                            confidence: escape.confidence
+                        ),
+                        at: 0
+                    )
+                }
+            }
+        } else if stem.count >= 2 || Corrector.hasSingleLetterAccentEscape(stem) {
+            // ≥2-char gate (see type doc, point 4) — with the single-letter
+            // accent-escape exception (a e i o u y): the engine's dedicated
+            // 1-char path is a couple of point lookups, not the 1-char
+            // completion scan the gate exists to avoid.
             let effectiveContext = context.isEmpty ? (carriedContext ?? "") : context
             engineSuggestions = engine.suggestions(
                 context: effectiveContext,
@@ -883,6 +911,40 @@ public final class TypingSession {
             index = token.index(after: index)
         }
         return false
+    }
+
+    /// Smallest useful TLD list for the dotted space-miss escape: a dotted
+    /// token whose final segment is one of these is URL-shaped and stays
+    /// fully verbatim-class, whatever its halves score ("tilvinstri.is").
+    /// Deliberately small — generic + the locally relevant ccTLDs (IS,
+    /// Nordics, the usual suspects). Obscure ccTLDs that are also common
+    /// word-halves in neither language (e.g. ".er", Eritrea) are left out
+    /// on purpose: "sem.er" is overwhelmingly a missed spacebar, not a URL.
+    /// Note some entries shadow real English words ("is", "no", "me", "to",
+    /// "us") — URL protection wins that conflict by design.
+    static let knownTLDs: Set<String> = [
+        "is", "com", "net", "org", "io", "app", "dev", "co", "uk", "de",
+        "dk", "no", "se", "fi", "fo", "gl", "eu", "us", "edu", "gov",
+        "info", "me", "tv", "ai", "to", "fm", "gg", "xyz",
+    ]
+
+    /// Shape check for the dotted space-miss escape (dogfood "sem.er"):
+    /// the token must be word.word — EXACTLY one dot, no '@', all-letter
+    /// halves (digits mean version numbers / filenames), final segment not
+    /// a known TLD, and not a "www" stem. Word-COMMONNESS is the engine's
+    /// half of the decision (`TypeEngine.dottedSpaceMiss`); this is only
+    /// the URL-shape gate.
+    static func spaceEscapeHalves(of token: String) -> (left: String, right: String)? {
+        guard !token.contains("@") else { return nil }
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }  // exactly one dot
+        let left = String(parts[0])
+        let right = String(parts[1])
+        guard !left.isEmpty, !right.isEmpty else { return nil }
+        guard left.allSatisfy(\.isLetter), right.allSatisfy(\.isLetter) else { return nil }
+        guard left.lowercased() != "www" else { return nil }
+        guard !knownTLDs.contains(right.lowercased()) else { return nil }
+        return (left, right)
     }
 
     /// Trailing segment of a verbatim-class token: the part after the last

@@ -6,7 +6,11 @@ public struct Suggestion: Equatable, Sendable {
     public let text: String
     /// True only on the top candidate, and only when the conservatism rules
     /// allow auto-replacement (typed word unknown everywhere + confidence
-    /// margin met). A valid typed word NEVER yields isAutocorrect = true.
+    /// margin met). A valid typed word NEVER yields isAutocorrect = true —
+    /// with ONE sanctioned, lane-gated exception: single-letter accent
+    /// restoration (a→á, i→í), where the bare letter may be valid in the
+    /// OTHER language ("a" in English) but is not a word in the confident
+    /// Icelandic lane (see `Corrector.singleLetterCorrection`).
     public let isAutocorrect: Bool
     /// Softmax posterior over the scored candidate pool, in (0, 1].
     public let confidence: Double
@@ -107,6 +111,20 @@ public struct Corrector {
         // suggesting", never "punish typing" (isValidTypedWord docs).
         let typedIsValid = model.isValidTypedWord(typed)
 
+        // Single-letter input: the general pipeline is both too expensive
+        // (1-char completion ranges) and too noisy for one letter — the only
+        // useful correction is accent restoration (dogfood "giskar a allt":
+        // a→á, i→í are extreme-frequency Icelandic words typed accentless
+        // because accents live behind long-press). Dedicated targeted path.
+        if typedChars.count == 1 {
+            return singleLetterCorrection(
+                letter: typedChars[0],
+                previousWord: previousWord,
+                pIcelandic: pIcelandic,
+                typedIsValid: typedIsValid
+            )
+        }
+
         // ---- Candidate generation ----------------------------------------
         // word -> spatial cost
         var candidates: [String: Double] = [:]
@@ -150,6 +168,17 @@ public struct Corrector {
             admit(word)
         }
 
+        // 2c. Gemination + accent compositions ("nogg" → dedouble → "nog" →
+        // o→ó → "nóg"; "huss" → "hús"): the classic Icelandic double-error
+        // shape neither targeted pass reaches alone. Tiny: dedoubled bases
+        // (≤ #doubled pairs) × their diacritic variants, existence-checked.
+        for base in Self.dedoubledVariants(of: typedChars) {
+            for word in Self.diacriticVariants(of: base, maxChanges: 2)
+            where isCandidateWord(word, checkMorphology: true) {
+                admit(word)
+            }
+        }
+
         // 3. Prefix completions of the typed word (completion-as-suggestion).
         for lexicon in [model.icelandic, model.english] {
             for completion in lexicon.completions(of: typed, limit: config.completionPoolLimit) {
@@ -185,6 +214,39 @@ public struct Corrector {
                     of: prefix, limit: config.personalCompletionPoolLimit)
                 {
                     admit(completion.word)
+                }
+            }
+        }
+
+        // 4b. Diacritic-restored prefix completions (dogfood "faralega" →
+        // "fáránlega"): missing accents in the PREFIX combined with an
+        // ordinary omission/typo in the tail are unreachable by every pass
+        // above (3 edits from the typed word). Completing diacritic
+        // variants of typed prefixes ("fárá" → fáránlega…) covers exactly
+        // that shape. Icelandic-only (accents are the IS phenomenon), and
+        // gated like edits2 — but on the best ATTESTED-or-personal
+        // candidate, so BÍN-floored junk ("garalega") cannot suppress the
+        // honest repair it is junk relative to.
+        if !typedIsValid, typedChars.count >= 5,
+            bestAttestedCost(in: candidates) > config.diacriticCompletionGate
+        {
+            // Shortest prefix first: it has the fewest variants and the
+            // widest completion range, and the tail typo is more likely to
+            // sit several characters back ("fara|lega" needs the length-4
+            // prefix) — longest-first would burn the budget on
+            // near-full-length variants that pass 2 mostly covered.
+            var budget = config.diacriticCompletionMaxLookups
+            let shortestPrefix = max(3, typedChars.count - 4)
+            outer: for length in stride(from: shortestPrefix, through: typedChars.count, by: 1) {
+                let prefix = Array(typedChars.prefix(length))
+                for variant in Self.diacriticVariants(of: prefix, maxChanges: 2) {
+                    guard budget > 0 else { break outer }
+                    budget -= 1
+                    for completion in model.icelandic.completions(
+                        of: variant, limit: config.completionPoolLimit)
+                    {
+                        admit(completion.word)
+                    }
                 }
             }
         }
@@ -274,7 +336,32 @@ public struct Corrector {
             Self.preservesApostrophes(of: typed, in: best.word)
         {
             let margin = scored.count > 1 ? best.score - scored[1].score : .infinity
-            autocorrect = margin >= config.autocorrectMargin
+            if best.word.contains(" ") {
+                // Split auto-apply (dogfood "fara lega" tightening): a split
+                // is a bigger intervention than a repair, so it must clear a
+                // RAISED margin AND the merged token must have no plausible
+                // attested/personal single-word repair within the generous
+                // cost bound — if a one-word fix exists, the split stays
+                // bar-only. BÍN-only forms never veto (junk one edit from
+                // everything must not block "helloworld" → "hello world").
+                let bestSingleCost = scored
+                    .filter { !$0.word.contains(" ") && isAttestedOrPersonal($0.word) }
+                    .map(\.spatialCost)
+                    .min() ?? .infinity
+                autocorrect = margin >= config.splitAutocorrectMargin
+                    && bestSingleCost > config.splitAutoApplySingleWordCutoff
+            } else {
+                // Single-word auto-apply additionally requires the winner to
+                // be typical vocabulary (attested at z ≥ autocorrectMinZ;
+                // personal words are exempt): BÍN-floored junk like
+                // "garalega" may be suggested but never auto-applied.
+                let typicality =
+                    model.isPersonalValid(best.word)
+                    ? Double.infinity
+                    : (attestedTypicality(of: best.word) ?? -.infinity)
+                autocorrect = margin >= config.autocorrectMargin
+                    && typicality >= config.autocorrectMinZ
+            }
         }
 
         // ---- Confidence: softmax over the top of the candidate pool -------
@@ -466,6 +553,203 @@ public struct Corrector {
         return false
     }
 
+    // MARK: - Single-letter accent restoration
+
+    /// The accent vowel pairs: bare letter → the long-press accented twin
+    /// that is (potentially) a genuine one-letter Icelandic word. Only
+    /// vowels — d→ð / t→þ never form one-letter words.
+    static let singleLetterAccentPairs: [Character: Character] = [
+        "a": "á", "e": "é", "i": "í", "o": "ó", "u": "ú", "y": "ý",
+    ]
+
+    /// Could a single-letter token get the accent-restoration suggestion at
+    /// all? Cheap shape check for embedder gating (TypingSession's ≥2-char
+    /// gate stays shut for every other single letter).
+    public static func hasSingleLetterAccentEscape(_ token: String) -> Bool {
+        guard token.count == 1, let letter = token.lowercased().first else { return false }
+        return singleLetterAccentPairs[letter] != nil
+    }
+
+    /// Targeted single-letter path (dogfood "giskar a allt" → "giskar á"):
+    /// offer the accented twin when it is a genuinely frequent Icelandic
+    /// word, lane-gated. Auto-apply — the one sanctioned exception to both
+    /// `minAutocorrectLength` and the valid-typed-word rule — only when the
+    /// lane is confidently Icelandic AND the bare letter is not itself
+    /// Icelandic vocabulary (is.lex-genuine, personal, or tombstoned; BÍN
+    /// deliberately excluded, as everywhere junk-collides). In an English
+    /// lane "a"/"i" are never touched and nothing is even offered.
+    private func singleLetterCorrection(
+        letter: Character,
+        previousWord: String?,
+        pIcelandic: Double,
+        typedIsValid: Bool
+    ) -> CorrectionResult {
+        func empty() -> CorrectionResult {
+            CorrectionResult(suggestions: [], typedWordIsValid: typedIsValid)
+        }
+        guard let accented = Self.singleLetterAccentPairs[letter] else { return empty() }
+        let variant = String(accented)
+        guard !model.isPersonalTombstoned(variant) else { return empty() }
+        // The accented twin must be genuinely frequent Icelandic ("á" +3.3,
+        // "í" +3.4 clear the bar; "é"/"ý" are corpus noise and never show).
+        guard model.icelandic.frequency(of: variant) != nil,
+            model.calibratedUnigramScore(of: variant, language: .icelandic)
+                >= config.accentRestoreMinZ
+        else { return empty() }
+        // Lane offer gate: in a strongly English lane the variant is noise.
+        guard pIcelandic >= config.accentOfferMinPosterior else { return empty() }
+
+        let bare = String(letter)
+        let bareIsIcelandicWord =
+            model.isPersonalValid(bare)
+            || model.isPersonalTombstoned(bare)
+            || (model.icelandic.frequency(of: bare) != nil
+                && model.calibratedUnigramScore(of: bare, language: .icelandic)
+                    >= config.splitSingleCharHalfMinZ)
+        let autocorrect =
+            pIcelandic >= config.accentAutoApplyMinPosterior && !bareIsIcelandicWord
+
+        // Confidence: two-way softmax between the accented reading and the
+        // typed letter's own blended score.
+        let sVariant = model.blendedScore(
+            of: variant, previous: previousWord, pIcelandic: pIcelandic)
+        let sBare = model.blendedScore(of: bare, previous: previousWord, pIcelandic: pIcelandic)
+        let m = max(sVariant, sBare)
+        let confidence = exp(sVariant - m) / (exp(sVariant - m) + exp(sBare - m))
+        return CorrectionResult(
+            suggestions: [
+                Suggestion(text: variant, isAutocorrect: autocorrect, confidence: confidence)
+            ],
+            typedWordIsValid: typedIsValid
+        )
+    }
+
+    // MARK: - Dotted-token space-miss escape
+
+    /// Score/validate the "word word" reading of a dotted token whose SHAPE
+    /// already passed TypingSession's checks (exactly one internal dot,
+    /// all-letter halves, no known TLD, no www — see
+    /// `TypingSession.spaceEscapeHalves`). Returns nil unless both halves
+    /// are common attested words in one common language
+    /// (`dottedEscapeMinHalfZ`). Auto-apply follows the strict split rules:
+    /// the stricter half-typicality bar AND no attested/personal
+    /// single-word repair of the merged letters within the generous bound.
+    func dotSplitSuggestion(
+        left: String,
+        right: String,
+        previousWord: String?,
+        pIcelandic: Double
+    ) -> Suggestion? {
+        guard !model.isPersonalTombstoned(left), !model.isPersonalTombstoned(right) else {
+            return nil
+        }
+        guard let commonness = pairCommonness(left: left, right: right),
+            commonness >= config.dottedEscapeMinHalfZ
+        else { return nil }
+
+        let score =
+            -config.dottedEscapePenalty
+            + config.languageWeight
+                * model.blendedPairScore(
+                    first: left, second: right, previous: previousWord, pIcelandic: pIcelandic)
+        let autocorrect =
+            commonness >= config.dottedEscapeAutoApplyMinHalfZ
+            && bestSingleWordRepairCost(of: left + right) > config.splitAutoApplySingleWordCutoff
+        // Squashed score as a display confidence (there is no candidate
+        // pool to softmax against — the alternative reading is the literal
+        // verbatim token, which the bar always carries anyway).
+        let confidence = 1 / (1 + exp(-score))
+        return Suggestion(
+            text: left + " " + right,
+            isAutocorrect: autocorrect,
+            confidence: min(max(confidence, 0), 1)
+        )
+    }
+
+    /// max over language L of min(z_L(left), z_L(right)) — the pair's
+    /// commonness in its best COMMON language; nil when no single language
+    /// attests both halves (cross-language pairs never get the escape).
+    /// One-letter halves must be genuine one-letter words in that language
+    /// (`splitSingleCharHalfMinZ`).
+    private func pairCommonness(left: String, right: String) -> Double? {
+        func z(_ word: String, _ language: Language) -> Double? {
+            guard model.lexicon(for: language).frequency(of: word) != nil else { return nil }
+            let score = model.calibratedUnigramScore(of: word, language: language)
+            if word.count == 1, score < config.splitSingleCharHalfMinZ { return nil }
+            return score
+        }
+        var best: Double?
+        for language in [Language.icelandic, .english] {
+            if let l = z(left, language), let r = z(right, language) {
+                best = max(best ?? -.infinity, min(l, r))
+            }
+        }
+        return best
+    }
+
+    /// Cheapest ATTESTED-or-personal single-word repair of `typed` by the
+    /// targeted passes (valid-as-is, edits1, diacritics, gemination — never
+    /// edits2/completions): the item-2 "no plausible one-word fix" probe
+    /// for split auto-apply. BÍN-only forms deliberately don't count.
+    func bestSingleWordRepairCost(of typed: String) -> Double {
+        if model.isValidTypedWord(typed) { return 0 }
+        let chars = Array(typed)
+        var best = Double.infinity
+        func consider(_ word: String, _ cost: Double) {
+            guard cost < best, isAttestedOrPersonal(word) else { return }
+            best = cost
+        }
+        for (word, cost) in Self.edits1Costed(of: chars, spatial: spatial) {
+            consider(word, cost)
+        }
+        for word in Self.diacriticVariants(of: chars) {
+            consider(word, spatialCost(typedChars: chars, candidate: word))
+        }
+        for word in Self.geminationVariants(of: chars) {
+            consider(word, spatialCost(typedChars: chars, candidate: word))
+        }
+        return best
+    }
+
+    // MARK: - Attestation helpers
+
+    /// Attested in a frequency table, or valid personal vocabulary
+    /// (tombstoned words excluded). BÍN validity deliberately does not
+    /// count — its 3M forms collide with junk (same stance as laneEvidence).
+    private func isAttestedOrPersonal(_ word: String) -> Bool {
+        guard !model.isPersonalTombstoned(word) else { return false }
+        return model.isPersonalValid(word)
+            || model.icelandic.frequency(of: word) != nil
+            || model.english.frequency(of: word) != nil
+    }
+
+    /// Best within-language calibrated typicality of an ATTESTED word; nil
+    /// when the word is in neither frequency table (BÍN-only / unknown).
+    private func attestedTypicality(of word: String) -> Double? {
+        var best: Double?
+        if model.icelandic.frequency(of: word) != nil {
+            best = model.calibratedUnigramScore(of: word, language: .icelandic)
+        }
+        if model.english.frequency(of: word) != nil {
+            best = max(
+                best ?? -.infinity,
+                model.calibratedUnigramScore(of: word, language: .english)
+            )
+        }
+        return best
+    }
+
+    /// Cheapest attested-or-personal candidate cost in a generation pool
+    /// (the gate currency for passes that BÍN-floored junk must not
+    /// suppress — see step 4b).
+    private func bestAttestedCost(in candidates: [String: Double]) -> Double {
+        var best = Double.infinity
+        for (word, cost) in candidates where cost < best && isAttestedOrPersonal(word) {
+            best = cost
+        }
+        return best
+    }
+
     // MARK: - Internals
 
     /// Apostrophe conservatism (harness quirk: "don't"→"dont", "I'm"→"Ibm"):
@@ -545,20 +829,29 @@ public struct Corrector {
         return results
     }
 
+    /// Bases reachable by removing one letter of a doubled pair ("nogg" →
+    /// "nog"). Shared by the gemination pass and the gemination+accent
+    /// composition pass (2c).
+    static func dedoubledVariants(of chars: [Character]) -> [[Character]] {
+        let n = chars.count
+        guard n >= 2 else { return [] }
+        var dedoubled: [[Character]] = []
+        for i in 0..<(n - 1) where chars[i] == chars[i + 1] {
+            var copy = chars
+            copy.remove(at: i)
+            dedoubled.append(copy)
+        }
+        return dedoubled
+    }
+
     /// Gemination-error variants: remove one letter of a doubled pair,
     /// double an existing letter, or both (in that order — covering
     /// "tommorow"→"tomorrow" in one targeted pass).
     static func geminationVariants(of chars: [Character]) -> [String] {
         let n = chars.count
         guard n >= 2 else { return [] }
-        var dedoubled: [[Character]] = []
-        var results: [String] = []
-        for i in 0..<(n - 1) where chars[i] == chars[i + 1] {
-            var copy = chars
-            copy.remove(at: i)
-            dedoubled.append(copy)
-            results.append(String(copy))
-        }
+        let dedoubled = Self.dedoubledVariants(of: chars)
+        var results: [String] = dedoubled.map { String($0) }
         func doubling(_ base: [Character], into results: inout [String]) {
             for i in 0..<base.count where i == 0 || base[i] != base[i - 1] {
                 var copy = base

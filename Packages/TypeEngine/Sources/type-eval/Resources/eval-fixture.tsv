@@ -74,3 +74,40 @@ verygood	very good	split
 takkfyrir	takk fyrir	split
 gottnveður	gott veður	split
 godanbdag	góðan dag	split
+# ---------------------------------------------------------------------------
+# dogfood wave (2026-07-15) — NEW categories, reported separately from the
+# gating categories above (en/is/split must not regress; these are the
+# under-firing repairs from the real dogfood line plus their class-mates).
+#
+# acc1: single-letter accent restoration ("giskar a allt" → á). Neutral
+# posterior in this harness ⇒ offered, never auto-applied (lane-gated).
+a	á	acc1
+i	í	acc1
+# drop: single dropped letter ("aveg" = alveg minus the l)
+aveg	alveg	drop
+fyri	fyrir	drop
+strákr	strákur	drop
+# (not "fallegr": that is one ADJACENT-KEY substitution from "fallegt",
+# which is the better spatial reading — a fine top-1, just not this class)
+fallegu	fallegur	drop
+morgu	morgun	drop
+eitthva	eitthvað	drop
+kannsk	kannski	drop
+verðu	verður	drop
+klukka	klukkan	drop
+# gemacc: gemination + accent compositions ("nogg" = nóg with doubled g and
+# dropped accent) — the 2c composed pass
+nogg	nóg	gemacc
+huss	hús	gemacc
+bokk	bók	gemacc
+kvolld	kvöld	gemacc
+skolli	skóli	gemacc
+godann	góðan	gemacc
+mjollk	mjólk	gemacc
+gamman	gaman	gemacc
+# short: two-letter repairs (never auto-applied — minAutocorrectLength)
+ik	ok	short
+# hard: accent-drop in the prefix + omission in the tail (the 4b
+# diacritic-restored prefix-completion pass; dogfood "fara lega" token)
+faralega	fáránlega	hard
+faranlega	fáránlega	hard

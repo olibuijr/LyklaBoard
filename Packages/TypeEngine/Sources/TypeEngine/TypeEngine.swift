@@ -139,6 +139,33 @@ public final class TypeEngine {
         return suggestions
     }
 
+    /// Dotted-token space-miss escape (PLAN.md "Space-miss correction" +
+    /// verbatim/URL layers; dogfood "sem.er"): the "left right" reading of
+    /// a word.word token whose SHAPE already passed TypingSession's URL
+    /// checks. Returns nil unless both halves are common attested words in
+    /// one common language; `isAutocorrect` follows the strict split rules
+    /// (see `Corrector.dotSplitSuggestion`).
+    public func dottedSpaceMiss(left: String, right: String, context: String) -> Suggestion? {
+        let previous = Self.lastWord(in: context)
+        guard
+            let suggestion = corrector.dotSplitSuggestion(
+                left: left.lowercased(),
+                right: right.lowercased(),
+                previousWord: previous,
+                pIcelandic: probabilityIcelandic
+            )
+        else { return nil }
+        // Preserve the user's leading capitalization ("Sem.er" → "Sem er").
+        if let first = left.first, first.isUppercase {
+            return Suggestion(
+                text: suggestion.text.prefix(1).uppercased() + suggestion.text.dropFirst(),
+                isAutocorrect: suggestion.isAutocorrect,
+                confidence: suggestion.confidence
+            )
+        }
+        return suggestion
+    }
+
     /// Personal surface forms are byte-exact and case-preserving
     /// ("Miðeind") while the correction/prediction pipeline works in
     /// lowercase — restore the canonical personal casing on the way out.

@@ -303,6 +303,150 @@ final class CorrectorTests: XCTestCase {
         XCTAssertGreaterThan(coherent, incoherent)
     }
 
+    // MARK: - Single-letter accent restoration (dogfood "giskar a allt")
+
+    /// Lexicons where á/í are attested one-letter Icelandic words and a/i
+    /// are attested English words. `accentRestoreMinZ` is dropped so the
+    /// mechanics are decoupled from the tiny lexicon's calibration stats
+    /// (the real-artifact thresholds are exercised by the scenario suite).
+    private func accentCorrector(
+        icelandicUnigrams: [String: UInt32] = [
+            "á": 3000, "í": 2800, "og": 2000, "að": 1800, "hestur": 500, "gott": 150,
+        ],
+        configure: (inout EngineConfig) -> Void = { _ in }
+    ) -> Corrector {
+        var config = EngineConfig()
+        config.accentRestoreMinZ = -10
+        configure(&config)
+        return Corrector(
+            icelandic: DictLexicon(unigrams: icelandicUnigrams),
+            english: DictLexicon(unigrams: ["a": 2800, "i": 2200, "the": 2000, "is": 1500]),
+            config: config
+        )
+    }
+
+    func testSingleLetterAccentOfferedButNotAppliedAtNeutralLane() {
+        let result = accentCorrector().correct(typed: "a", pIcelandic: 0.5)
+        XCTAssertEqual(result.suggestions.map(\.text), ["á"])
+        XCTAssertEqual(result.suggestions.first?.isAutocorrect, false)
+    }
+
+    func testSingleLetterAccentAutoAppliesInIcelandicLane() {
+        let result = accentCorrector().correct(typed: "a", pIcelandic: 0.8)
+        XCTAssertEqual(result.suggestions.first?.text, "á")
+        XCTAssertEqual(
+            result.suggestions.first?.isAutocorrect, true,
+            "IS lane + bare letter not Icelandic vocabulary: the sanctioned exception applies"
+        )
+        XCTAssertTrue(result.typedWordIsValid, "validity reporting stays honest (a is English)")
+    }
+
+    func testSingleLetterAccentSilentInEnglishLane() {
+        let result = accentCorrector().correct(typed: "a", pIcelandic: 0.2)
+        XCTAssertTrue(result.suggestions.isEmpty, "in an EN lane 'a' is never even prompted")
+    }
+
+    func testBareLetterThatIsIcelandicVocabularyNeverAutoApplies() {
+        // A corpus where bare "a" IS genuine Icelandic vocabulary: the
+        // accent twin stays offered, auto-apply is off (valid-word rule).
+        let result = accentCorrector(
+            icelandicUnigrams: ["á": 3000, "a": 2900, "og": 2000, "að": 1800],
+            configure: { $0.splitSingleCharHalfMinZ = -10 }
+        ).correct(typed: "a", pIcelandic: 0.8)
+        XCTAssertEqual(result.suggestions.first?.text, "á")
+        XCTAssertEqual(result.suggestions.first?.isAutocorrect, false)
+    }
+
+    func testSingleLetterWithoutAccentTwinYieldsNothing() {
+        let result = accentCorrector().correct(typed: "h", pIcelandic: 0.8)
+        XCTAssertTrue(result.suggestions.isEmpty)
+    }
+
+    func testAccentTwinBelowFrequencyBarIsNotOffered() {
+        let result = accentCorrector(configure: { $0.accentRestoreMinZ = 100 })
+            .correct(typed: "a", pIcelandic: 0.8)
+        XCTAssertTrue(result.suggestions.isEmpty)
+    }
+
+    // MARK: - Dotted-token space-miss escape (dogfood "sem.er")
+
+    private func dottedCorrector(configure: (inout EngineConfig) -> Void = { _ in })
+        -> Corrector
+    {
+        var config = EngineConfig()
+        config.dottedEscapeMinHalfZ = -10
+        config.dottedEscapeAutoApplyMinHalfZ = -10
+        configure(&config)
+        return Corrector(
+            icelandic: DictLexicon(unigrams: ["sem": 2600, "er": 3200, "og": 2000]),
+            english: Fixtures.english,
+            config: config
+        )
+    }
+
+    func testDotSplitSuggestionAutoAppliesForCommonPair() {
+        let s = dottedCorrector().dotSplitSuggestion(
+            left: "sem", right: "er", previousWord: nil, pIcelandic: 0.5)
+        XCTAssertEqual(s?.text, "sem er")
+        // No attested single-word repair of "semer" exists in the fixture:
+        // the strict split rules allow the auto-apply.
+        XCTAssertEqual(s?.isAutocorrect, true)
+    }
+
+    func testDotSplitRequiresBothHalvesCommon() {
+        let s = dottedCorrector(configure: { $0.dottedEscapeMinHalfZ = 100 })
+            .dotSplitSuggestion(left: "sem", right: "er", previousWord: nil, pIcelandic: 0.5)
+        XCTAssertNil(s)
+    }
+
+    func testDotSplitRejectsCrossLanguagePairs() {
+        // "sem" is only Icelandic, "the" only English: no single language
+        // attests both halves, so the escape never fires.
+        let s = dottedCorrector().dotSplitSuggestion(
+            left: "sem", right: "the", previousWord: nil, pIcelandic: 0.5)
+        XCTAssertNil(s)
+    }
+
+    func testDotSplitAutoApplyBlockedByValidMergedToken() {
+        // "hell"+"o" merges to the valid word "hello": repair cost 0 blocks
+        // auto-apply; the escape reading may still be offered tap-only.
+        var config = EngineConfig()
+        config.dottedEscapeMinHalfZ = -10
+        config.dottedEscapeAutoApplyMinHalfZ = -10
+        config.splitSingleCharHalfMinZ = -10
+        let corrector = Corrector(
+            icelandic: Fixtures.icelandic,
+            english: DictLexicon(unigrams: ["hell": 500, "o": 400, "hello": 800, "the": 2000]),
+            config: config
+        )
+        let s = corrector.dotSplitSuggestion(
+            left: "hell", right: "o", previousWord: nil, pIcelandic: 0.5)
+        XCTAssertEqual(s?.text, "hell o")
+        XCTAssertEqual(s?.isAutocorrect, false)
+    }
+
+    // MARK: - Autocorrect typicality floor (dogfood "faralega" → "garalega")
+
+    func testBinOnlyCandidateNeverAutoApplies() {
+        // The top candidate is only BÍN-valid (absent from every frequency
+        // table): suggested, never auto-applied — morphology-validated junk
+        // one edit from everything is exactly the garalega landmine.
+        let morphology = FakeMorphology(["hestunum"])
+        let result = makeCorrector(morphology: morphology).correct(typed: "hestunun")
+        XCTAssertEqual(result.suggestions.first?.text, "hestunum")
+        XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+    }
+
+    func testBestSingleWordRepairCostProbesAttestedRepairsOnly() {
+        let corrector = makeCorrector()
+        XCTAssertEqual(corrector.bestSingleWordRepairCost(of: "hestur"), 0, "valid as-is")
+        XCTAssertLessThan(
+            corrector.bestSingleWordRepairCost(of: "hestir"), 2.5,
+            "adjacent-key i→u repair to hestur is well inside the generous bound"
+        )
+        XCTAssertTrue(corrector.bestSingleWordRepairCost(of: "zzqqxx").isInfinite)
+    }
+
     // MARK: edits2 budgets
 
     func testEdits2ExpansionCapFallsBackGracefully() {

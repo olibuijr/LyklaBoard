@@ -35,6 +35,8 @@ enum EvalWordlists {
         "necessary": 40, "occasion": 20, "publicly": 16, "successful": 30,
         "truly": 24, "basically": 26, "tomorrow": 46, "weird": 28,
         "accommodate": 12, "true": 48, "success": 34, "public": 52,
+        // dogfood wave (2026-07-15): "Hmmm ik" = "ok"
+        "ok": 210,
         // split-pair halves (space-miss category)
         "is": 2400, "world": 60, "hello": 40,
     ]
@@ -77,6 +79,9 @@ enum EvalWordlists {
         "lítill": 80, "lítið": 130, "nýr": 90, "nýtt": 100, "gamall": 60,
         "sæll": 70, "blessaður": 30, "halló": 60, "heim": 110, "heima": 130,
         "verða": 200, "vel": 240, "fá": 300, "fær": 140, "fékk": 130,
+        // dogfood wave (2026-07-15): under-firing repair targets
+        "alveg": 260, "nóg": 160, "nógu": 140, "fáránlega": 40,
+        "fáránlegur": 30,
     ]
 
     static let icelandicBigrams: [String: UInt32] = [

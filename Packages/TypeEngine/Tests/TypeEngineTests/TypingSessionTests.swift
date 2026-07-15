@@ -657,6 +657,46 @@ final class TypingSessionTests: XCTestCase {
         )
     }
 
+    // MARK: - Dotted space-miss escape shape gate (dogfood "sem.er")
+
+    func testSpaceEscapeHalvesAcceptsWordDotWord() {
+        let halves = TypingSession.spaceEscapeHalves(of: "sem.er")
+        XCTAssertEqual(halves?.left, "sem")
+        XCTAssertEqual(halves?.right, "er")
+    }
+
+    func testSpaceEscapeHalvesRejectsUrlShapes() {
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "tilvinstri.is"), "known TLD")
+        XCTAssertNil(
+            TypingSession.spaceEscapeHalves(of: "profilmynd.tilvinstri.is"), "two dots")
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "www.foo"), "www stem")
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "3.14"), "digits")
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "jokull@trip.er"), "e-mail shape")
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "sem."), "empty half")
+        XCTAssertNil(TypingSession.spaceEscapeHalves(of: "Sem.IS"), "TLD check is case-blind")
+    }
+
+    // MARK: - Single-letter gate (dogfood "giskar a allt")
+
+    func testSingleConsonantStaysOnlyVerbatim() {
+        // 'd' has a diacritic restoration variant (ð) but no one-letter
+        // accent escape: the ≥2-char gate stays shut.
+        let s = session()
+        let bar = typeThrough(s, "d")
+        XCTAssertEqual(bar.map(\.text), ["d"])
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+    }
+
+    func testSingleVowelGateOpensButFixtureOffersNothing() {
+        // 'a' passes the gate; the fixture lexicon has no attested "á", so
+        // the engine's targeted path yields nothing — bar is verbatim-only
+        // (the positive path runs against the real artifacts in scenarios).
+        let s = session()
+        let bar = typeThrough(s, "a")
+        XCTAssertEqual(bar.map(\.text), ["a"])
+        XCTAssertEqual(bar.first?.isVerbatim, true)
+    }
+
     // MARK: - Reset
 
     func testResetClearsPosteriorAndCounters() {

@@ -1,0 +1,33 @@
+# dogfood.scenarios — TRACKING file, deliberately separate from
+# core.scenarios (the gating suite). Encodes the real dogfood line of
+# 2026-07-15 replayed raw, keystroke for keystroke:
+#
+#   typed:    "Lyklaborð sem.er alveg fara lega hratt og giskar a allt fer
+#              sem naður awgke. Hmmm ik - ekki að virka aveg nogg."
+#   intended: "Lyklaborð sem er alveg fáránlega hratt og giskar á allt fer
+#              sem maður <awgke = mash junk>. Hmmm ok - ekki að virka
+#              alveg nógu."
+#
+# Run:  swift run -c release type-repl run Scenarios/dogfood.scenarios
+#
+# Current contract (fixes 1-3 applied end to end):
+#   fix 1  "sem.er"  → "sem er"   (dotted space-miss escape, auto-applied)
+#   fix 2  "fara lega" was typed as TWO valid words around a real spacebar
+#          tap — nothing to correct at replay time; the fix guarantees no
+#          false split ever auto-applies over a "fáránlega"-class repair
+#          (core.scenarios "faralega …" locks that)
+#   fix 3  "a" → "á"              (single-letter accent restoration, IS lane)
+#   fix 4  "naður" stays (valid; "maður" offered in the bar — core suite)
+#   fix 5  "aveg"/"nogg"/"ik" stay (offers locked in core + eval; margins
+#          deliberately keep them tap-only), "awgke" stays (mash junk)
+#
+# ASPIRATIONAL (cannot pass under the sacred conservatism rules — valid
+# words are never auto-replaced, and typed-with-a-real-space tokens commit
+# as typed; kept here as the north star for the touch-decoder wave):
+#   EXPECT_BUFFER "Lyklaborð sem er alveg fáránlega hratt og giskar á allt fer sem maður awgke. Hmmm ok - ekki að virka alveg nógu. "
+
+LIMIT 5
+
+SCENARIO dogfood line 2026-07-15 replayed raw
+T "Lyklaborð sem.er alveg fara lega hratt og giskar a allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "
+EXPECT_BUFFER "Lyklaborð sem er alveg fara lega hratt og giskar á allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "

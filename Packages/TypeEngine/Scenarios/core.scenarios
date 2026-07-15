@@ -746,3 +746,155 @@ SCENARIO email-shaped tokens are never logged even in standard fields
 T "jokull@triptojapan.com "
 EXPECT_COMMITS 1
 EXPECT_EVENTS 0
+
+# ============================================================
+# Dogfood wave (2026-07-15): "Lyklaborð sem.er alveg fara lega hratt og
+# giskar a allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg."
+# Fixes 1-5; the raw full-line tracking scenario lives in
+# Scenarios/dogfood.scenarios (kept separate so this suite stays the gate).
+# ============================================================
+
+# ---------------------------------------------------------------------------
+# 1. Dotted-token space-miss escape ("sem.er" — the '.' key sits right of
+#    the spacebar). word.word with both halves very common in one language,
+#    not URL-shaped ⇒ escape out of the verbatim class; real domains stay
+#    protected.
+# ---------------------------------------------------------------------------
+
+SCENARIO sem.er escapes the verbatim class and autocorrects to sem er
+T sem.er
+EXPECT_VERBATIM sem.er
+# Both halves extreme-frequency IS (z +3.1) and no plausible single-word
+# repair of "semer": clears the strict split auto-apply rules.
+EXPECT_AUTOCORRECT sem er
+T " "
+EXPECT_BUFFER "sem er "
+EXPECT_COMMITS 2
+EXPECT_LAST_COMMIT er
+
+SCENARIO known TLD keeps the dotted escape away
+# ".is" is in the TLD list: URL-shaped, fully verbatim-class, whatever the
+# halves score.
+T tilvinstri.is
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+T " "
+EXPECT_BUFFER "tilvinstri.is "
+EXPECT_LAST_COMMIT tilvinstri.is
+
+SCENARIO two-dot token never gets the dotted escape
+T profilmynd.tilvinstri.is
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+T " "
+EXPECT_BUFFER "profilmynd.tilvinstri.is "
+
+SCENARIO dotted escape requires a standard field
+FIELD url
+T sem.er
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+T " "
+EXPECT_BUFFER "sem.er "
+FIELD standard
+
+# ---------------------------------------------------------------------------
+# 2. Split auto-apply tightening + BÍN-junk autocorrect floor ("fara lega"
+#    auto-replaced intended "fáránlega"; the repro also exposed the worse
+#    "faralega" → "garalega" BÍN-junk auto-apply).
+# ---------------------------------------------------------------------------
+
+SCENARIO faralega offers fáránlega and applies no junk and no split
+T "þetta er alveg faralega"
+# The 4b diacritic-prefix-completion pass reaches fáránlega (3 edits away:
+# á, á, +n); BÍN-floored "garalega" may lead the bar but can never
+# auto-apply (autocorrectMinZ requires an attested winner), and no split
+# is generated (cheap candidates below the split gate).
+EXPECT_CONTAINS fáránlega
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+T " "
+EXPECT_BUFFER "þetta er alveg faralega "
+
+SCENARIO faranlega offers fáránlega with no split interference
+T "þetta er alveg faranlega"
+EXPECT_CONTAINS fáránlega
+EXPECT_NO_AUTOCORRECT
+EXPECT_NO_SPLIT
+
+# ---------------------------------------------------------------------------
+# 3. Single-letter accent restoration ("giskar a allt" — a→á), lane-gated.
+# ---------------------------------------------------------------------------
+
+SCENARIO single a restores to á in an icelandic lane
+T "og giskar "
+EXPECT_POSTERIOR_GT 0.65
+T a
+EXPECT_VERBATIM a
+# "a" is not an Icelandic word (pruned from is.lex, BÍN excluded) and the
+# lane is confidently IS: á (z +3.3) may auto-apply.
+EXPECT_AUTOCORRECT á
+T " allt "
+EXPECT_BUFFER "og giskar á allt "
+EXPECT_LAST_COMMIT allt
+
+SCENARIO single i restores to í in an icelandic lane
+T "við erum "
+T i
+EXPECT_AUTOCORRECT í
+T " "
+EXPECT_BUFFER "við erum í "
+
+SCENARIO single a in an english lane is never touched
+T "this is "
+EXPECT_POSTERIOR_LT 0.35
+# Below the offer posterior nothing is even suggested — "a" is a valid,
+# extreme-frequency English word.
+T a
+EXPECT_ONLY_VERBATIM a
+T " test "
+EXPECT_BUFFER "this is a test "
+
+SCENARIO single a at a neutral posterior is offered but never auto-applied
+T a
+EXPECT_VERBATIM a
+EXPECT_CONTAINS á
+EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# 4. Valid-but-rare word with a frequent spatial neighbor ("naður" typed,
+#    "maður" intended): offer, never auto-apply (sacred rule unchanged).
+#    naður is BÍN-valid but absent from is.lex; maður is attested at 249k.
+# ---------------------------------------------------------------------------
+
+SCENARIO rare naður offers frequent neighbor maður without auto-apply
+T "fer sem naður"
+EXPECT_CONTAINS maður
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "fer sem naður "
+EXPECT_LAST_COMMIT naður
+
+# ---------------------------------------------------------------------------
+# 5. Under-firing repairs from the dogfood tail (offers locked in; margins
+#    deliberately keep them tap-only — see eval categories drop/gemacc).
+# ---------------------------------------------------------------------------
+
+SCENARIO aveg offers alveg
+T "ekki að virka aveg"
+# "veg" (delete the a) is an equally-cheap attested reading, so the margin
+# correctly keeps this tap-only — under-correct rather than over-correct.
+EXPECT_CONTAINS alveg
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO nogg offers nóg via the gemination-accent composition
+T "ekki nogg"
+EXPECT_CONTAINS nóg
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO awgke mash stays uncorrected and verbatim-led
+T "sem awgke"
+EXPECT_VERBATIM awgke
+EXPECT_NO_AUTOCORRECT
+T ". "
+EXPECT_BUFFER "sem awgke. "
