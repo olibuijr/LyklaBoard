@@ -23,6 +23,9 @@ struct DictionaryView: View {
     @State private var showingImportSheet = false
     @State private var showingImportPicker = false
     @State private var importAlert: ImportAlert?
+    @State private var exportDocument: ExportDataDocument?
+    @State private var showingExporter = false
+    @State private var showExportError = false
 
     private struct PendingUndo: Identifiable {
         let id = UUID()
@@ -86,6 +89,25 @@ struct DictionaryView: View {
                     }
                     .disabled(appModel.containerState == .unavailable)
                 }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        exportData()
+                    } label: {
+                        Label(Strings.DataExport.button, systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(appModel.containerState == .unavailable || !appModel.hasAnyWords)
+                }
+            }
+            .fileExporter(
+                isPresented: $showingExporter,
+                document: exportDocument,
+                contentType: .json,
+                defaultFilename: appModel.exportFilename()
+            ) { _ in
+                exportDocument = nil
+            }
+            .alert(Strings.DataExport.failed, isPresented: $showExportError) {
+                Button(Strings.DeleteAll.ok, role: .cancel) {}
             }
             .sheet(isPresented: $showingAddSheet) {
                 addWordSheet
@@ -286,6 +308,15 @@ struct DictionaryView: View {
             case .failure(.unreadable):
                 importAlert = .failure(Strings.SwiftKeyImport.errorUnreadable)
             }
+        }
+    }
+
+    private func exportData() {
+        if let data = appModel.exportedData() {
+            exportDocument = ExportDataDocument(data: data)
+            showingExporter = true
+        } else {
+            showExportError = true
         }
     }
 

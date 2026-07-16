@@ -12,6 +12,7 @@
 import Foundation
 import Observation
 import Learning
+import Sync
 
 @MainActor
 @Observable
@@ -252,6 +253,101 @@ final class AppModel {
                 skippedInvalid: parsed.skipped + summary.skippedInvalid,
                 skippedTombstoned: summary.skippedTombstoned
             )
+        )
+    }
+
+    // MARK: - Data export (v1-blocker: symmetry with SwiftKey import)
+
+    /// Build the "Flytja út gögnin mín" JSON payload — a self-describing
+    /// snapshot of everything the keyboard has learned (see
+    /// `PersonalModel.exportDocument`). Returns nil when no model is loaded
+    /// (container unavailable). Cheap; safe to call on the main actor for the
+    /// personal-scale data set (a few thousand words).
+    func exportedData() -> Data? {
+        guard let model else { return nil }
+        return try? model.exportedJSONData(
+            note: Strings.DataExport.fileNote,
+            schema: Strings.Links.exportFormat
+        )
+    }
+
+    /// Suggested filename, e.g. `Lyklabord-ordasafn-2026-07-15.json`
+    /// (ASCII + fixed date format so it's tidy on every share target).
+    func exportFilename(date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "\(Strings.DataExport.filePrefix)-\(formatter.string(from: date)).json"
+    }
+
+    // MARK: - Delete all data (v1-blocker: total + instant, unlike SwiftKey)
+
+    struct DeleteAllResult: Equatable {
+        /// The personal model + event log were cleared locally.
+        var localCleared: Bool
+        /// A remote (iCloud) delete was attempted — only when CloudKit sync
+        /// is provisioned.
+        var remoteAttempted: Bool
+        /// The remote delete succeeded (only meaningful when attempted).
+        var remoteSucceeded: Bool
+
+        /// Everything the user asked to erase is gone.
+        var isFullSuccess: Bool { localCleared && (!remoteAttempted || remoteSucceeded) }
+    }
+
+    /// Total, immediate wipe. Replaces the personal model with a fresh
+    /// instance (saved over the old file), removes the keyboard extension's
+    /// event log, and — when CloudKit sync is provisioned — deletes the
+    /// encrypted iCloud snapshot AND its envelope key (a full "never again"
+    /// wipe). Remote deletion runs regardless of the opt-out toggle
+    /// (`SyncEngine.deleteRemote` ignores it) and is gracefully skipped when
+    /// the container isn't provisioned yet.
+    @discardableResult
+    func deleteAllData() async -> DeleteAllResult {
+        var localCleared = false
+
+        // 1. Fresh personal model over the old file.
+        let fresh = PersonalModel()
+        model = fresh
+        if let modelURL {
+            do {
+                try fresh.save(to: modelURL)
+                localCleared = true
+            } catch {
+                lastErrorMessage = "\(error)"
+            }
+        } else {
+            // No container (Simulator without entitlements): the in-memory
+            // model is reset; there is nothing on disk to clear.
+            localCleared = true
+        }
+
+        // 2. Remove the event log entirely, coordinated against the
+        //    extension's appends. It recreates the file with a fresh
+        //    generation header on its next write.
+        if let eventLogURL {
+            _ = try? CoordinatedFileAccess.coordinateWrite(at: eventLogURL) { url in
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+
+        refreshListings()
+
+        // 3. iCloud: only when the container is live. Delete the snapshot and
+        //    the envelope key (total wipe).
+        var remoteAttempted = false
+        var remoteSucceeded = false
+        if SyncActivation.isCloudKitProvisioned {
+            remoteAttempted = true
+            remoteSucceeded = await syncCoordinator.deleteRemoteData(alsoRemoveKey: true)
+        }
+
+        return DeleteAllResult(
+            localCleared: localCleared,
+            remoteAttempted: remoteAttempted,
+            remoteSucceeded: remoteSucceeded
         )
     }
 }

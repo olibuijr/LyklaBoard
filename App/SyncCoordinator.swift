@@ -195,10 +195,16 @@ final class SyncCoordinator {
     /// harmless once the ciphertext is gone. Works while sync is disabled
     /// (opting out and then deleting is the expected order).
     /// Returns true on success.
+    ///
+    /// `alsoRemoveKey` defaults to false for the standalone "Eyða gögnum úr
+    /// iCloud" action (a kept key is harmless once the ciphertext is gone,
+    /// and dropping it would strand other devices that have not pulled). The
+    /// app's total "delete all data" flow passes `true` — a full "never
+    /// again" wipe removes the envelope key from the iCloud Keychain too.
     @discardableResult
-    func deleteRemoteData() async -> Bool {
+    func deleteRemoteData(alsoRemoveKey: Bool = false) async -> Bool {
         pendingSync?.cancel()
-        let outcome = await engine.deleteRemote(alsoRemoveKey: false)
+        let outcome = await engine.deleteRemote(alsoRemoveKey: alsoRemoveKey)
         switch outcome {
         case .deleted:
             displayState = .deleted(Date())

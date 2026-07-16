@@ -1,0 +1,112 @@
+# Lyklaborð — Privacy Policy / Persónuverndarstefna
+
+_Last updated / Síðast uppfært: 2026-07-15_
+
+> This document is the canonical privacy policy for Lyklaborð. It is
+> currently served from the source repository; a hosted web page at a
+> stable URL will replace this link before App Store submission. Until then,
+> the App Store "Privacy Policy URL" points at this file on GitHub.
+>
+> Þessi skrá er hin opinbera persónuverndarstefna Lyklaborðs. Hún er nú
+> birt úr frumkóðasafninu; vefsíða á föstu veffangi mun leysa þennan tengil
+> af hólmi áður en appið er sent í App Store.
+
+Icelandic below / Íslenska er neðar.
+
+---
+
+## English
+
+**Short version: Lyklaborð does not collect your data. Nothing you type is ever sent to us or to anyone else. There is no account, no analytics, and no tracking. The keyboard extension contains no networking code at all — you can read the source and confirm it.**
+
+### What we collect
+
+Nothing. We operate no servers that receive your data, and the app sends us no usage data, diagnostics, crash reports, advertising identifiers, or analytics of any kind. We could not read what you type even if we wanted to — the code to send it does not exist.
+
+### What is stored on your device
+
+To improve autocorrect and prediction over time, the keyboard learns from your typing, entirely on your device:
+
+- **Learned words** you type repeatedly (or accept explicitly), with how often each has been used and a per-language (Icelandic/English) attribution.
+- **Word-pair (bigram) counts** — how often one word follows another — used for next-word prediction.
+- **Typing statistics** — aggregate per-key touch offsets (where on each key you tend to tap), stored only as running averages, never as individual taps.
+- **Words you add or delete by hand** in the dictionary editor, including your deletions (kept so a deleted word is never silently re-learned).
+
+This data is stored in the app's private container on your device. The keyboard never records the contents of password, URL, email, or other secure fields, and never stores anything with a timestamp finer than the calendar day.
+
+### iCloud sync (optional)
+
+If you leave iCloud sync on, your personal dictionary is synced so it follows you across your own devices. This uses **your own private iCloud database** (Apple's CloudKit) — not any server of ours. Before it leaves your device the data is **encrypted with AES-256-GCM**, and the encryption key is stored in **your iCloud Keychain**, which we never see. The data in iCloud is unreadable to anyone but you — including us, and including Apple.
+
+You can turn sync off at any time (local-only mode), and you can delete the iCloud copy at any time from Settings ("Eyða gögnum úr iCloud", or the full "Eyða öllum gögnum").
+
+### If you delete the app
+
+Deleting Lyklaborð removes all of its on-device data immediately. If you used iCloud sync, a copy of your dictionary remains in your own iCloud until you delete it — reinstalling would restore it. Use "Eyða öllum gögnum" (Delete all data) before uninstalling if you want to erase the iCloud copy as well.
+
+### No tracking, no third parties
+
+There is no advertising, no cross-app or cross-site tracking, and no third-party SDKs that receive your data. Because there is no tracking, the app never shows an App Tracking Transparency prompt.
+
+### App Store privacy label
+
+Lyklaborð's App Store privacy label is **"Data Not Collected"**. The iCloud sync described above is your own data, in your own iCloud, initiated by you and encrypted with a key only you hold — it is not data collected by us.
+
+### Your data, your rights
+
+- **Export**: "Flytja út gögnin mín" in Settings or Orðasafn writes everything the keyboard has learned to a single readable JSON file you can keep or move.
+- **Delete individual words**: swipe to delete in Orðasafn; deletions stick.
+- **Delete everything**: "Eyða öllum gögnum" in Settings wipes the on-device data and the iCloud copy, immediately.
+
+### Contact
+
+Questions or concerns: open an issue at https://github.com/jokull/LyklabordApp or email jokull@triptojapan.com.
+
+---
+
+## Íslenska
+
+**Í stuttu máli: Lyklaborð safnar ekki gögnunum þínum. Ekkert af því sem þú skrifar er nokkurn tíma sent til okkar eða nokkurs annars. Það er enginn aðgangur, engar greiningar og engin rakning. Lyklaborðsviðbótin inniheldur engan netkóða yfirhöfuð — þú getur lesið frumkóðann og staðfest það.**
+
+### Hverju við söfnum
+
+Engu. Við rekum enga netþjóna sem taka við gögnunum þínum og appið sendir okkur engin notkunargögn, greiningargögn, hrunskýrslur, auglýsingaauðkenni eða greiningar af neinu tagi. Við gætum ekki lesið það sem þú skrifar jafnvel þótt við vildum — kóðinn til að senda það er ekki til.
+
+### Hvað er geymt í tækinu þínu
+
+Til að bæta sjálfvirka leiðréttingu og orðaspá með tímanum lærir lyklaborðið af innslættinum þínum, eingöngu í tækinu þínu:
+
+- **Lærð orð** sem þú skrifar endurtekið (eða samþykkir sérstaklega), ásamt því hversu oft hvert orð hefur verið notað og til hvaða tungumáls það heyrir (íslenska/enska).
+- **Tíðni orðapara (tvígrömm)** — hversu oft eitt orð kemur á eftir öðru — sem er notað til að spá fyrir um næsta orð.
+- **Tölfræði innsláttar** — samanlögð snertifrávik fyrir hvern lykil (hvar á hvern lykil þú hefur tilhneigingu til að ýta), aðeins geymd sem hlaupandi meðaltal, aldrei sem einstakar snertingar.
+- **Orð sem þú bætir við eða eyðir handvirkt** í orðasafnsritlinum, þar á meðal eyðingarnar þínar (geymdar svo að eytt orð sé aldrei lært aftur í kyrrþey).
+
+Þessi gögn eru geymd á einkasvæði appsins í tækinu þínu. Lyklaborðið skráir aldrei innihald lykilorða, vefslóða, netfanga eða annarra öruggra reita og geymir aldrei neitt með nákvæmari tímastimpli en sem nemur almanaksdegi.
+
+### Samstilling við iCloud (valfrjálst)
+
+Ef þú hefur samstillingu við iCloud kveikta er persónulega orðasafnið þitt samstillt svo það fylgi þér á milli tækjanna þinna. Þetta notar **þinn eigin einkagagnagrunn í iCloud** (CloudKit frá Apple) — ekki neinn af okkar netþjónum. Áður en gögnin yfirgefa tækið þitt eru þau **dulkóðuð með AES-256-GCM** og dulkóðunarlykillinn er geymdur í **iCloud-lyklakippunni þinni** (iCloud Keychain), sem við sjáum aldrei. Gögnin í iCloud eru ólæsileg öllum nema þér — þar á meðal okkur og Apple.
+
+Þú getur slökkt á samstillingu hvenær sem er (staðbundin stilling) og þú getur eytt iCloud-afritinu hvenær sem er í stillingum („Eyða gögnum úr iCloud“, eða að fullu með „Eyða öllum gögnum“).
+
+### Ef þú eyðir appinu
+
+Ef þú eyðir Lyklaborði er öllum gögnum þess í tækinu eytt samstundis. Ef þú notaðir samstillingu við iCloud verður afrit af orðasafninu þínu áfram í þínu eigin iCloud þar til þú eyðir því — ef þú setur appið upp aftur verður það endurheimt. Notaðu „Eyða öllum gögnum“ áður en þú fjarlægir appið ef þú vilt eyða iCloud-afritinu líka.
+
+### Engin rakning, engir þriðju aðilar
+
+Það eru engar auglýsingar, engin rakning á milli appa eða vefsíðna og engir hugbúnaðarþróunarpakkar (SDK) frá þriðja aðila sem fá gögnin þín. Vegna þess að það er engin rakning sýnir appið aldrei App Tracking Transparency-beiðni.
+
+### Persónuverndarmerki App Store
+
+Persónuverndarmerki Lyklaborðs í App Store er **„Data Not Collected“**. Samstillingin við iCloud sem lýst er hér að ofan snýst um þín eigin gögn, í þínu eigin iCloud, að þínu frumkvæði og dulkóðuð með lykli sem aðeins þú hefur aðgang að — þetta eru ekki gögn sem við söfnum.
+
+### Þín gögn, þín réttindi
+
+- **Flytja út**: „Flytja út gögnin mín“ í stillingum eða Orðasafni vistar allt sem lyklaborðið hefur lært í eina læsilega JSON-skrá sem þú getur geymt eða fært.
+- **Eyða stökum orðum**: strjúktu til að eyða í Orðasafni; eyðingarnar haldast.
+- **Eyða öllu**: „Eyða öllum gögnum“ í stillingum hreinsar gögnin í tækinu og iCloud-afritið samstundis.
+
+### Hafa samband
+
+Spurningar eða ábendingar: skráðu mál á https://github.com/jokull/LyklabordApp eða sendu tölvupóst á jokull@triptojapan.com.

@@ -13,6 +13,16 @@ import Foundation
 
 enum Strings {
 
+    /// Canonical outbound URLs. Not localized — these are addresses. Kept in
+    /// one place so the About links, the privacy policy, and the export
+    /// file's `$schema` pointer never drift apart.
+    enum Links {
+        static let githubRepo = "https://github.com/jokull/LyklabordApp"
+        static let privacyPolicy = "https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
+        static let exportFormat = "https://github.com/jokull/LyklabordApp/blob/main/docs/EXPORT_FORMAT.md"
+        static let bin = "https://bin.arnastofnun.is"
+    }
+
     enum Tab {
         static let onboarding = "Byrjun"
         static let dictionary = "Orðasafn"
@@ -26,7 +36,9 @@ enum Strings {
         static let setupHeading = "Setja upp lyklaborðið"
         static let step1 = "Opnaðu Stillingar → Almennt → Lyklaborð → Lyklaborð"
         static let step2 = "Ýttu á „Bæta við lyklaborði…“ og veldu Lyklaborð"
-        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Leyfa fullan aðgang“ (valfrjálst — lyklaborðið virkar að fullu án þess; fullur aðgangur er eingöngu til að samstilla orðasafnið þitt við iCloud í seinni útgáfu)"
+        static let step3 = "Ýttu aftur á Lyklaborð og virkjaðu „Leyfa fullan aðgang“"
+        static let step3Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með orðauppástungur að fullu án hans. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud og snertiviðbragði (iOS lokar á titring lyklaborðs án hans). Viðbótin inniheldur engan netkóða hvort sem er."
+        static let fullAccessMoreLink = "Meira um fullan aðgang og persónuvernd"
         static let openSettingsButton = "Opna Stillingar"
 
         static let tryHeading = "Prófaðu það"
@@ -101,6 +113,12 @@ enum Strings {
         static let aboutNoTelemetryTitle = "Engin fjarmæling"
         static let aboutNoTelemetryDetail = "Engin notkunargögn, engin greiningargögn, engin skilaboð til neins netþjóns. Lyklaborðsviðbótin sjálf inniheldur engan netkóða."
 
+        // Tappable trust links (v1-blocker: "audit the repo" needs a link).
+        static let aboutGithubTitle = "Frumkóði á GitHub"
+        static let aboutGithubDetail = "Sjáðu nákvæmlega hvað lyklaborðið gerir — allt smáforritið og lyklaborðið eru opinn hugbúnaður."
+        static let aboutPrivacyTitle = "Persónuverndarstefna"
+        static let aboutPrivacyDetail = "Hverju er safnað, hvað er geymt og samstillt — á mannamáli. Ekkert fer af tækinu þínu nema þín eigin dulkóðaða orðabók, í þitt eigið iCloud."
+
         static let syncSectionTitle = "iCloud samstilling"
         static let syncToggleTitle = "iCloud samstilling"
         static let syncSectionFooter = "Orðasafnið þitt og innsláttarvenjur samstillast dulkóðuð við þitt eigið iCloud — án reiknings eða netþjóns frá okkur. Dulkóðunarlykillinn er geymdur í iCloud-lyklakippunni þinni og gögnin eru ólæsileg öllum öðrum, líka okkur."
@@ -130,5 +148,66 @@ enum Strings {
         static let syncDeleteCancel = "Hætta við"
         static let syncDeleteDone = "Gögnum eytt úr iCloud"
         static let syncDeleteFailed = "Ekki tókst að eyða gögnunum úr iCloud"
+
+        // Data-lifecycle section (export + delete-all).
+        static let dataSectionTitle = "Gögnin mín"
+        static let dataSectionFooter = "Þú ræður alfarið yfir gögnunum þínum — taktu afrit hvenær sem er, eða eyddu öllu."
+    }
+
+    /// "Export my data" — the symmetric counterpart to the SwiftKey import.
+    enum DataExport {
+        static let button = "Flytja út gögnin mín"
+        static let footer = "Vistaðu allt sem lyklaborðið hefur lært — lærð orð og tíðni þeirra, orðin sem þú bættir við og orðin sem þú hefur eytt — sem eina læsilega skrá sem þú getur geymt eða fært annað. Þetta er spegilmyndin af SwiftKey-innflutningnum: gögnin þín eru þín til að taka með þér."
+        /// Human-readable note embedded in the exported JSON file itself.
+        static let fileNote = "Þessi skrá er þín persónulega Lyklaborð-orðabók: lærð og handvirkt viðbætt orð, eyðingar, tíðni orðapara og innsláttartölfræði. Hún hefur aldrei farið af tækinu þínu nema þú hafir deilt henni rétt í þessu. Sjá $schema fyrir nákvæmt snið."
+        static let preparing = "Undirbý útflutning…"
+        static let failed = "Ekki tókst að búa til útflutningsskrána."
+        /// Base filename (before the date suffix + .json). ASCII so it's a
+        /// tidy filename on every filesystem/share target.
+        static let filePrefix = "Lyklabord-ordasafn"
+    }
+
+    /// "Delete all data" — the nuclear escape hatch, behind double
+    /// confirmation. Deliberately contrasts SwiftKey: total and instant.
+    enum DeleteAll {
+        static let button = "Eyða öllum gögnum"
+        static let footer = "Þetta hreinsar alla persónulegu orðabókina þína á þessu tæki — hvert einasta lærða orð, tíðni allra orðapara, innsláttartölfræðina þína — og fjarlægir einnig afritið í iCloud. Eyðingin hér er algjör og tafarlaus. Ólíkt SwiftKey er enginn reikningur á netþjóni til að elta uppi og engin bið: gögnin eru farin um leið og þú staðfestir."
+
+        // First confirmation.
+        static let confirm1Title = "Eyða öllum gögnum?"
+        static let confirm1Message = "Þetta fjarlægir hvert lært orð, innsláttartölfræðina þína og iCloud-afritið. Ekki er hægt að afturkalla þetta. Orð sem þú bættir við handvirkt og eyðingarnar þínar fara líka — orðabókin byrjar tóm."
+        static let confirm1Action = "Halda áfram"
+
+        // Second confirmation.
+        static let confirm2Title = "Ertu alveg viss?"
+        static let confirm2Message = "Ekki er hægt að afturkalla þetta. Öllu sem Lyklaborð hefur lært á þessu tæki og í iCloud verður eytt varanlega."
+        static let confirm2Action = "Eyða öllu"
+
+        static let cancel = "Hætta við"
+        static let doneTitle = "Búið"
+        static let done = "Öllum gögnum eytt. Orðabókin er tóm."
+        static let remoteFailed = "Gögnunum þínum á þessu tæki var eytt, en ekki tókst að fjarlægja iCloud-afritið — athugaðu nettenginguna og reyndu aftur."
+        static let ok = "Í lagi"
+    }
+
+    /// Honest Full Access explainer, shown in onboarding and Settings.
+    enum FullAccess {
+        static let title = "Fullur aðgangur"
+
+        static let worksWithoutTitle = "Innsláttur virkar að fullu án fulls aðgangs"
+        static let worksWithoutBody = "Þú getur skrifað, notað sjálfvirka leiðréttingu og fengið orðauppástungur þótt slökkt sé á fullum aðgangi — ekkert við innsláttinn sjálfan þarfnast hans. Lyklaborðið er fullkomlega nothæft á þennan hátt."
+
+        static let enablesTitle = "Hvað fullur aðgangur gerir"
+        static let enablesBody = "Með því að veita fullan aðgang geta lyklaborðið og þetta smáforrit deilt sömu orðabók, þannig að orð sem þú lærir við innslátt birtast hér og samstillast við iCloud. Það kveikir einnig á snertiviðbragði (titringi) við innslátt — iOS lokar á titringsvélina fyrir öll lyklaborð frá þriðja aðila þar til fullur aðgangur er veittur; þetta er takmörkun sem við ráðum ekki við, ekki val sem við tókum."
+
+        static let noNetworkTitle = "Það tengist samt aldrei netinu"
+        static let noNetworkBody = "Fullur aðgangur bætir engri nettengingu við lyklaborðið. Viðbótin inniheldur engan netkóða yfirhöfuð, hvort sem kveikt er á honum eða ekki — þú getur lesið frumkóðann og staðfest það."
+        static let viewSourceLink = "Skoða frumkóðann á GitHub"
+
+        static let passwordTitle = "Í lykilorðareitum muntu stuttlega sjá eigið lyklaborð Apple"
+        static let passwordBody = "Þegar þú velur lykilorðareit eða annan öruggan reit, skiptir iOS yfir í kerfislyklaborðið og til baka af sjálfu sér. Þetta er öryggisregla í iOS sem á við um öll lyklaborð frá þriðja aðila — þetta er eðlilegt, ekki villa."
+
+        static let uninstallTitle = "Ef þú eyðir smáforritinu"
+        static let uninstallBody = "Að eyða Lyklaborði fjarlægir öll gögn þess af þessu tæki tafarlaust. Ef þú notar iCloud-samstillingu verður afrit af orðabókinni þinni eftir í þínu eigin iCloud þar til þú eyðir því — ef þú setur smáforritið upp aftur endurheimtist það. Til að hreinsa allt, þar með talið iCloud, notaðu „Eyða öllum gögnum“ áður en þú fjarlægir smáforritið."
     }
 }

@@ -31,6 +31,20 @@ struct ContentView: View {
                         stepRow(number: 2, text: Strings.Onboarding.step2)
                         stepRow(number: 3, text: Strings.Onboarding.step3)
 
+                        Text(Strings.Onboarding.step3Detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 36)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        NavigationLink {
+                            FullAccessExplainer()
+                        } label: {
+                            Label(Strings.Onboarding.fullAccessMoreLink, systemImage: "info.circle")
+                                .font(.subheadline)
+                        }
+                        .padding(.leading, 36)
+
                         Button {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 UIApplication.shared.open(url)
