@@ -80,6 +80,21 @@ public struct EngineConfig: Sendable {
     /// with morphology-validated junk is the dogfood "faralega → garalega"
     /// landmine. Suggestions are unaffected — this gates the flag only.
     public var autocorrectMinZ: Double = -2.5
+    /// Junk-tier winner discipline (session-3 replay "kozy" → "jozy",
+    /// 2026-07-16): an ordinary auto-apply whose winner sits BELOW this
+    /// calibrated z is a junk-tier replacement guess (jozy z −1.37 — an
+    /// is.lex web-corpus name), so its required margin is SCALED by
+    /// `autocorrectJunkWinnerMarginScale` instead of hard-floored: raising
+    /// `autocorrectMinZ` itself to −1.5 cost 3.3pp fired for 0.4pp false on
+    /// dev (~88% of the removed fires were correct — mid-tier vocabulary is
+    /// where honest corrections land), while margin scaling only removes
+    /// the narrow junk wins. Personal words are exempt (typicality ∞).
+    public var autocorrectJunkWinnerZ: Double = -1.0
+    /// Margin multiplier for junk-tier winners (see above). 1.0 disables.
+    /// Swept on dev 2026-07-16: ×2 removed 12 fires (7 false), ×3 removed
+    /// 27 (17 false), ×4 removed 5 more (0 false) — ×3 is the knee; the z
+    /// threshold at −0.5 / −1.25 both removed mostly-correct fires.
+    public var autocorrectJunkWinnerMarginScale: Double = 3.0
     /// Auto-replace never fires when the top candidate's spatial cost exceeds
     /// this (wild rewrites are suggestion-bar-only).
     public var autocorrectMaxSpatialCost: Double = 6.0
@@ -447,12 +462,17 @@ public struct EngineConfig: Sendable {
     // Real URLs/domains stay verbatim-class protected.
 
     /// Both halves must be attested with a calibrated z-score at or above
-    /// this, in one common language, for the escape to be OFFERED. z ≈ 1σ
-    /// above the lexicon mean keeps it to genuinely common words (IS "sem"
-    /// +3.1, "er" +3.1) — rare words next to a dot are far more likely a
-    /// real domain/file token. One-letter halves must additionally clear
+    /// this, in one common language, for the escape to be OFFERED. Rare
+    /// words next to a dot are far more likely a real domain/file token.
+    /// Lowered 1.0 → −0.25 (session-4 "læt.hann", 2026-07-16): Icelandic
+    /// inflected verb forms sit at mid-tier unigram z ("læt" −0.06 — a
+    /// perfectly ordinary 1sg), so the 1σ bar silently ate honest missed
+    /// spaces; −0.25 still rejects the file-extension band (html −0.40,
+    /// pdf −0.87, css −1.02) and everything unattested. The OFFER is
+    /// bar-only either way — auto-apply keeps the strict 2σ bar below.
+    /// One-letter halves must additionally clear
     /// `splitSingleCharHalfMinZ` (genuine one-letter words only).
-    public var dottedEscapeMinHalfZ: Double = 1.0
+    public var dottedEscapeMinHalfZ: Double = -0.25
     /// Stricter half-typicality bar for AUTO-APPLYING the escape (the
     /// item-2 raised-margin rule instantiated for the dotted channel):
     /// both halves at z ≥ 2σ — extreme-frequency words like "sem er".

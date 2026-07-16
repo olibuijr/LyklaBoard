@@ -154,11 +154,15 @@ SCENARIO live session 2026-07-16 sentence-initial Fair restores to Fáir
 # boundary-DECAYED posterior (P(IS) ≈ 0.74), the least-defended position
 # (no bigram, decayed lane). slettaGuardBlendThreshold 0.25 was
 # calibrated on exactly this replay (advantage +0.47 vs the old 0.5 bar).
-# "fra" → "frá" restores mid-sentence on the way.
+# Buffer updated 2026-07-16 (v→ð confusion wave): "sivan" now correctly
+# restores to "síðan" (the session's intent — the analyzer flagged it as
+# unreachable), and with prev="síðan" the "fra" repair loses its relaxed
+# margin to the genuine bigram rival "síðan fram" (0.35 < 0.5) — an
+# honest under-fire, frá stays offered in the bar.
 T "Langar sivan fra Jökli. Fair"
 EXPECT_AUTOCORRECT Fáir
 T " "
-EXPECT_BUFFER "Langar sivan frá Jökli. Fáir "
+EXPECT_BUFFER "Langar síðan fra Jökli. Fáir "
 
 SCENARIO live session 2026-07-16 fa restores to fá at a saturated lane
 # 2-char accent restoration with an en.lex-attested skeleton ("fa" the
@@ -205,3 +209,58 @@ SCENARIO short attested words are untouched by the double substitution pass
 # pass (typedIsValid gate) — bað commits as typed in a saturated IS lane.
 T "hann bað "
 EXPECT_LAST_COMMIT bað
+
+# ============================================================
+# Recorded sessions 3-4 (2026-07-16T16-14-00 / T16-30-39): the bundled
+# engine wave. Each contract below came out of a :why diagnosis of the
+# raw session line replayed through the current engine.
+# ============================================================
+
+SCENARIO session 3 replay: junk-tier jozy never auto-applies over kozy
+# On-device the token survived; the tapless replay auto-applied
+# kozy -> jozy (is.lex web-corpus junk at z -1.37; adjacent k->j beats
+# non-adjacent cozy on cost, and the EN reading is lane-discounted at
+# P(IS) 0.9). The junk-tier winner discipline scales the required margin
+# x3 below z -1.0, so the narrow junk win stays bar-only.
+T "Eg tek sma til og geri kozy"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "Ég tek smá til og geri kozy "
+
+SCENARIO session 4 replay: full line restores Eg and ut
+# The on-device build predated the 2026-07-16 aggression-tuning commit
+# (e0f02ed, driven by sessions 1-2); this locks the current contract for
+# the exact session line: Eg -> ég (sentence-capitalized), ut -> út
+# (skeleton-restoration past the en.lex "ut" attestation: dominance is
+# lane-relative, the sletta guard clears at +3.9 log-odds).
+T "Eg tek ut kjúklinginn "
+EXPECT_BUFFER "Ég tek út kjúklinginn "
+
+SCENARIO session 4 replay: læt.hann offers the dotted space-miss split
+# Shape gates pass (one dot, letter halves, "hann" is no TLD); the old
+# offer bar demanded BOTH halves at z >= 1.0 and silently ate the split —
+# "læt" is a perfectly ordinary 1sg verb form at unigram z -0.06.
+# Offer-only per the honest gates (auto-apply keeps the strict 2-sigma
+# bar, which "læt" does not clear).
+T "Eg tek ut kjúklinginn og læt.hann"
+EXPECT_CONTAINS læt hann
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO session 4 dead-center taps: Eg and ut restorations still fire
+# The device recurrence check: ég/út are RESTORATION-only winners
+# (e->é fold; the autocap capital is lowercased before matching, so the
+# E never turns the repair error-class), and restoration-only winners
+# are exempt from the tap-confidence veto by design — dead-center taps
+# carry no information about a cognitive accent skip.
+T E
+TAP g 0.03 0.0
+T " "
+EXPECT_LAST_COMMIT Ég
+TAP t 0 0
+TAP e 0 0
+TAP k 0 0
+T " "
+TAP u 0.11 0.01
+TAP t 0.05 0.08
+T " "
+EXPECT_LAST_COMMIT út

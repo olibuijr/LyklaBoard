@@ -91,12 +91,13 @@ struct FoldPricing {
     }
 
     /// Lane-discounted orthographic confusion: typed the plain letter for
-    /// its Icelandic counterpart (d→ð, t→þ, o→ö) or slipped between the two
-    /// Icelandic letters (ð↔þ). Directional like the fold set: ð→d etc.
-    /// stay at the full confusion constant.
+    /// its Icelandic counterpart (d→ð, t→þ, o→ö, v→ð) or slipped between
+    /// the two Icelandic letters (ð↔þ). Directional like the fold set:
+    /// ð→d etc. stay at the full confusion constant. v→ð is the phonetic
+    /// twin of d→ð (2026-07-16, "sivan" → "síðan").
     static func isLaneConfusion(typed: Character, intended: Character) -> Bool {
         switch (typed, intended) {
-        case ("d", "ð"), ("t", "þ"), ("o", "ö"), ("ð", "þ"), ("þ", "ð"):
+        case ("d", "ð"), ("t", "þ"), ("o", "ö"), ("ð", "þ"), ("þ", "ð"), ("v", "ð"):
             return true
         default:
             return false

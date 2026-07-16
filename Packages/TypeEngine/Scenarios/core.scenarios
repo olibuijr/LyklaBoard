@@ -1467,3 +1467,27 @@ SCENARIO all caps learned acronym keeps its caps
 PERSONAL XYZK 10
 T "skoða xyz"
 EXPECT_CONTAINS XYZK
+
+# ---------------------------------------------------------------------------
+# v→ð phonetic confusion (2026-07-16 session-analyzer wave)
+# ---------------------------------------------------------------------------
+
+# ð is a voiced fricative that gets spelled with v — the phonetic twin of
+# d→ð. The confusion is DIRECTIONAL (typed v for intended ð only): making
+# ð→v cheap regressed dev "ið"→"við" to the junk reading "iv" (nobody
+# reaches for the dedicated ð key when they mean v).
+SCENARIO sivan restores to síðan through the v to ð confusion
+T "thetta var "
+T sivan
+EXPECT_AUTOCORRECT síðan
+T " "
+EXPECT_LAST_COMMIT síðan
+
+SCENARIO the ð to v direction stays expensive
+# "ið" (valid, BÍN) — the omission repair "við" must lead the bar; the
+# reverse-confusion reading "iv" must not appear at all.
+T "dæmis í Bjarnarhelli "
+T ið
+EXPECT_TOP við
+EXPECT_NOT_CONTAINS iv
+EXPECT_NO_AUTOCORRECT

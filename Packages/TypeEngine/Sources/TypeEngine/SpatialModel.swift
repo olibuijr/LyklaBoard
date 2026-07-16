@@ -61,13 +61,21 @@ public struct SpatialModel: Sendable {
         "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ý": "y",
     ]
 
-    /// Common Icelandic orthographic confusions that are NOT spatially close.
+    /// Common Icelandic orthographic confusions that are NOT spatially
+    /// close. v→ð added 2026-07-16 (session analyzer: "sivan" → "síðan"
+    /// unreachable at the ~8-nat spatial price): ð is a voiced fricative
+    /// that learners and fast typists spell with v — a PHONETIC slip of
+    /// exactly the d↔ð class, carrying no tap information. Deliberately
+    /// DIRECTIONAL (typed v for an intended ð only): the bidirectional
+    /// version made ð→v cheap and dev pair "ið"→"við" regressed to "iv" —
+    /// nobody reaches for the dedicated ð key when they mean v.
     static let confusionPairs: Set<String> = {
         var set = Set<String>()
         for (a, b) in [("d", "ð"), ("o", "ö"), ("ð", "þ"), ("t", "þ")] {
             set.insert(a + b)
             set.insert(b + a)
         }
+        set.insert("vð")  // typed v, intended ð — one direction only
         return set
     }()
 

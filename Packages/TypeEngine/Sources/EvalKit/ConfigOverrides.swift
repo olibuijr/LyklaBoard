@@ -36,6 +36,8 @@ public enum ConfigOverrides {
         "calibrationTemperature": { $0.calibrationTemperature = $1 },
         "autocorrectMargin": { $0.autocorrectMargin = $1 },
         "autocorrectMinZ": { $0.autocorrectMinZ = $1 },
+        "autocorrectJunkWinnerZ": { $0.autocorrectJunkWinnerZ = $1 },
+        "autocorrectJunkWinnerMarginScale": { $0.autocorrectJunkWinnerMarginScale = $1 },
         "autocorrectMaxSpatialCost": { $0.autocorrectMaxSpatialCost = $1 },
         "autocorrectFarRepairMinZ": { $0.autocorrectFarRepairMinZ = $1 },
         "autocorrectShortMinZ": { $0.autocorrectShortMinZ = $1 },
@@ -56,6 +58,8 @@ public enum ConfigOverrides {
         "splitAutoApplySingleWordCutoff": { $0.splitAutoApplySingleWordCutoff = $1 },
         "splitInsertionHalfRepairMaxCost": { $0.splitInsertionHalfRepairMaxCost = $1 },
         "splitSaturatedHalfMinZ": { $0.splitSaturatedHalfMinZ = $1 },
+        "dottedEscapeMinHalfZ": { $0.dottedEscapeMinHalfZ = $1 },
+        "dottedEscapeAutoApplyMinHalfZ": { $0.dottedEscapeAutoApplyMinHalfZ = $1 },
         // Lane relaxation (accent restoration + EN possessive derivation)
         "possessiveFrequencyFraction": { $0.possessiveFrequencyFraction = $1 },
         "possessiveOfferMinBaseZ": { $0.possessiveOfferMinBaseZ = $1 },

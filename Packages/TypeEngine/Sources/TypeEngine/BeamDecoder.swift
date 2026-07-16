@@ -285,10 +285,22 @@ final class BeamDecoder {
             // this is what keeps deep states nearly free. Large ranges
             // (near the root) fall back to probing, cushioned by the
             // shallow memo.
+            //
+            // Determinism: `childCursors` returns the children in the
+            // pool's byte-sorted order, and the expansion loops below MUST
+            // iterate that ARRAY, never the lookup dictionary — Dictionary
+            // iteration order is per-process hash-seeded, and with the
+            // `beamMaxCandidates`/`beamMaxExpansions` caps and the
+            // first-wins `emitted` set in play, equal-cost ties racing a
+            // cap would otherwise make the candidate pool (and downstream
+            // margins) flake across processes (the "merged pair keeps
+            // interior capitalization" scenario flake, 2026-07-16).
+            var childList: [(character: Character, cursor: LexiconPrefixCursor)]?
             var childMap: [Character: LexiconPrefixCursor]?
             if let children = lexicon.childCursors(
                 of: state.cursor, scanLimit: Self.childScanLimit)
             {
+                childList = children
                 var map: [Character: LexiconPrefixCursor] = [:]
                 map.reserveCapacity(children.count)
                 for child in children { map[child.character] = child.cursor }
@@ -326,8 +338,8 @@ final class BeamDecoder {
                     // way; without one, the static candidate lists bound
                     // the probes and cost is checked BEFORE each descend.
                     let subCap = state.edits == 0 ? costCap : min(costCap, config.beamNeighborMaxCost + state.cost)
-                    if let childMap {
-                        for (char, next) in childMap where char != typedChar {
+                    if let childList {
+                        for (char, next) in childList where char != typedChar {
                             let cost =
                                 state.cost
                                 + substitutionPrice(
@@ -407,8 +419,8 @@ final class BeamDecoder {
             // Omitted APOSTROPHES fold under the EN lane profile (dont →
             // don't at ~ε), so their price flows through the lane pricing.
             if editsLeft {
-                if let childMap {
-                    for (char, next) in childMap {
+                if let childList {
+                    for (char, next) in childList {
                         let cost =
                             state.cost + pricing.omissionPrice(of: char, base: insertionCost)
                         guard cost <= costCap else { continue }

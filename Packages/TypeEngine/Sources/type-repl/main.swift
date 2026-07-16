@@ -77,10 +77,25 @@ if isInflectEval {
     exit(Int32(InflectEval(paths: paths, arguments: Array(arguments.dropFirst())).run()))
 }
 
+// Scenario runs are behavioral contracts and must be DETERMINISTIC: lift
+// the two wall-clock decode budgets exactly like the corpus/micro evals do
+// (scores/README "Reproducibility & determinism") so the deterministic
+// expansion/position caps are the sole limiter — otherwise budget-edge
+// scenarios ("merged pair keeps interior capitalization": the split pass
+// spends its 6 ms on the first center-out hypothesis's edits1 probes under
+// load) flip on machine timing alone. Latency stays the bench's job — the
+// `bench` subcommand keeps the shipping budgets.
+var engineConfig = EngineConfig()
+if arguments.first == "run" {
+    engineConfig.beamTimeBudget = 3600
+    engineConfig.splitTimeBudget = 3600
+}
+
 let engine: TypeEngine
 do {
     engine = try Artifacts.loadEngine(
-        paths: paths, morphologyEnabled: !noMorph, inflectionEnabled: !noInflect)
+        paths: paths, morphologyEnabled: !noMorph, inflectionEnabled: !noInflect,
+        config: engineConfig)
 } catch {
     warn("failed to load artifacts: \(error)")
     exit(2)

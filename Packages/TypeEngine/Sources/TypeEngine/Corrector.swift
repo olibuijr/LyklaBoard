@@ -744,10 +744,29 @@ public struct Corrector {
                 let profileWeight = restorationProfileWeight(
                     typed: typed, candidate: best.word, pricing: pricing)
                 let restorationRelaxed = best.cost.isRestorationOnly && profileWeight > 0
-                let requiredMargin =
+                var requiredMargin =
                     restorationRelaxed
                     ? config.restorationAutoApplyMargin
                     : config.autocorrectMargin
+                // Junk-tier winner discipline (session-3 replay "kozy" →
+                // "jozy"): an ERROR-class winner below
+                // `autocorrectJunkWinnerZ` is a junk-tier vocabulary guess —
+                // the margin it must clear is scaled up rather than the
+                // fire being hard-floored (see the EngineConfig doc:
+                // raising `autocorrectMinZ` removed ~88%-correct fires on
+                // dev; scaling removes only the narrow junk wins).
+                // Restoration-relaxed winners are exempt: they carry their
+                // own gate stack, and derived possessives ("childrens" →
+                // "children's") are deliberately priced at a FRACTION of
+                // their stem's typicality — junk-scaling them would kill
+                // the possessive restoration the fraction exists to serve.
+                // Personal winners (typicality ∞) and everything at/above
+                // the threshold are untouched.
+                let junkWinner =
+                    !restorationRelaxed && typicality < config.autocorrectJunkWinnerZ
+                if junkWinner {
+                    requiredMargin *= config.autocorrectJunkWinnerMarginScale
+                }
                 var marginOK = margin >= requiredMargin * tapMarginFactor
                 var typicalityOK = typicality >= minZ
                 // Vacuum auto-apply (dogfood "stökklrikanum" wave): a
@@ -828,6 +847,12 @@ public struct Corrector {
                         trace.note(
                             "VACUUM: BÍN-valid winner below the typicality floor, no attested"
                                 + " repair within closeCandidateGate -> stricter margin, floor waived")
+                    }
+                    if junkWinner {
+                        trace.note(
+                            "junk-tier winner (z \(String(format: "%+.3f", typicality))"
+                                + " < \(String(format: "%+.2f", config.autocorrectJunkWinnerZ)))"
+                                + " -> margin x\(String(format: "%.1f", config.autocorrectJunkWinnerMarginScale))")
                     }
                     trace.gate(
                         "margin",
@@ -1420,7 +1445,12 @@ public struct Corrector {
                 }
             }
         }
-        return best.map { (word: $0.key, spatialCost: $0.value.spatialCost, score: $0.value.score) }
+        // Deterministic order out of the dictionary (score, then
+        // lexicographic): the caller's final ranking has its own tie-break,
+        // but the pool must never leak per-process hash order downstream.
+        return best
+            .map { (word: $0.key, spatialCost: $0.value.spatialCost, score: $0.value.score) }
+            .sorted { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
     }
 
     /// Resolutions of one split half: the half itself when valid (cost 0)
@@ -1914,7 +1944,7 @@ public struct Corrector {
     /// are the classic orthographic slips).
     static let restorationVariants: [Character: [Character]] = [
         "a": ["á"], "e": ["é"], "i": ["í"], "o": ["ó", "ö"], "u": ["ú"],
-        "y": ["ý"], "d": ["ð"], "t": ["þ"],
+        "y": ["ý"], "d": ["ð"], "t": ["þ"], "v": ["ð"],
     ]
 
     /// All words reachable from `chars` by replacing up to `maxChanges`
