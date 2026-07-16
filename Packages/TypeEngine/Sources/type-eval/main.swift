@@ -1,3 +1,4 @@
+import EvalKit
 import Foundation
 import TypeEngine
 
@@ -33,10 +34,24 @@ case "ab":
     runABCommand(Array(arguments.dropFirst()))
 
 default:
-    // Legacy micro-eval: no subcommand, optional fixture-path override.
-    let path = arguments.first
+    // Legacy micro-eval: no subcommand, optional fixture-path override and
+    // an optional --config <overrides.json> (same EngineConfig override set
+    // as `ab` — dev-iteration tooling for pinpointing micro-eval diffs).
+    var rest = arguments
+    var config = EngineConfig()
+    if let ci = rest.firstIndex(of: "--config"), ci + 1 < rest.count {
+        do {
+            (config, _) = try ConfigOverrides.load(
+                from: URL(fileURLWithPath: rest[ci + 1]))
+        } catch {
+            FileHandle.standardError.write(Data("config error: \(error)\n".utf8))
+            exit(2)
+        }
+        rest.removeSubrange(ci...(ci + 1))
+    }
+    let path = rest.first
     let cases = loadCases(path: path)
-    let result = runMicroEval(cases: cases)
+    let result = runMicroEval(cases: cases, config: config)
     printMicroEval(result)
     exit(result.validWordViolations.isEmpty ? 0 : 1)
 }

@@ -8,10 +8,40 @@ func stderr(_ message: String) {
 
 /// `type-eval corpus <dev|heldout>` — replay a corpus split through the real
 /// artifacts and print the per-category / per-language / overall table.
+///
+/// Debug flags (dev-iteration tooling, no effect on the table):
+///   --dump <failures|false-ac>   per-pair dump instead of the table
+///   --category <name>            restrict the dump to one category
 func runCorpusCommand(_ args: [String]) {
     guard let split = args.first, split == "dev" || split == "heldout" else {
-        stderr("usage: type-eval corpus <dev|heldout>")
+        stderr("usage: type-eval corpus <dev|heldout> [--dump failures|false-ac] [--category c]")
         exit(2)
+    }
+    var dumpMode: String?
+    var dumpCategory: String?
+    var baseConfig = EngineConfig()
+    var rest = Array(args.dropFirst())
+    while let flag = rest.first {
+        rest.removeFirst()
+        switch flag {
+        case "--dump": dumpMode = rest.isEmpty ? "failures" : rest.removeFirst()
+        case "--category": dumpCategory = rest.isEmpty ? nil : rest.removeFirst()
+        case "--config":
+            guard !rest.isEmpty else {
+                stderr("--config requires a path")
+                exit(2)
+            }
+            do {
+                (baseConfig, _) = try ConfigOverrides.load(
+                    from: URL(fileURLWithPath: rest.removeFirst()))
+            } catch {
+                stderr("config error: \(error)")
+                exit(2)
+            }
+        default:
+            stderr("unknown flag \(flag)")
+            exit(2)
+        }
     }
     if split == "heldout" {
         stderr(
@@ -32,14 +62,50 @@ func runCorpusCommand(_ args: [String]) {
     let engine: TypeEngine
     do {
         engine = try ArtifactLoader.loadEngine(
-            config: ArtifactLoader.deterministicConfig(), log: { stderr($0) })
+            config: ArtifactLoader.deterministicConfig(base: baseConfig), log: { stderr($0) })
     } catch {
         stderr("\(error)")
         exit(2)
     }
     engine.warmUp()
+    if let dumpMode {
+        dumpCorpusPairs(engine: engine, pairs: pairs, mode: dumpMode, category: dumpCategory)
+        return
+    }
     let result = CorpusEval.run(engine: engine, pairs: pairs, split: split)
     printCorpusResult(result)
+}
+
+/// Per-pair debug dump (mirrors CorpusEval.run's replay exactly): one line
+/// per selected pair with the typo, intended, tail context and the top
+/// suggestions (with autocorrect flags). `mode` selects which pairs print:
+///   failures  — top-1 misses
+///   false-ac  — auto-apply fired on a wrong top candidate
+func dumpCorpusPairs(engine: TypeEngine, pairs: [CorpusPair], mode: String, category: String?) {
+    for pair in pairs {
+        if let category, pair.category != category { continue }
+        engine.resetLanguagePosterior()
+        for word in pair.context { engine.confirmWord(word) }
+        let context = pair.context.joined(separator: " ")
+        let suggestions = engine.suggestions(context: context, currentWord: pair.typo, limit: 3)
+        let texts = suggestions.map(\.text)
+        let fired = suggestions.first?.isAutocorrect == true
+        let top1 = texts.first == pair.intended
+        switch mode {
+        case "failures": if top1 { continue }
+        case "false-ac": if !(fired && !top1) { continue }
+        default:
+            stderr("unknown dump mode \(mode)")
+            exit(2)
+        }
+        let rendered = suggestions.map { s in
+            "\(s.text)\(s.isAutocorrect ? "*" : "")\(s.isRestoration ? "~" : "")"
+        }.joined(separator: " | ")
+        let tail = pair.context.suffix(3).joined(separator: " ")
+        print(
+            "[\(pair.category)/\(pair.lang)]\(fired ? " AC" : "") "
+                + "typo=\(pair.typo) intended=\(pair.intended) ctx=…\(tail) -> \(rendered)")
+    }
 }
 
 func pct(_ tally: CorpusTally, _ n: Int) -> String {

@@ -158,6 +158,78 @@ final class CorrectorTests: XCTestCase {
         XCTAssertEqual(result.suggestions.first?.isAutocorrect, true)
     }
 
+    // MARK: Derived possessives (EN profile)
+
+    /// English lexicon for the possessive-derivation seam: stems attested,
+    /// possessive forms deliberately ABSENT (mirrors en.lex, which carries
+    /// essentially no possessive vocabulary).
+    private func possessiveCorrector() -> Corrector {
+        Corrector(
+            icelandic: Fixtures.icelandic,
+            english: DictLexicon(unigrams: [
+                "the": 2000, "and": 1500, "with": 900,
+                "child": 900, "children": 1800, "cat": 700, "cats": 300,
+                "communications": 250,
+            ])
+        )
+    }
+
+    func testUnattestedSkeletonRestoresDerivedPossessive() {
+        // "childrens" is no word anywhere; the stem "children" is attested
+        // → "children's" is derived, ranks first, and auto-applies inside
+        // an English lane (apostrophe insertion is restoration-class).
+        let result = possessiveCorrector().correct(typed: "childrens", pIcelandic: 0.1)
+        XCTAssertFalse(result.typedWordIsValid)
+        XCTAssertEqual(result.suggestions.first?.text, "children's")
+        XCTAssertEqual(result.suggestions.first?.isAutocorrect, true)
+    }
+
+    func testValidPluralGetsPossessiveOfferOnlyNeverAutocorrect() {
+        // "cats" is attested vocabulary: the derived "cat's" may be OFFERED
+        // but the valid-word rule holds — no auto-apply, structurally (a
+        // derived possessive has no lexicon attestation, so it can never
+        // clear the skeleton-collision dominance gate).
+        let result = possessiveCorrector().correct(typed: "cats", pIcelandic: 0.1)
+        XCTAssertTrue(result.typedWordIsValid)
+        XCTAssertTrue(
+            result.suggestions.contains { $0.text == "cat's" },
+            "possessive of a common stem should be offered, got \(result.suggestions.map(\.text))"
+        )
+        XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+    }
+
+    func testNoDerivedPossessiveForSEndingStem() {
+        // "communicationss" must be repaired by de-doubling, never read as
+        // a possessive of the s-ending stem ("communications's" is junk).
+        let result = possessiveCorrector().correct(typed: "communicationss", pIcelandic: 0.1)
+        XCTAssertFalse(
+            result.suggestions.contains { $0.text.contains("'") },
+            "no apostrophe reading for an s-ending stem, got \(result.suggestions.map(\.text))"
+        )
+        XCTAssertEqual(result.suggestions.first?.text, "communications")
+    }
+
+    func testTypedDerivedPossessiveIsValid() {
+        // A typed possessive of an attested stem is real vocabulary — never
+        // flagged unknown, never auto-corrected (straight or typographic
+        // apostrophe).
+        for typed in ["child's", "child’s"] {
+            let result = possessiveCorrector().correct(typed: typed, pIcelandic: 0.1)
+            XCTAssertTrue(result.typedWordIsValid, "\(typed) should be valid")
+            XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
+        }
+    }
+
+    func testNoPossessiveOffersInASaturatedIcelandicLane() {
+        // The pass is lane-gated like the accent-offer mirror: confidently
+        // Icelandic typing never sees English possessive readings.
+        let result = possessiveCorrector().correct(typed: "childrens", pIcelandic: 0.9)
+        XCTAssertFalse(
+            result.suggestions.contains { $0.text == "children's" },
+            "no EN possessive offers at P(IS)=0.9, got \(result.suggestions.map(\.text))"
+        )
+    }
+
     // MARK: Hyphenated compounds
 
     func testHyphenatedCompoundWithValidPartsIsValidAndUncorrected() {

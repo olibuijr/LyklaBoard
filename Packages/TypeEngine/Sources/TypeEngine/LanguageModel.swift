@@ -268,8 +268,17 @@ public struct EngineConfig: Sendable {
     /// Channel penalty for a space-substitution split (a letter adjacent to
     /// the spacebar consumed as the space: "smelirna" → "smelir"+"a" via
     /// the n). Cheaper than insertion — the tap evidence supports it: a tap
-    /// DID land where the space belongs, one key-row off.
-    public var splitSubstitutionPenalty: Double = 1.5
+    /// DID land where the space belongs, one key-row off. Raised 1.5 → 3.0
+    /// on the v0 corpus dev split (space_miss diagnosis, 2026-07-16): at
+    /// 1.5 the 3.5-nat gap to `splitInsertionPenalty` let a substitution
+    /// split that consumes a REAL letter systematically beat the honest
+    /// insertion split whenever the leftover right half was also valid
+    /// ("insteadchose" → "instead hose" over "instead chose", "InMarch" →
+    /// "I March"); 3.0 keeps the tap-evidence discount (2 nats) without
+    /// letting letter-eating splits dominate. Swept 1.5/2.0/2.5/3.0/3.5:
+    /// 3.0 maximizes space_miss top-1 + false-ac gains with zero movement
+    /// in every other category and the micro-eval split block intact.
+    public var splitSubstitutionPenalty: Double = 3.0
     /// A split half that is not itself valid may be repaired by the cheap
     /// targeted passes (diacritics, gemination, edits1) at up to this
     /// spatial cost; anything dearer disqualifies the half. This cap
@@ -286,6 +295,12 @@ public struct EngineConfig: Sendable {
     public var splitInsertionHalfRepairMaxCost: Double = 2.0
     /// How many repaired forms per half are combined into candidates.
     public var splitHalfHypothesisLimit: Int = 3
+    /// Longest invalid half the edits1 repair fallback will walk (the
+    /// diacritic/gemination passes are unbounded — they're tiny). Bounds
+    /// the worst-case cost of ONE junk hypothesis so the split budget is
+    /// spent across hypotheses, not inside the first one (see
+    /// `Corrector.halfHypotheses`).
+    public var splitHalfEdits1MaxLength: Int = 8
     /// A single-character half must be attested at at least this calibrated
     /// z-score in one of the lexicons. Genuine one-letter words are always
     /// extreme-frequency function words (IS "á" +3.3 / "í" +3.4, EN "a"
@@ -390,6 +405,32 @@ public struct EngineConfig: Sendable {
     /// the English apostrophe/lone-i profile.
     public var foldProfileISEnabled = true
     public var foldProfileENEnabled = true
+    /// Derived English possessives (EN profile; corpus-dev contraction_damage
+    /// diagnosis, 2026-07-16): en.lex has essentially no possessive forms
+    /// ("world's", "watson's" absent; "children's" present but undercounted
+    /// 400x — the same Google-Ngram apostrophe-token undercount the
+    /// contraction repair fixes for the curated contractions). Instead of
+    /// enumerating possessives into the artifact, the model DERIVES them: an
+    /// English word "X's" whose base X is attested in en.lex scores as
+    /// English vocabulary with frequency
+    ///   max(own attested frequency, possessiveFrequencyFraction · freq(X)).
+    /// The fraction keeps every derived possessive strictly below its base
+    /// word (log(0.1) ≈ −2.3 nats — a plural skeleton always dominates its
+    /// possessive reading, "cats" ≫ "cat's") while lifting it far above the
+    /// OOV floor so restoration can rank and (for unattested skeletons like
+    /// "childrens"/"watsons") auto-apply. Swept 0.01/0.03/0.05/0.1/0.2 on
+    /// corpus dev: gains plateau at 0.1 (en.lex's tight calibration σ means
+    /// −4.6 nats of raw discount at 0.01 was ~4σ — enough for the stem
+    /// "watson" to outrank its own ε-cost possessive repair); 0.2 starts
+    /// ticking insertion false-ac up.
+    public var possessiveFrequencyFraction: Double = 0.1
+    /// Typicality floor on the BASE word for offering the possessive of a
+    /// typed token that is itself a VALID word ("leagues" → offer
+    /// "league's", bar-only): valid plurals only get the offer when the
+    /// bare noun is genuinely attested vocabulary above the junk tier —
+    /// rare-word plurals keep an undisturbed bar. Unattested skeletons
+    /// ("childrens") need only an attested base.
+    public var possessiveOfferMinBaseZ: Double = -1.5
     /// Lane discount applied to the orthographic-confusion constants (d→ð,
     /// t→þ, o→ö, ð↔þ) inside a confident Icelandic lane: cost is scaled by
     /// (1 − laneWeight·discount). Error-class — discounted, never ~free
@@ -703,11 +744,41 @@ struct BlendedLanguageModel {
         language == .icelandic ? icelandicCalibration : englishCalibration
     }
 
-    /// Is the word attested anywhere (either frequency table, or BÍN-valid)?
+    /// Is the word attested anywhere (either frequency table, BÍN-valid, or
+    /// a derived English possessive)?
     func isKnownAnywhere(_ word: String) -> Bool {
         icelandic.frequency(of: word) != nil
             || english.frequency(of: word) != nil
             || morphology?.isKnown(word) == true
+            || derivedPossessiveBase(of: word) != nil
+    }
+
+    /// Derived English possessive (EN profile — see
+    /// `EngineConfig.possessiveFrequencyFraction`): the base X of a word
+    /// shaped "X's" (straight or typographic apostrophe) when X is itself
+    /// attested in en.lex; nil otherwise. Makes "watson's"/"world's" real
+    /// English vocabulary — valid when typed, scoreable as a fraction of
+    /// the base noun — without enumerating possessives into the artifact.
+    /// Possessives of possessives ("x's's") never derive (the base must be
+    /// apostrophe-free), and the base must be a word, not a fragment
+    /// (all letters, ≥ 2 characters).
+    func derivedPossessiveBase(of word: String) -> String? {
+        guard word.count >= 4 else { return nil }
+        var chars = Array(word)
+        guard chars.removeLast() == "s" else { return nil }
+        guard let apostrophe = chars.last, Corrector.apostrophes.contains(apostrophe) else {
+            return nil
+        }
+        chars.removeLast()
+        guard chars.count >= 2, chars.allSatisfy(\.isLetter) else { return nil }
+        // An s-ending base never derives: the possessive of an s-plural is
+        // "s'" (a different shape), and deriving "communications's" would
+        // hand every accidental double-s typo a junk possessive reading
+        // that outprices the honest de-doubling repair.
+        guard chars.last != "s" else { return nil }
+        let base = String(chars)
+        guard english.frequency(of: base) != nil else { return nil }
+        return base
     }
 
     /// Valid personal vocabulary: learned, user-added or session-learned —
@@ -765,9 +836,25 @@ struct BlendedLanguageModel {
     }
 
     /// Effective unigram frequency, applying the BÍN floor for Icelandic
-    /// forms that are morphologically valid but absent from the table.
+    /// forms that are morphologically valid but absent from the table, and
+    /// the derived-possessive frequency for English "X's" forms (max of the
+    /// word's own attestation — possessives en.lex does carry are
+    /// undercounted 10-400x — and the fraction-of-base derivation; see
+    /// `EngineConfig.possessiveFrequencyFraction`).
     func effectiveFrequency(of word: String, language: Language) -> UInt32? {
-        if let f = lexicon(for: language).frequency(of: word) { return f }
+        let attested = lexicon(for: language).frequency(of: word)
+        if language == .english,
+            let base = derivedPossessiveBase(of: word),
+            let baseFrequency = english.frequency(of: base)
+        {
+            let derived = UInt32(
+                min(
+                    max(1, (Double(baseFrequency) * config.possessiveFrequencyFraction).rounded()),
+                    Double(UInt32.max)
+                ))
+            return max(attested ?? 0, derived)
+        }
+        if let f = attested { return f }
         if language == .icelandic, morphology?.isKnown(word) == true {
             return config.binFloorFrequency
         }

@@ -1291,3 +1291,80 @@ EXPECT_AUTOCORRECT búð
 EXPECT_NOT_CONTAINS bus
 T " "
 EXPECT_BUFFER "hann sagði að við hefðum búð "
+
+# ---------------------------------------------------------------------------
+# Possessive apostrophe restoration (EN profile, derived possessives —
+# 2026-07-16 contraction_damage wave). en.lex carries almost no possessive
+# forms; the model derives "X's" from an attested stem X at a fraction of
+# the stem's frequency (EngineConfig.possessiveFrequencyFraction). The
+# sacred asymmetry: an UNATTESTED skeleton ("childrens", "watsons") may
+# auto-restore; a VALID plural ("cats") gets the possessive as an offer at
+# most — a derived possessive can never clear the skeleton-collision
+# dominance gate (it has no en.lex attestation), so auto-apply past the
+# valid-word rule is structurally impossible.
+# ---------------------------------------------------------------------------
+
+SCENARIO childrens restores children's in an english lane
+T "they wanted to see the "
+EXPECT_POSTERIOR_LT 0.35
+T childrens
+EXPECT_AUTOCORRECT children's
+
+SCENARIO watsons restores the possessive of an attested name
+T "they wanted to see the "
+T watsons
+EXPECT_AUTOCORRECT watson's
+
+SCENARIO cats is never rewritten to the possessive
+T "they wanted to see the "
+T cats
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS cat's
+T " "
+EXPECT_LAST_COMMIT cats
+
+SCENARIO typed possessive of an attested stem is valid
+T "the "
+T world's
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT world's
+
+# en.lex v4: the curated contraction list now covers the full common
+# inventory (they'd, haven't, he's, who's, would've, …) at repaired
+# conditional-probability frequencies.
+SCENARIO theyd restores they'd
+T "and then "
+T theyd
+EXPECT_AUTOCORRECT they'd
+
+# "shed"/"wed" are CONTRACTION_SKELETON_FOLD_EXEMPT in build-lexicon.py:
+# real independent words whose frequency must not be folded into she'd/we'd
+# — with their genuine counts intact, the restoration dominance gate (10x)
+# can never fire on them.
+SCENARIO shed never restores to she'd
+T "they built a "
+T shed
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT shed
+
+# ---------------------------------------------------------------------------
+# Space-miss splits: interior capitalization (2026-07-16 space_miss wave)
+# ---------------------------------------------------------------------------
+
+# A merged pair keeps the user's interior capitalization — the second
+# half's first letter takes the case of the typed character it starts from
+# ("RitaHayworth" → "Rita Hayworth", never "Rita hayworth").
+SCENARIO merged pair keeps interior capitalization
+T "and sanctuaries conway "
+T SouthCarolina
+EXPECT_AUTOCORRECT South Carolina
+
+# A substitution split may never consume a SHIFTED letter as the missed
+# space: uppercase is deliberate input ("ThemMangalore" must not eat the
+# second M and auto-apply "Them bangalore").
+SCENARIO substitution split never consumes a shifted letter
+T "the priest of "
+T ThemMangalore
+EXPECT_NO_AUTOCORRECT

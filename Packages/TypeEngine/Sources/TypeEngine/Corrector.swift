@@ -302,6 +302,46 @@ public struct Corrector {
             }
         }
 
+        // 2d. Possessive apostrophe restoration (EN profile; the
+        // contraction_damage diagnosis): a token ending in s whose stem is
+        // attested English vocabulary may be the possessive stem+'s typed
+        // without the apostrophe — "childrens" → "children's", "watsons" →
+        // "watson's". The candidate is scored through the derived-possessive
+        // seam (`BlendedLanguageModel.derivedPossessiveBase`), so it ranks
+        // as a fraction of the stem's own frequency. Two conservatism
+        // shapes, per the sacred valid-word rule:
+        //  * UNATTESTED skeleton ("childrens" is no word anywhere): full
+        //    restoration semantics — may auto-apply through the ordinary
+        //    unknown-token margins (apostrophe insertion is restoration
+        //    class, so the relaxed margin applies inside an EN lane).
+        //  * VALID typed word ("leagues", "cats"): OFFER-ONLY, and only
+        //    when the stem is genuinely common (possessiveOfferMinBaseZ) —
+        //    auto-apply past the valid-word rule is structurally impossible
+        //    for a derived possessive (the skeleton-collision triple gate
+        //    demands en.lex attestation of the candidate, which a DERIVED
+        //    possessive by definition lacks), so "cats" can never become
+        //    "cat's" uninvited.
+        // Lane-gated like the accent-offer mirror: no possessive offers in
+        // a confidently Icelandic lane.
+        if config.foldProfileENEnabled,
+            1 - pIcelandic >= config.accentOfferMinPosterior,
+            typedChars.count >= 4,
+            typedChars.last == "s",
+            !typedChars.contains(where: { Self.apostrophes.contains($0) }),
+            typedChars.allSatisfy(\.isLetter)
+        {
+            let candidate = String(typedChars.dropLast()) + "'s"
+            // derivedPossessiveBase is the single authority on the shape
+            // (attested apostrophe-free stem, ≥ 2 letters, not s-ending).
+            if let stem = model.derivedPossessiveBase(of: candidate),
+                !typedIsValid
+                    || model.calibratedUnigramScore(of: stem, language: .english)
+                        >= config.possessiveOfferMinBaseZ
+            {
+                admit(candidate)
+            }
+        }
+
         // 3. Prefix completions of the typed word (completion-as-suggestion).
         // Under a governor context the pool WIDENS
         // (morphCompletionPoolLimit): the governed oblique form is often
@@ -445,12 +485,14 @@ public struct Corrector {
             typedChars.allSatisfy(\.isLetter),
             bestSoFar > config.splitGate
         {
+            let rawChars = Array(rawTyped)
             scored.append(
                 contentsOf: splitCandidates(
                     typedChars: typedChars,
                     previousWord: previousWord,
                     pIcelandic: pIcelandic,
-                    taps: taps.count == typedChars.count ? taps : []
+                    taps: taps.count == typedChars.count ? taps : [],
+                    rawChars: rawChars.count == typedChars.count ? rawChars : []
                 ).map {
                     // Splits are error-class rewrites by definition (a
                     // missed keystroke, never restoration).
@@ -829,11 +871,18 @@ public struct Corrector {
     /// to the spacebar edge — a tap hugging the bottom of the letter key
     /// prices the split below the static constant, a dead-center/top-edge
     /// tap prices it up (see `EngineConfig.tapSpaceSplitSlope`).
+    /// `rawChars` (when aligned with `typedChars`) is the ORIGINAL-case
+    /// typed token: a merged pair keeps the user's interior capitalization
+    /// ("RitaHayworth" → "Rita Hayworth", never "Rita hayworth") — the
+    /// second half's first letter takes the case of the typed character it
+    /// starts from. Ranking/validity are case-insensitive throughout
+    /// (lexicon lookups normalize), so only the rendered text changes.
     func splitCandidates(
         typedChars: [Character],
         previousWord: String?,
         pIcelandic: Double,
-        taps: [TapSample?] = []
+        taps: [TapSample?] = [],
+        rawChars: [Character] = []
     ) -> [(word: String, spatialCost: Double, score: Double)] {
         let n = typedChars.count
         guard n >= config.splitMinLength else { return [] }
@@ -858,15 +907,26 @@ public struct Corrector {
         // sheds edges. Insertion splits get the tighter half-repair cap
         // (no tap evidence — see splitInsertionHalfRepairMaxCost).
         var hypotheses:
-            [(left: [Character], right: [Character], penalty: Double, repairCap: Double)] = []
+            [(
+                left: [Character], right: [Character], penalty: Double, repairCap: Double,
+                rightStart: Int
+            )] = []
         let centerOut: (Int, Int) -> Bool = { lhs, rhs in
             let l = abs(2 * lhs - n)
             let r = abs(2 * rhs - n)
             return l < r || (l == r && lhs < rhs)
         }
 
+        // A substitution split may never consume a character the user
+        // SHIFTED for ("skelfingVestursins" must not eat the V): an
+        // uppercase interior letter is deliberate input, not a missed
+        // spacebar — the insertion-split hypotheses still read it as the
+        // second word's (capitalized) first letter.
         let substitutionPositions = (1..<(n - 1))
-            .filter { spatial.spaceAdjacentLetters.contains(typedChars[$0]) }
+            .filter {
+                spatial.spaceAdjacentLetters.contains(typedChars[$0])
+                    && !($0 < rawChars.count && rawChars[$0].isUppercase)
+            }
             .sorted(by: centerOut)
             .prefix(config.splitMaxPositions)
         for j in substitutionPositions {
@@ -875,7 +935,8 @@ public struct Corrector {
                     Array(typedChars[0..<j]),
                     Array(typedChars[(j + 1)...]),
                     substitutionSplitPenalty(at: j),
-                    config.splitHalfRepairMaxCost
+                    config.splitHalfRepairMaxCost,
+                    j + 1
                 )
             )
         }
@@ -889,7 +950,8 @@ public struct Corrector {
                     Array(typedChars[0..<i]),
                     Array(typedChars[i...]),
                     config.splitInsertionPenalty,
-                    config.splitInsertionHalfRepairMaxCost
+                    config.splitInsertionHalfRepairMaxCost,
+                    i
                 )
             )
         }
@@ -934,10 +996,22 @@ public struct Corrector {
             guard !lefts.isEmpty else { continue }
             let rights = resolvedHalves(for: hypothesis.right)
             guard !rights.isEmpty else { continue }
+            // Interior-capitalization carryover: the second half starts at
+            // typed index `rightStart` — an uppercase typed character there
+            // keeps its case in the rendered split ("RitaHayworth" →
+            // "Rita Hayworth"). Leading capitalization of the FIRST half is
+            // the engine wrapper's job, exactly as for one-word candidates.
+            let capitalizeRight =
+                hypothesis.rightStart < rawChars.count
+                && rawChars[hypothesis.rightStart].isUppercase
             for (leftWord, leftCost) in lefts where leftCost <= hypothesis.repairCap {
                 for (rightWord, rightCost) in rights where rightCost <= hypothesis.repairCap {
                     let channel = hypothesis.penalty + leftCost + rightCost
-                    let text = leftWord + " " + rightWord
+                    let renderedRight =
+                        capitalizeRight
+                        ? rightWord.prefix(1).uppercased() + rightWord.dropFirst()
+                        : rightWord
+                    let text = leftWord + " " + renderedRight
                     if let existing = best[text], existing.spatialCost <= channel { continue }
                     let language = model.blendedPairScore(
                         first: leftWord,
@@ -978,9 +1052,16 @@ public struct Corrector {
             admit(variant, spatialCost(typedChars: chars, candidate: variant))
         }
         // edits1 is the expensive pass (hundreds of existence checks): only
-        // walked when the cheap passes produced nothing, and never for
-        // 1–2 char halves (every 1–2 letter word is one edit from another).
-        if best.isEmpty, chars.count >= 3 {
+        // walked when the cheap passes produced nothing, never for 1–2 char
+        // halves (every 1–2 letter word is one edit from another), and
+        // never for LONG halves (splitHalfEdits1MaxLength): a long invalid
+        // half's edits1 walk costs a milliseconds-tier slab of lexicon+BÍN
+        // probes that can eat the whole split budget on ONE junk
+        // hypothesis ("southcaroli"+"a") before the honest split of the
+        // same token ("south"+"carolina") is ever explored — and every
+        // genuine repaired-half shape is short ("smelir" 6, "arolina" 7,
+        // "angalore" 8).
+        if best.isEmpty, chars.count >= 3, chars.count <= config.splitHalfEdits1MaxLength {
             for (word, cost) in Self.edits1Costed(of: chars, spatial: spatial)
             where cost <= config.splitHalfRepairMaxCost
                 && isCandidateWord(word, checkMorphology: true)
@@ -1237,24 +1318,33 @@ public struct Corrector {
 
     // MARK: - Attestation helpers
 
-    /// Attested in a frequency table, or valid personal vocabulary
-    /// (tombstoned words excluded). BÍN validity deliberately does not
-    /// count — its 3M forms collide with junk (same stance as laneEvidence).
+    /// Attested in a frequency table, a derived English possessive of an
+    /// attested stem (see `BlendedLanguageModel.derivedPossessiveBase`), or
+    /// valid personal vocabulary (tombstoned words excluded). BÍN validity
+    /// deliberately does not count — its 3M forms collide with junk (same
+    /// stance as laneEvidence).
     private func isAttestedOrPersonal(_ word: String) -> Bool {
         guard !model.isPersonalTombstoned(word) else { return false }
         return model.isPersonalValid(word)
             || model.icelandic.frequency(of: word) != nil
             || model.english.frequency(of: word) != nil
+            || model.derivedPossessiveBase(of: word) != nil
     }
 
     /// Best within-language calibrated typicality of an ATTESTED word; nil
     /// when the word is in neither frequency table (BÍN-only / unknown).
+    /// Derived English possessives count as attested — their calibrated
+    /// score already reflects the fraction-of-stem derived frequency, so
+    /// the auto-apply typicality floor prices them honestly (a possessive
+    /// of a rare stem stays below `autocorrectMinZ` and never auto-applies).
     private func attestedTypicality(of word: String) -> Double? {
         var best: Double?
         if model.icelandic.frequency(of: word) != nil {
             best = model.calibratedUnigramScore(of: word, language: .icelandic)
         }
-        if model.english.frequency(of: word) != nil {
+        if model.english.frequency(of: word) != nil
+            || model.derivedPossessiveBase(of: word) != nil
+        {
             best = max(
                 best ?? -.infinity,
                 model.calibratedUnigramScore(of: word, language: .english)

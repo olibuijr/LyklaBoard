@@ -339,7 +339,10 @@ final class FrequencyLexiconTests: XCTestCase {
         // (harness symptom: "don't" -> "dont" -> autocorrected to "Ibm").
         // Counts per en.lex v3 --contraction-repair (conditional-probability
         // transfer; scale divisor=7 — see data/README.md "Contraction
-        // frequency repair").
+        // frequency repair"). The v4 list extension (2026-07-16) left every
+        // one of these values byte-identical: each row's estimate is
+        // computed independently, so extending CONTRACTION_EXPANSIONS never
+        // moves existing entries.
         let contractions: [(String, UInt32)] = [
             ("don't", 41_418_557),
             ("i'm", 8_707_904),
@@ -367,6 +370,33 @@ final class FrequencyLexiconTests: XCTestCase {
         for (word, expected) in contractions {
             XCTAssertEqual(en.frequency(of: word), expected, "mismatch for \(word)")
         }
+
+        // en.lex v4 (2026-07-16): CONTRACTION_EXPANSIONS extended to the
+        // full common contraction inventory — spot-check repaired
+        // previously-undercounted entries and newly-inserted absent ones
+        // (raw counts / 7, same divisor).
+        let v4Contractions: [(String, UInt32)] = [
+            ("haven't", 6_911_095),  // was 5,357 raw (below "font")
+            ("they'd", 4_856_205),
+            ("he's", 7_309_913),
+            ("you'll", 6_497_410),
+            ("hasn't", 4_236_635),  // absent from the raw source entirely
+            ("weren't", 4_241_587),
+            ("would've", 9_173_730),
+        ]
+        for (word, expected) in v4Contractions {
+            XCTAssertEqual(en.frequency(of: word), expected, "mismatch for \(word)")
+        }
+
+        // CONTRACTION_SKELETON_FOLD_EXEMPT: "wed" and "shed" are genuine
+        // independent words — their counts must stay UNFOLDED even though
+        // the we'd/she'd phrase estimates exceed them (the fold heuristic's
+        // two known false positives; folding them would arm the engine's
+        // 10x restoration-dominance gate against deliberately typed words).
+        XCTAssertEqual(en.frequency(of: "wed"), 144_906)  // 1,014,344 / 7
+        XCTAssertEqual(en.frequency(of: "shed"), 891_558)  // 6,240,911 / 7
+        // …while junk skeletons ("hes") still fold to the 10% floor.
+        XCTAssertEqual(en.frequency(of: "hes"), 3_251)  // 22,758 / 7
 
         // Curly apostrophe (U+2019) must normalize to the same token as the
         // straight ASCII apostrophe.

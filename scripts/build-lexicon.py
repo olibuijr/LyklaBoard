@@ -115,6 +115,16 @@ _CURLY_APOSTROPHE = '’'
 # if a future source list drops them. word -> two-word uncontracted phrase
 # used to derive a fallback frequency from the bigram source. See the module
 # docstring ("Contraction backfill") for the method.
+#
+# v4 (2026-07-16, corpus-dev contraction_damage diagnosis): extended beyond
+# the original 22 with the rest of the common English contraction inventory
+# (haven't/they'd/you'll/he's/who's/would've...). The original entries'
+# repaired frequencies are UNCHANGED by the extension (each row's estimate
+# is computed independently); the new rows both repair undercounted present
+# contractions (haven't was 5,357 raw — below "font") and insert absent ones
+# (hasn't, weren't, would've) at bigram-derived estimates. Skeleton-fold
+# safety was checked per row before extending — see
+# CONTRACTION_SKELETON_FOLD_EXEMPT below for the two real-word collisions.
 CONTRACTION_EXPANSIONS = {
     "don't": ("do", "not"),
     "i'm": ("i", "am"),
@@ -138,7 +148,52 @@ CONTRACTION_EXPANSIONS = {
     "there's": ("there", "is"),
     "what's": ("what", "is"),
     "let's": ("let", "us"),
+    # --- v4 extension ---
+    "haven't": ("have", "not"),
+    "hasn't": ("has", "not"),
+    "hadn't": ("had", "not"),
+    "weren't": ("were", "not"),
+    "they'd": ("they", "would"),
+    "they'll": ("they", "will"),
+    "they've": ("they", "have"),
+    "we've": ("we", "have"),
+    "we'd": ("we", "would"),
+    "we'll": ("we", "will"),
+    "you'll": ("you", "will"),
+    "you've": ("you", "have"),
+    "you'd": ("you", "would"),
+    "he's": ("he", "is"),
+    "she's": ("she", "is"),
+    "he'd": ("he", "would"),
+    "he'll": ("he", "will"),
+    "she'd": ("she", "would"),
+    "she'll": ("she", "will"),
+    "i'd": ("i", "would"),
+    "who's": ("who", "is"),
+    "here's": ("here", "is"),
+    "where's": ("where", "is"),
+    "how's": ("how", "is"),
+    "mustn't": ("must", "not"),
+    "needn't": ("need", "not"),
+    "would've": ("would", "have"),
+    "could've": ("could", "have"),
+    "should've": ("should", "have"),
+    "must've": ("must", "have"),
 }
+
+# Skeletons repair_contraction_frequencies() must never fold down, even when
+# the phrase estimate exceeds the observed skeleton count: these are common
+# INDEPENDENT English words ("we wed in June", "a garden shed"), not mostly-
+# contraction leakage — the self-consistent gate's two known false positives
+# (measured: "wed" 1,014,344 vs a "we'd" estimate of ~17M; "shed" 6,240,911
+# vs a "she'd" estimate of ~15M). Folding them to 10% would hand the
+# engine's restoration-dominance gate (10x) a green light to auto-restore a
+# deliberately typed "shed" into "she'd" — the exact valid-word violation
+# the conservatism rules exist to prevent. The gate's other real-word
+# collisions need no exemption: "well"/"hell"/"shell"/"id"/"its"/"were"/
+# "ill" all have observed counts ABOVE their contraction's estimate, so the
+# fold never fires for them (verified in the v4 dry-run table).
+CONTRACTION_SKELETON_FOLD_EXEMPT = {"wed", "shed"}
 
 
 def is_gzip(path):
@@ -298,7 +353,11 @@ def repair_contraction_frequencies(unigram_counts, raw_bigrams, skeleton_floor_f
             unigram_counts[contraction] = new_c
 
         new_s = old_s
-        if old_s > 0 and phrase_estimate > old_s:
+        if (
+            old_s > 0
+            and phrase_estimate > old_s
+            and skeleton not in CONTRACTION_SKELETON_FOLD_EXEMPT
+        ):
             new_s = max(1, math.ceil(old_s * skeleton_floor_fraction))
             unigram_counts[skeleton] = new_s
 
@@ -535,23 +594,16 @@ def build(
 
     raw_bigrams = load_bigrams(bigrams_path)
 
-    # English-only: CONTRACTION_EXPANSIONS keys/phrases are English words, so
-    # running this against the Icelandic bigram source would occasionally
-    # match a stray English bigram in the web corpus (e.g. a quoted "do not")
-    # and inject noise like "don't" into is.lex. Opt-in via --contraction-backfill.
-    if contraction_backfill:
-        backfilled = backfill_contractions(unigram_counts, raw_bigrams)
-        if backfilled:
-            print(
-                'backfilled contractions missing from unigram source: '
-                + ', '.join(f'{w}={f}' for w, f in backfilled)
-            )
-
-    # English-only, same rationale as --contraction-backfill above: fixes
+    # English-only, see repair_contraction_frequencies() docstring: fixes
     # contractions that are *present* but undercounted (task #10,
-    # 2026-07-16) rather than missing. See repair_contraction_frequencies()
-    # docstring for the full method and data/README.md's en.lex section for
-    # the before/after table.
+    # 2026-07-16), and inserts absent curated contractions at the
+    # conditional-probability estimate. MUST run BEFORE the backfill: the
+    # backfill's raw `bigram_freq(phrase) // 2` proxy is on the bigram
+    # file's own (larger) corpus scale — fine as a nothing-better fallback,
+    # but if it inserted a missing contraction first, the repair's
+    # max(old, estimate) would keep the bogusly huge value (v4 lesson:
+    # "would've" landed at 1.48B — above "have" itself — when the backfill
+    # ran first).
     if contraction_repair:
         repair_rows = repair_contraction_frequencies(
             unigram_counts, raw_bigrams, skeleton_floor_fraction=contraction_skeleton_floor,
@@ -559,6 +611,22 @@ def build(
         print('\ncontraction frequency repair (--contraction-repair):')
         print_contraction_report(repair_rows)
         print()
+
+    # English-only: CONTRACTION_EXPANSIONS keys/phrases are English words, so
+    # running this against the Icelandic bigram source would occasionally
+    # match a stray English bigram in the web corpus (e.g. a quoted "do not")
+    # and inject noise like "don't" into is.lex. Opt-in via --contraction-backfill.
+    # With --contraction-repair also on, this is pure belt-and-braces: repair
+    # already inserted every curated contraction whose expansion phrase the
+    # bigram source attests, so the backfill only fires for entries the
+    # repair could not estimate at all.
+    if contraction_backfill:
+        backfilled = backfill_contractions(unigram_counts, raw_bigrams)
+        if backfilled:
+            print(
+                'backfilled contractions missing from unigram source: '
+                + ', '.join(f'{w}={f}' for w, f in backfilled)
+            )
 
     if bin_lookup_path and bin_lemmas_path:
         bin_forms = load_bin_forms(bin_lookup_path, bin_lemmas_path)

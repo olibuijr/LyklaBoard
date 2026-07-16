@@ -151,6 +151,15 @@ skeletons moved); is.lex untouched by this task.
 |---|---|---|
 | en/en.lex | 4,267,624 bytes / 4.07 MB — 80,000 unigrams, 240,966 bigrams, `don't`=26,863 (scaled) | 4,267,624 bytes / 4.07 MB — 80,000 unigrams, 240,966 bigrams, `don't`=41,418,557 (scaled) |
 
+**Rebuilt again 2026-07-16 (en.lex only, format unchanged, v4)** for the
+corpus-dev `contraction_damage` wave: `CONTRACTION_EXPANSIONS` extended
+from 22 to 52 entries (the full common contraction inventory), repair-
+before-backfill order fix, and the `wed`/`shed` skeleton-fold exemption —
+see "Contraction inventory extension (en.lex v4)" below. 80,000 →
+**80,011** unigrams (+11 inserted contractions), 4,267,624 →
+**4,267,800 bytes**; bigrams and scale divisors unchanged; is.lex
+untouched.
+
 ### Contraction fix (en.lex)
 
 **Root cause**: format v1's builder filter (`WORD_RE = ^[a-zþðæöáéíóúý]+$`)
@@ -326,6 +335,48 @@ this rebuilt artifact): load 0.15 ms, `frequency()` 1.4 µs/call,
 phys_footprint delta after load + 3000 mixed lookups +0.69 MB — flat
 against (in fact better than, within normal run-to-run noise) the
 2026-07-15 en.lex bench row below.
+
+### Contraction inventory extension (en.lex v4, 2026-07-16)
+
+The corpus-dev `contraction_damage` diagnosis (eval studio, scores/README.md)
+showed the v3 repair only covered its 22 curated contractions: damaged
+tokens for anything else (`theyd`→`they'd`, `havent`→`haven't`) still lost
+to their bare stems because the contraction's en.lex frequency was raw-
+undercounted (`haven't`=5,357 raw — below `font`) or absent entirely
+(`hasn't`, `weren't`, `would've`). v4 extends `CONTRACTION_EXPANSIONS` in
+`scripts/build-lexicon.py` from 22 to 52 entries — the full common English
+contraction inventory (haven't/hasn't/hadn't/weren't, they'd/'ll/'ve,
+we'd/'ll/'ve, you'd/'ll/'ve, he's/'d/'ll, she's/'d/'ll, i'd, who's, here's,
+where's, how's, mustn't, needn't, would've/could've/should've/must've) —
+using the same conditional-probability repair. Nothing else changed:
+
+- **Existing 22 entries byte-identical** (each row's estimate is computed
+  independently) — asserted by
+  `Packages/Lexicon/Tests/.../testEnglishArtifactContractionsPresent`.
+- **Order fix**: the repair now runs BEFORE `--contraction-backfill`. The
+  backfill's raw `bigram_freq // 2` proxy is on the bigram file's (larger)
+  corpus scale; when it ran first it inserted newly-listed absent
+  contractions at bogus values the repair's `max()` then kept
+  (`would've` landed at 1.48B — above `have`). With repair first, the
+  backfill is pure belt-and-braces and inserts nothing today.
+- **`CONTRACTION_SKELETON_FOLD_EXEMPT = {"wed", "shed"}`**: the fold
+  heuristic's two known false positives. Both are genuine independent
+  words whose observed counts sit BELOW their contraction's estimate
+  (`wed` 1,014,344 vs `we'd` est ~17.2M; `shed` 6,240,911 vs `she'd` est
+  ~14.7M), so the self-consistent gate would have folded them to 10% —
+  and a 10%-folded `shed` would put `she'd` past the engine's 10x
+  restoration-dominance gate, i.e. a deliberately typed "shed" could
+  auto-restore to "she'd". Exempted; their counts are unchanged. The
+  gate's other real-word collisions (`well`, `hell`, `shell`, `id`, `its`,
+  `were`, `ill`) need no exemption — their observed counts exceed the
+  estimates, so the fold never fires (verified in the build report).
+  Junk skeletons (`hes` 227,580 → 22,758, `shes`, `whos`, `wheres`,
+  `hows`) fold to the 10% floor as designed.
+
+On disk: 80,000 → **80,011** unigrams (+11 newly inserted contractions),
+240,966 bigrams unchanged, scale divisors unchanged (7 / 42),
+totalUnigramTokens 52,708,346,097. Rebuild is byte-deterministic
+(md5-verified across repeated runs) with the same command as v3.
 
 ### Ranking-noise pruning (is.lex)
 

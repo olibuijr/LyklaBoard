@@ -48,7 +48,13 @@ public enum ConfigOverrides {
         "splitAutocorrectMargin": { $0.splitAutocorrectMargin = $1 },
         "splitInsertionPenalty": { $0.splitInsertionPenalty = $1 },
         "splitSubstitutionPenalty": { $0.splitSubstitutionPenalty = $1 },
-        // Lane relaxation (accent restoration)
+        "splitGate": { $0.splitGate = $1 },
+        "splitAutoApplySingleWordCutoff": { $0.splitAutoApplySingleWordCutoff = $1 },
+        "splitInsertionHalfRepairMaxCost": { $0.splitInsertionHalfRepairMaxCost = $1 },
+        "splitSaturatedHalfMinZ": { $0.splitSaturatedHalfMinZ = $1 },
+        // Lane relaxation (accent restoration + EN possessive derivation)
+        "possessiveFrequencyFraction": { $0.possessiveFrequencyFraction = $1 },
+        "possessiveOfferMinBaseZ": { $0.possessiveOfferMinBaseZ = $1 },
         "foldBaseCost": { $0.foldBaseCost = $1 },
         "foldEpsilon": { $0.foldEpsilon = $1 },
         "laneWeightRampLo": { $0.laneWeightRampLo = $1 },
@@ -73,6 +79,7 @@ public enum ConfigOverrides {
         "beamMaxEdits": { $0.beamMaxEdits = $1 },
         "beamShortMaxEdits": { $0.beamShortMaxEdits = $1 },
         "beamLongMinLength": { $0.beamLongMinLength = $1 },
+        "splitMinLength": { $0.splitMinLength = $1 },
         "completionPoolLimit": { $0.completionPoolLimit = $1 },
         "morphCompletionPoolLimit": { $0.morphCompletionPoolLimit = $1 },
     ]
