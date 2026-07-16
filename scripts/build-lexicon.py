@@ -8,7 +8,7 @@ Usage:
         --unigrams data/en/en-80k.txt \\
         --bigrams data/en/frequency_bigramdictionary_en_243_342.txt \\
         --out data/en/en.lex \\
-        --contraction-backfill
+        --contraction-backfill --contraction-repair
 
     python3 scripts/build-lexicon.py \\
         --unigrams data/is/unigrams.json.gz \\
@@ -67,6 +67,26 @@ fallback so the table degrades gracefully if a future source drops a
 contraction; it does not fire against the current shipped data. Contractions
 with no matching bigram entry are left absent rather than guessed at.
 
+Contraction repair (v3, --contraction-repair, English only): backfill only
+covers a contraction going *missing*; it does not fix one that is *present
+but undercounted*, which is the actual bug found by the harness (2026-07-16
+task #10) — en-80k.txt's own unigram counts for contractions run 10-40x
+below independently-plausible values (e.g. raw "don't"=188,045 vs "font"
+=2,568,450), because Google Ngram-derived unigram extraction evidently
+undercounts apostrophe-tokens relative to their real usage (and, for
+contractions whose bare skeleton is *also* a real dictionary word, e.g.
+"cant"/"wont"/"lets", some of the contraction's mass was likely miscounted
+into that bare word instead). See repair_contraction_frequencies() below for
+the full method: it derives an independent frequency estimate for each
+contraction from the bigram source's *own internal* conditional
+probabilities (avoiding the false assumption above that unigram and bigram
+counts share a scale — they don't, see the function docstring), raises the
+contraction's frequency to at least that estimate, and — only when the
+estimate alone already exceeds the bare skeleton's observed count, i.e. only
+when the skeleton's own frequency isn't independently explainable — folds
+down the skeleton's frequency (with a floor) to reflect that most of it was
+probably misattributed contraction mass.
+
 Frequencies are scaled to fit u32 when source counts exceed it (English
 counts do; Icelandic counts don't). See FORMAT.md "Scaling to u32" for the
 exact algorithm — it's also implemented below in scale_to_u32().
@@ -76,6 +96,7 @@ Stdlib only.
 import argparse
 import gzip
 import json
+import math
 import re
 import struct
 import unicodedata
@@ -157,6 +178,147 @@ def backfill_contractions(unigram_counts, raw_bigrams):
         unigram_counts[contraction] = derived
         added.append((contraction, derived))
     return added
+
+
+def repair_contraction_frequencies(unigram_counts, raw_bigrams, skeleton_floor_fraction=0.1):
+    """Correct undercounted English contraction frequencies (task #10,
+    2026-07-16): en-80k.txt's own unigram counts for contractions are
+    10-40x below independently-plausible values (raw "don't"=188,045 vs
+    "font"=2,568,450 — nobody types "font" more than 13x as often as
+    "don't"). This makes the beam decoder's lane-relaxation apostrophe fold
+    (PLAN.md "EN apostrophe folding dont->don't... ~ε") offer-only instead
+    of auto-applying: the folded target's frequency is too low to win, and
+    for contractions whose bare skeleton is *also* a real word (can't/cant,
+    won't/wont), the skeleton's frequency is backwards-dominant over the
+    contraction, which is exactly the wrong direction for the collision
+    dominance gate PLAN.md describes for the accent-folding mirror case.
+
+    Method — independent frequency estimate via the bigram file's own
+    internal conditional probabilities:
+
+    A tempting shortcut is "use bigram_freq(do, not) as a proxy for
+    freq(don't)" (this is literally what --contraction-backfill already
+    does as a *missing-entry* fallback). But en-80k.txt (unigrams) and
+    frequency_bigramdictionary_en_243_342.txt (bigrams) are NOT the same
+    corpus scale — verified empirically here: the single most reliable
+    unigram ("the"=26,548,583,149) is smaller than the single most reliable
+    bigram ("of the"=177,045,273,024), which is logically impossible within
+    one consistent corpus (a bigram can never occur more often than either
+    of its own words) and proves the two SymSpell-derived files come from
+    differently-scaled extractions. Worse, the size of that mismatch is not
+    a fixed ratio: measured per-pair ("of the" vs "the": 6.7x; "in the" vs
+    "in": 12.3x; "do not" vs "do": 37.4x), it varies enough that no single
+    global divisor gives trustworthy absolute numbers (previously tried and
+    rejected during this fix: it put contractions above "the" itself).
+
+    What *is* reliable across the two files is a conditional PROBABILITY,
+    not an absolute count: P(w2 | w1) = bigram_freq(w1, w2) / (total bigram
+    mass starting with w1) is a same-corpus ratio (computed entirely inside
+    the bigram file), and this fraction is assumed to transfer reasonably
+    well onto the unigram file's trusted count for w1 (word-pair grammar
+    doesn't shift much between corpus vintages, even if absolute corpus
+    size does). So each contraction's expansion phrase (w1, w2) gets two
+    independent projections back onto the unigram file's scale:
+
+        est_via_w1 = unigram_freq(w1) * bigram_freq(w1,w2) / fanout(w1, *)
+        est_via_w2 = unigram_freq(w2) * bigram_freq(*,w2) / fanout(*, w2)
+
+    and the estimate used is min(est_via_w1, est_via_w2) — the more
+    conservative of the two directions, so a skewed fan-out on either side
+    can only push the estimate down, never up. Sanity-checked against known
+    frequencies in en-80k.txt: this method puts "don't" (~290M) in the same
+    tier as "should"/"would"/"could" (407M/736M/443M) and "can't" (~143M)
+    above "house" (158M) but below "will" (742M) — plausible for words this
+    common in casual (mobile-typed) English, unlike the raw source's
+    "don't"=188,045 (below "font").
+
+    Skeleton reassignment: a contraction's bare skeleton (apostrophe
+    stripped, e.g. "cant") is only ever adjusted, never for contractions
+    whose skeleton is absent from the source (nothing to reassign). When
+    present, the skeleton is reduced ONLY IF the independent phrase estimate
+    above already exceeds the skeleton's observed frequency — i.e. only
+    when the evidence says the "true" contraction volume alone is bigger
+    than what's currently sitting in the skeleton bucket, meaning the
+    skeleton's own count doesn't need an "it's also a genuine independent
+    word" explanation to account for it. This is a self-consistent gate,
+    not a hardcoded per-word judgment call: it naturally leaves real,
+    independently-dominant collision words alone (measured: "its" stays
+    untouched — 684,717,118 vs an "it's" estimate of ~397M, i.e. estimate <
+    skeleton; same for "were"/we're and "ill"/i'll) while correcting the
+    cases where the skeleton is mostly contraction leakage (measured:
+    "cant" 996,416 vs "can't" estimate ~143M, "wont" 1,862,783 vs "won't"
+    estimate ~63M, "lets" 3,004,900 vs "let's" estimate ~10M, "whats"
+    67,648 vs "what's" estimate ~55M — all get folded down). When folding
+    down, `skeleton_floor_fraction` (default 0.1, --contraction-skeleton-
+    floor) keeps at least that fraction of the observed skeleton count
+    rather than zeroing it — per PLAN.md's "keep a floor so genuinely-typed
+    'dont' still ranks", some of the skeleton spelling is presumably still
+    deliberately typed even where evidence says most of it is a corpus
+    artifact.
+
+    Never applied to CONTRACTION_EXPANSIONS' English word pairs against a
+    non-English bigram source, same rationale as --contraction-backfill.
+
+    Returns a list of report rows (one per curated contraction, in
+    CONTRACTION_EXPANSIONS order):
+        (contraction, old_c_freq, new_c_freq,
+         skeleton, old_s_freq, new_s_freq, phrase_estimate)
+    for the diagnosis table printed by the caller.
+    """
+    fanout_w1 = {}
+    fanout_w2 = {}
+    phrase_freq = {}
+    for w1, w2, count in raw_bigrams:
+        nw1 = normalize_word(w1)
+        nw2 = normalize_word(w2)
+        if nw1 is None or nw2 is None:
+            continue
+        fanout_w1[nw1] = fanout_w1.get(nw1, 0) + count
+        fanout_w2[nw2] = fanout_w2.get(nw2, 0) + count
+        phrase_freq[(nw1, nw2)] = phrase_freq.get((nw1, nw2), 0) + count
+
+    rows = []
+    for contraction, (w1, w2) in CONTRACTION_EXPANSIONS.items():
+        skeleton = contraction.replace("'", "")
+        old_c = unigram_counts.get(contraction, 0)
+        old_s = unigram_counts.get(skeleton, 0)
+
+        phrase = phrase_freq.get((w1, w2), 0)
+        fw1 = fanout_w1.get(w1, 0)
+        fw2 = fanout_w2.get(w2, 0)
+        est_via_w1 = (unigram_counts[w1] * phrase / fw1) if fw1 and w1 in unigram_counts else 0.0
+        est_via_w2 = (unigram_counts[w2] * phrase / fw2) if fw2 and w2 in unigram_counts else 0.0
+        if est_via_w1 and est_via_w2:
+            phrase_estimate = min(est_via_w1, est_via_w2)
+        else:
+            phrase_estimate = est_via_w1 or est_via_w2
+
+        new_c = max(old_c, round(phrase_estimate))
+        if new_c > 0:
+            unigram_counts[contraction] = new_c
+
+        new_s = old_s
+        if old_s > 0 and phrase_estimate > old_s:
+            new_s = max(1, math.ceil(old_s * skeleton_floor_fraction))
+            unigram_counts[skeleton] = new_s
+
+        rows.append((contraction, old_c, new_c, skeleton, old_s, new_s, round(phrase_estimate)))
+    return rows
+
+
+def print_contraction_report(rows):
+    """Print the before/after diagnosis table for repair_contraction_frequencies()."""
+    header = (
+        f'{"contraction":<10} {"cur_freq":>12} {"new_freq":>12}  '
+        f'{"skeleton":<10} {"skel_before":>12} {"skel_after":>12}  {"phrase_est":>12}'
+    )
+    print(header)
+    print('-' * len(header))
+    for contraction, old_c, new_c, skeleton, old_s, new_s, phrase_estimate in rows:
+        print(
+            f'{contraction:<10} {old_c:>12} {new_c:>12}  '
+            f'{skeleton:<10} {old_s:>12} {new_s:>12}  {phrase_estimate:>12}'
+        )
 
 
 def load_unigrams(path):
@@ -364,6 +526,7 @@ def build(
     bin_lookup_path=None, bin_lemmas_path=None,
     bin_topk=10_000, bin_high_freq=2_000, accent_ratio=10,
     contraction_backfill=False,
+    contraction_repair=False, contraction_skeleton_floor=0.1,
 ):
     unigram_counts = load_unigrams(unigrams_path)
     if not unigram_counts:
@@ -383,6 +546,19 @@ def build(
                 'backfilled contractions missing from unigram source: '
                 + ', '.join(f'{w}={f}' for w, f in backfilled)
             )
+
+    # English-only, same rationale as --contraction-backfill above: fixes
+    # contractions that are *present* but undercounted (task #10,
+    # 2026-07-16) rather than missing. See repair_contraction_frequencies()
+    # docstring for the full method and data/README.md's en.lex section for
+    # the before/after table.
+    if contraction_repair:
+        repair_rows = repair_contraction_frequencies(
+            unigram_counts, raw_bigrams, skeleton_floor_fraction=contraction_skeleton_floor,
+        )
+        print('\ncontraction frequency repair (--contraction-repair):')
+        print_contraction_report(repair_rows)
+        print()
 
     if bin_lookup_path and bin_lemmas_path:
         bin_forms = load_bin_forms(bin_lookup_path, bin_lemmas_path)
@@ -510,12 +686,25 @@ def main():
         '--contraction-backfill', action='store_true',
         help='enable the CONTRACTION_EXPANSIONS fallback (English only — see '
              'backfill_contractions() docstring; do not pass for the Icelandic build)')
+    parser.add_argument(
+        '--contraction-repair', action='store_true',
+        help='correct undercounted CONTRACTION_EXPANSIONS frequencies using bigram-derived '
+             'conditional-probability estimates, folding down colliding bare skeletons where '
+             'warranted (English only — see repair_contraction_frequencies() docstring; do '
+             'not pass for the Icelandic build)')
+    parser.add_argument(
+        '--contraction-skeleton-floor', type=float, default=0.1,
+        help='when repair_contraction_frequencies() folds down a bare skeleton (e.g. "cant"), '
+             'keep at least this fraction of its observed frequency rather than zeroing it '
+             '(default 0.1); only takes effect with --contraction-repair')
     args = parser.parse_args()
     build(
         args.unigrams, args.bigrams, args.out,
         bin_lookup_path=args.bin_lookup, bin_lemmas_path=args.bin_lemmas,
         bin_topk=args.bin_topk, bin_high_freq=args.bin_high_freq, accent_ratio=args.accent_ratio,
         contraction_backfill=args.contraction_backfill,
+        contraction_repair=args.contraction_repair,
+        contraction_skeleton_floor=args.contraction_skeleton_floor,
     )
 
 

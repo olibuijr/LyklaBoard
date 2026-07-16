@@ -337,30 +337,32 @@ final class FrequencyLexiconTests: XCTestCase {
 
         // Previously destroyed by the apostrophe-stripping WORD_RE filter
         // (harness symptom: "don't" -> "dont" -> autocorrected to "Ibm").
-        // Real per-artifact counts (scale divisor=7, see build log).
+        // Counts per en.lex v3 --contraction-repair (conditional-probability
+        // transfer; scale divisor=7 — see data/README.md "Contraction
+        // frequency repair").
         let contractions: [(String, UInt32)] = [
-            ("don't", 26_863),
-            ("i'm", 13_381),
-            ("it's", 4_399),
-            ("can't", 7_536),
-            ("won't", 2_493),
-            ("isn't", 2_630),
-            ("you're", 7_021),
-            ("we're", 3_007),
-            ("they're", 3_909),
-            ("i've", 4_272),
-            ("i'll", 5_874),
-            ("didn't", 5_396),
-            ("doesn't", 2_043),
-            ("wasn't", 1_927),
-            ("aren't", 966),
-            ("couldn't", 2_509),
-            ("wouldn't", 2_000),
-            ("shouldn't", 727),
-            ("that's", 1_662),
-            ("there's", 551),
-            ("what's", 7_854),
-            ("let's", 2_590),
+            ("don't", 41_418_557),
+            ("i'm", 8_707_904),
+            ("it's", 56_775_736),
+            ("can't", 20_467_848),
+            ("won't", 8_998_143),
+            ("isn't", 42_571_423),
+            ("you're", 12_779_258),
+            ("we're", 11_401_968),
+            ("they're", 17_908_182),
+            ("i've", 2_063_539),
+            ("i'll", 517_264),
+            ("didn't", 20_670_809),
+            ("doesn't", 22_779_782),
+            ("wasn't", 11_025_402),
+            ("aren't", 18_589_028),
+            ("couldn't", 7_131_403),
+            ("wouldn't", 7_264_930),
+            ("shouldn't", 5_309_264),
+            ("that's", 26_156_656),
+            ("there's", 25_620_746),
+            ("what's", 7_875_026),
+            ("let's", 1_436_267),
         ]
         for (word, expected) in contractions {
             XCTAssertEqual(en.frequency(of: word), expected, "mismatch for \(word)")
