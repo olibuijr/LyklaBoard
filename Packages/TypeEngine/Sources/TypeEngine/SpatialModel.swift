@@ -71,6 +71,13 @@ public struct SpatialModel: Sendable {
         return set
     }()
 
+    /// The dedicated physical keys of the layout (the row characters).
+    /// Accent twins share their base key's position and are NOT separate
+    /// touch targets — the per-tap confidence normalization (see
+    /// `PerTapCostProvider`) sums tap likelihood over exactly this set, so
+    /// a shared center is counted once.
+    static let physicalKeys: [Character] = icelandicRows.flatMap(Array.init)
+
     public let costs: Costs
     /// Letters on the bottom letter row whose key centers lie within the
     /// spacebar's horizontal span (see `spacebarXSpan`) — derived from the
@@ -78,6 +85,13 @@ public struct SpatialModel: Sendable {
     /// missed spacebar tap (space-substitution splits in the corrector).
     public let spaceAdjacentLetters: Set<Character>
     private let positions: [Character: SIMD2<Double>]
+
+    /// Key-center of `char` on the unit grid (1.0 = one key pitch in both
+    /// axes; y grows downward, row 0 = the q row), nil when the character
+    /// has no key position. Accent twins return their base key's center.
+    func keyCenter(of char: Character) -> SIMD2<Double>? {
+        positions[char]
+    }
 
     public init(costs: Costs = Costs()) {
         self.costs = costs

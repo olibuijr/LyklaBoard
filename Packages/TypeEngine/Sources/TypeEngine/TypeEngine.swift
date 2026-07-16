@@ -108,11 +108,15 @@ public final class TypeEngine {
     ///     entered via long-press/callout (the strongest deliberateness
     ///     signal — vetoes lane-relaxation folding for this word; see
     ///     `Corrector.correct` and `TypingSession.noteLongPressInsertion`)
+    ///   - taps: per-position touch samples aligned with `currentWord`
+    ///     (PLAN.md "Touch decoding", stage 1; see `Corrector.correct`).
+    ///     Empty = static spatial pricing, unchanged.
     public func suggestions(
         context: String,
         currentWord: String,
         limit: Int = 3,
-        deliberateCharacters: [Character] = []
+        deliberateCharacters: [Character] = [],
+        taps: [TapSample?] = []
     ) -> [Suggestion] {
         let previous = Self.lastWord(in: context)
         let trimmed = currentWord.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -132,7 +136,8 @@ public final class TypeEngine {
             previousWord: previous,
             pIcelandic: probabilityIcelandic,
             limit: limit,
-            deliberateCharacters: deliberateCharacters
+            deliberateCharacters: deliberateCharacters,
+            taps: taps.count == trimmed.count ? taps : []
         )
         var suggestions = restorePersonalSurfaces(result.suggestions)
 

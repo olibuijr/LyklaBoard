@@ -259,6 +259,14 @@ extension Keyboard {
                     repeatTimer: repeatTimer,
                     repeatAction: { handleRepeat(in: geo) },
                     dragAction: { handleDrag(in: geo, value: $0) },
+                    // better-keyboard fork: the drag END value is the only
+                    // place a quick tap's location is observable (its first
+                    // .onChanged is consumed as the press and never reaches
+                    // dragAction) — capture it for TouchEvidence. Fires
+                    // BEFORE the release actions in GestureButton
+                    // .tryHandleRelease, so the latch is set when the
+                    // action handler runs.
+                    dragEndAction: { handleDragEnd(in: geo, value: $0) },
                     endAction: { handleGestureEnded(in: geo) },
                     label: { _ in Color.clearInteractable }
                 )
@@ -292,6 +300,23 @@ private extension Keyboard.ButtonGestures {
         lastDragValue = value
         updateCalloutActionSelection(for: value)
         dragAction?(value.startLocation, value.location)
+    }
+
+    // better-keyboard fork: publish the release touch point, normalized
+    // within the key's full touch cell (geo covers the cell — gestures
+    // attach outside the layout-item insets), for the action handler's
+    // coordinate plumbing (TypeEngine touch decoding). Deliberately does
+    // NOT touch `lastDragValue`, so KeyboardKit's own release-outside
+    // tolerance logic is byte-identical to upstream.
+    func handleDragEnd(in geo: GeometryProxy, value: DragGesture.Value) {
+        guard let action else { return }
+        let size = geo.size
+        guard size.width > 0, size.height > 0 else { return }
+        Keyboard.TouchEvidence.noteRelease(
+            action: action,
+            dxNorm: Double(value.location.x / size.width) - 0.5,
+            dyNorm: Double(value.location.y / size.height) - 0.5
+        )
     }
 
     func handleGestureEnded(in geo: GeometryProxy) {

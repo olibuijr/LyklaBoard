@@ -123,6 +123,18 @@ final class Typist {
         }
     }
 
+    /// Type one character WITH its touch point (PLAN.md "Touch decoding",
+    /// stage 1): `dx`/`dy` are within-key normalized offsets from the key's
+    /// center, −0.5…+0.5 at the touch-cell edges, x right / y down — the
+    /// exact values the extension's action handler forwards from the
+    /// vendored KeyboardKit gesture layer. The note goes to the session
+    /// first, then the keystroke runs through the ProxySimulator like any
+    /// other, so the harness exercises the identical alignment code.
+    func tapCharacter(_ character: Character, dx: Double, dy: Double) {
+        session.noteTap(char: character, dx: dx, dy: dy)
+        typeCharacter(character)
+    }
+
     func pressBackspace(_ count: Int = 1) {
         for _ in 0..<count {
             proxy.deleteBackward()

@@ -152,6 +152,23 @@ public final class TypingSession {
     /// commits or is abandoned, on external change and reset.
     private var longPressedCharacters: [Character] = []
 
+    // MARK: - Per-tap touch record (PLAN.md "Touch decoding", stage 1)
+
+    /// Touch samples aligned position-by-position with the pending word
+    /// (`previousCurrentWord` between calls): the coordinate evidence the
+    /// corrector's `PerTapCostProvider` consumes. nil entries are positions
+    /// typed without a captured point (callout-selected characters, host
+    /// insertions, drift) — those fall back to static pricing. Maintained
+    /// by `reconcileTapRecord` with the same backspace/external-change
+    /// discipline as the long-press memos: backspacing a character retires
+    /// its tap, a replacement/external change clears the record.
+    private var pendingTapRecord: [TapSample?] = []
+    /// Samples noted since the last `suggestions(for:)` call, in arrival
+    /// order; consumed by the reconcile step. Bounded (one keystroke
+    /// produces one tap; anything beyond a small queue is a desync).
+    private var incomingTaps: [TapSample] = []
+    private static let incomingTapQueueLimit = 8
+
     // MARK: - Learning-event state (M2)
 
     /// Learning events buffered since the last drain. Only ever appended to
@@ -193,6 +210,13 @@ public final class TypingSession {
 
         let (context, currentWord) = Self.splitCurrentWord(of: textBeforeCursor)
 
+        // Fresh state (nil window: session start, reset, or a just-noted
+        // external change) also classifies `.external` — but there the
+        // keystroke that caused THIS call is genuine typing whose tap is
+        // already queued, so only a genuinely inconsistent window clears
+        // the tap queue below.
+        let hadTrustedWindow = lastSeenWindow != nil
+
         switch classifyChange(to: textBeforeCursor) {
         case .evolution(let appendedAfterContext):
             noteDotReplacementIfAny(currentWord: currentWord)
@@ -213,11 +237,24 @@ public final class TypingSession {
         case .external:
             carriedContext = nil
             verbatimChoice = nil
+            // Coordinate evidence never survives a discontinuity. The
+            // queued taps survive only the fresh-state shape (see
+            // `hadTrustedWindow`); the reconcile step still refuses any
+            // queued tap whose character doesn't match the appended text.
+            pendingTapRecord = []
+            if hadTrustedWindow {
+                incomingTaps = []
+            }
         }
         if !context.isEmpty {
             // The new window has its own committed context; stop carrying.
             carriedContext = nil
         }
+
+        // Align the touch record with the new pending word (AFTER commit
+        // handling, which consumes the record aligned to the OLD word, and
+        // BEFORE previousCurrentWord is replaced).
+        reconcileTapRecord(with: currentWord)
 
         previousCurrentWord = currentWord
         lastSeenWindow = textBeforeCursor
@@ -250,6 +287,24 @@ public final class TypingSession {
     public func noteLongPressInsertion(_ character: Character) {
         guard let lowered = String(character).lowercased().first else { return }
         longPressedCharacters.append(lowered)
+    }
+
+    /// Tell the session a character keystroke was resolved from a touch at
+    /// (`dx`, `dy`) — within-key normalized offsets from the released key's
+    /// center, −0.5…+0.5 at the key's touch-cell edges, x right / y down
+    /// (the ReplayRig TSI convention; see `TapSample`). Call BEFORE (or in
+    /// the same turn as) the keystroke's `suggestions(for:)` pass, exactly
+    /// like the extension's action handler and the harness `TAP` directive
+    /// do; the next pass aligns the sample with the pending word's new
+    /// character. Callout-selected characters must NOT be reported here
+    /// (their touch belongs to the callout, not the key) — use
+    /// `noteLongPressInsertion(_:)` instead. O(1).
+    public func noteTap(char: Character, dx: Double, dy: Double) {
+        guard let lowered = String(char).lowercased().first else { return }
+        if incomingTaps.count >= Self.incomingTapQueueLimit {
+            incomingTaps.removeFirst()
+        }
+        incomingTaps.append(TapSample(char: lowered, dxNorm: dx, dyNorm: dy))
     }
 
     /// Tell the session the user committed a token via the verbatim
@@ -391,6 +446,8 @@ public final class TypingSession {
         dotReplacement = nil
         verbatimChoice = nil
         longPressedCharacters = []
+        pendingTapRecord = []
+        incomingTaps = []
         punctuationAttachmentArmed = false
         lastEmittedSuggestionTexts = []
         // Bigram evidence never spans a discontinuity, and a pending tap
@@ -423,6 +480,8 @@ public final class TypingSession {
         dotReplacement = nil
         verbatimChoice = nil
         longPressedCharacters = []
+        pendingTapRecord = []
+        incomingTaps = []
         punctuationAttachmentArmed = false
         lastEmittedAutocorrect = nil
         lastEmittedSuggestionTexts = []
@@ -434,6 +493,49 @@ public final class TypingSession {
         tapLearnedWord = nil
         engine.resetLanguagePosterior()
         engine.clearSessionVocabulary()
+    }
+
+    // MARK: - Touch-record reconciliation (PLAN.md "Touch decoding")
+
+    /// Re-align `pendingTapRecord` with the pending word after a window
+    /// change, consuming the taps that arrived since the previous pass:
+    ///
+    ///  * appended characters pop queued taps in arrival order, but only
+    ///    when the resolved character matches (a host insertion or an IME
+    ///    surprise appends nil — no per-tap claim about keys we did not
+    ///    see pressed),
+    ///  * backspacing truncates the record with the word (same discipline
+    ///    as the long-press memos),
+    ///  * a replacement / external shape clears to all-nil — static
+    ///    fallback, never stale evidence.
+    private func reconcileTapRecord(with currentWord: String) {
+        defer { incomingTaps.removeAll(keepingCapacity: true) }
+        let target = Array(currentWord.lowercased())
+        guard !target.isEmpty else {
+            pendingTapRecord = []
+            return
+        }
+        let previous = Array(previousCurrentWord.lowercased())
+        var record = pendingTapRecord
+        if record.count != previous.count {
+            // Drift (reset, missed pass): keep positions, drop claims.
+            record = Array(repeating: nil, count: previous.count)
+        }
+        if target.count >= previous.count, target.starts(with: previous) {
+            for char in target[previous.count...] {
+                if let first = incomingTaps.first, first.char == char {
+                    record.append(first)
+                    incomingTaps.removeFirst()
+                } else {
+                    record.append(nil)
+                }
+            }
+        } else if previous.starts(with: target) {
+            record = Array(record.prefix(target.count))
+        } else {
+            record = Array(repeating: nil, count: target.count)
+        }
+        pendingTapRecord = record
     }
 
     // MARK: - Suggestion building (verbatim + URL layers)
@@ -525,11 +627,19 @@ public final class TypingSession {
             // stem (backspaced-away characters retire their veto).
             let stemChars = Array(stem.lowercased())
             let deliberate = longPressedCharacters.filter { stemChars.contains($0) }
+            // Touch record for the stem: the record aligns with the whole
+            // pending token, so a trailing deferred dot's tap is sliced off
+            // with the dot. Length mismatch (drift) → no coordinate claims.
+            let stemTaps: [TapSample?] =
+                pendingTapRecord.count >= stemChars.count
+                ? Array(pendingTapRecord.prefix(stemChars.count))
+                : []
             engineSuggestions = engine.suggestions(
                 context: effectiveContext,
                 currentWord: stem,
                 limit: limit,
-                deliberateCharacters: deliberate
+                deliberateCharacters: deliberate,
+                taps: stemTaps
             )
             if pendingDot {
                 engineSuggestions = engineSuggestions.map {
@@ -830,12 +940,17 @@ public final class TypingSession {
         let word = Self.strippedEventToken(committed)
         guard Self.isEventWord(word) else { return }
         if let typed, typed != word, Self.isEventWord(typed) {
+            // An accepted suggestion means the typed keys were (by the
+            // engine's own judgment) errors — their touch offsets must NOT
+            // train the per-key model. No touchSample events here.
             pendingEvents.append(.suggestionAccepted(typed: typed, accepted: word))
         } else if word == tapLearnedWord {
             // Verbatim tap: wordTapped was already buffered by
             // learnWordImmediately; consuming the memo here keeps this a
-            // single event per tap.
+            // single event per tap. The verbatim commit IS the literal
+            // typed token, so its taps are honest key-intent evidence.
             tapLearnedWord = nil
+            bufferTouchSamples(forCommittedTypedWord: word)
         } else {
             let previous = previousCommittedForEvents
                 .map(Self.strippedEventToken)
@@ -847,7 +962,33 @@ public final class TypingSession {
                     languageHint: languageHint(for: word)
                 )
             )
+            bufferTouchSamples(forCommittedTypedWord: word)
         }
+    }
+
+    /// touchSample emission (PLAN.md "Touch decoding" — the M2 stage-2
+    /// groundwork: PersonalModel's TouchKeyStats accumulate per-user
+    /// Gaussians from these). Emitted ONLY:
+    ///  * alongside a wordCommitted/wordTapped of the token AS TYPED — an
+    ///    applied correction means the taps were errors (only confirmed
+    ///    text trains the touch model, PLAN stage 2),
+    ///  * under the same privacy gates as every event (the caller is
+    ///    already inside the `fieldKind.allowsLearning` + `isEventWord`
+    ///    gate — committed words in standard fields only),
+    ///  * for positions whose recorded resolved character matches the
+    ///    committed word's character (alignment paranoia).
+    private func bufferTouchSamples(forCommittedTypedWord word: String) {
+        guard !pendingTapRecord.isEmpty else { return }
+        let typedStem = Array(
+            Self.strippedEventToken(previousCurrentWord).lowercased())
+        guard !typedStem.isEmpty, typedStem == Array(word.lowercased()) else { return }
+        guard pendingTapRecord.count >= typedStem.count else { return }
+        for (index, tap) in pendingTapRecord.prefix(typedStem.count).enumerated() {
+            guard let tap, tap.char == typedStem[index] else { continue }
+            pendingEvents.append(.touchSample(keyChar: tap.char, dx: tap.dxNorm, dy: tap.dyNorm))
+        }
+        // Consumed: a same-pass multi-word recovery can't double-emit.
+        pendingTapRecord = []
     }
 
     /// Per-word language attribution for wordCommitted events, from the

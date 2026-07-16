@@ -175,7 +175,15 @@ final class BeamDecoder {
         let typedBytes: [[UInt8]] = typed.map { Array(String($0).utf8) }
 
         /// Provider cost with the lane-relaxation layer on top (see the
-        /// `pricing` parameter doc).
+        /// `pricing` parameter doc). Per-tap confidence MULTIPLIES into the
+        /// fold-pricing likelihood (the documented FoldPricing composition):
+        /// the lane price carries the tap's −ln(confidence) evidence
+        /// penalty — a dead-center base-letter tap (confidence ≈ 1) is the
+        /// lazy-input signal and folds at the pure lane price, a sloppy tap
+        /// prices the fold up toward (never past) the provider's
+        /// error-class base cost. Tapless positions pay 0 penalty, so the
+        /// static provider reproduces the pre-coordinate pricing exactly.
+        let foldPenaltyCap = config.tapFoldConfidenceMaxPenalty
         func substitutionPrice(position: Int, typedChar: Character, intended: Character) -> Double {
             let base = positionCosts.substitutionCost(
                 position: position, typed: typedChar, intended: intended)
@@ -183,7 +191,9 @@ final class BeamDecoder {
                 let lane = pricing.substitutionPrice(
                     typed: typedChar, intended: intended, confusionBase: base)
             else { return base }
-            return min(lane, base)
+            let evidence = positionCosts.foldEvidencePenalty(
+                position: position, cap: foldPenaltyCap)
+            return min(lane + evidence, base)
         }
 
         /// Descend with the shallow-level memo (see `shallowCache`).

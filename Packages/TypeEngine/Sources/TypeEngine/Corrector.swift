@@ -114,12 +114,26 @@ public struct Corrector {
     ///     never auto-applies past the valid-word rule, and no candidate
     ///     that drops one of these characters may auto-apply (a
     ///     long-pressed accent is never folded away).
+    ///   - taps: per-position touch samples aligned with `typed` (PLAN.md
+    ///     "Touch decoding", stage 1; fed through `TypingSession.noteTap`).
+    ///     When any position carries a tap, substitutions are priced from
+    ///     the ACTUAL tap point (`PerTapCostProvider`) in both the beam
+    ///     search and the exact DP re-score, the space-substitution split
+    ///     penalty scales with the consumed tap's distance to the spacebar
+    ///     edge, and the word's aggregate tap confidence RAISES (never
+    ///     lowers) the autocorrect margins — the bidirectional evidence
+    ///     principle's veto half. Empty/mismatched taps run the static
+    ///     provider, byte-identically to the pre-coordinate engine. The
+    ///     targeted generation passes (`edits1Costed` costs, split-half
+    ///     repairs) stay static-priced: they only PROPOSE candidates, and
+    ///     every admitted candidate is re-scored by the per-tap DP.
     public func correct(
         typed rawTyped: String,
         previousWord: String? = nil,
         pIcelandic: Double = 0.5,
         limit: Int = 3,
-        deliberateCharacters: [Character] = []
+        deliberateCharacters: [Character] = [],
+        taps: [TapSample?] = []
     ) -> CorrectionResult {
         let typed = rawTyped.lowercased()
         let typedChars = Array(typed)
@@ -132,6 +146,14 @@ public struct Corrector {
         // the relaxation outright.
         let pricing = FoldPricing(
             config: config, pIcelandic: pIcelandic, vetoRelaxation: !deliberate.isEmpty)
+
+        // Coordinate evidence (PLAN.md "Touch decoding"): swap in the
+        // per-tap provider when aligned samples exist; otherwise the static
+        // provider (identical to the pre-coordinate engine).
+        let perTap: PerTapCostProvider? =
+            taps.count == typedChars.count && taps.contains(where: { $0 != nil })
+            ? PerTapCostProvider(taps: taps, spatial: spatial, config: config)
+            : nil
 
         // Hyphenated compound rule (PLAN.md "Compounds" + harness quirk
         // list): a token containing hyphens whose parts are each valid is
@@ -171,7 +193,7 @@ public struct Corrector {
             // notwithstanding (every generation pass funnels through here).
             guard !model.isPersonalTombstoned(word) else { return }
             candidates[word] = channelCost(
-                typedChars: typedChars, candidate: word, pricing: pricing)
+                typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
         }
 
         // 1. PRIMARY: beam-search spatial decode over both frequency
@@ -190,6 +212,9 @@ public struct Corrector {
         // so words-in-progress (which always have a cheap completion)
         // never pay for it on every keystroke.
         var beamCoveredLexicons = true
+        // The beam prices substitutions per position through the provider
+        // seam — the per-tap provider when coordinate evidence exists.
+        let beamCosts: PositionCostProvider = perTap ?? self.positionCosts
         func runBeam(maxEdits: Int) {
             for (index, lexicon) in [model.icelandic, model.english].enumerated() {
                 guard let searchable = lexicon as? PrefixSearchableLexicon else {
@@ -200,7 +225,7 @@ public struct Corrector {
                     typed: typedChars,
                     lexicon: searchable,
                     lexiconIndex: index,
-                    costs: positionCosts,
+                    costs: beamCosts,
                     pricing: pricing,
                     maxEdits: maxEdits
                 ) {
@@ -383,7 +408,8 @@ public struct Corrector {
                 contentsOf: splitCandidates(
                     typedChars: typedChars,
                     previousWord: previousWord,
-                    pIcelandic: pIcelandic
+                    pIcelandic: pIcelandic,
+                    taps: taps.count == typedChars.count ? taps : []
                 ).map {
                     // Splits are error-class rewrites by definition (a
                     // missed keystroke, never restoration).
@@ -399,6 +425,11 @@ public struct Corrector {
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
 
         // ---- Conservatism / autocorrect decision --------------------------
+        // Every auto-apply margin below is multiplied by `tapMarginFactor`
+        // (≥ 1): the aggregate-confidence VETO of the bidirectional
+        // evidence principle (see `tapVetoFactor`). An all-dead-center word
+        // demands ~4× today's evidence; a tapless or sloppy word keeps
+        // today's margins exactly.
         var autocorrect = false
         if let best = scored.first,
             typedChars.count >= config.minAutocorrectLength,
@@ -407,6 +438,8 @@ public struct Corrector {
             Self.preservesDeliberateCharacters(deliberate, of: typedChars, in: best.word)
         {
             let margin = scored.count > 1 ? best.score - scored[1].score : .infinity
+            let tapMarginFactor = tapVetoFactor(
+                typedChars: typedChars, candidate: best.word, perTap: perTap)
             if !typedIsValid, best.word.contains(" ") {
                 // Split auto-apply (dogfood "fara lega" tightening): a split
                 // is a bigger intervention than a repair, so it must clear a
@@ -419,7 +452,7 @@ public struct Corrector {
                     .filter { !$0.word.contains(" ") && isAttestedOrPersonal($0.word) }
                     .map(\.cost.total)
                     .min() ?? .infinity
-                autocorrect = margin >= config.splitAutocorrectMargin
+                autocorrect = margin >= config.splitAutocorrectMargin * tapMarginFactor
                     && bestSingleCost > config.splitAutoApplySingleWordCutoff
             } else if !typedIsValid {
                 // Single-word auto-apply additionally requires the winner to
@@ -452,7 +485,7 @@ public struct Corrector {
                             typed: typed, candidate: best.word, pricing: pricing) > 0
                     ? config.restorationAutoApplyMargin
                     : config.autocorrectMargin
-                autocorrect = margin >= requiredMargin
+                autocorrect = margin >= requiredMargin * tapMarginFactor
                     && typicality >= minZ
             } else if best.cost.isRestorationOnly, !best.word.contains(" "),
                 deliberate.isEmpty
@@ -464,7 +497,7 @@ public struct Corrector {
                 // (dominance × context × no deliberateness signal), plus
                 // the sletta guard and the relaxed margin.
                 autocorrect =
-                    margin >= config.restorationAutoApplyMargin
+                    margin >= config.restorationAutoApplyMargin * tapMarginFactor
                     && passesRestorationTripleGate(
                         typed: typed,
                         candidate: best.word,
@@ -488,6 +521,62 @@ public struct Corrector {
             )
         }
         return CorrectionResult(suggestions: Array(suggestions), typedWordIsValid: typedIsValid)
+    }
+
+    // MARK: - Coordinate margin veto (PLAN.md "Touch decoding")
+
+    /// Autocorrect-margin factor from the word's tap confidence — the VETO
+    /// half of the bidirectional evidence principle. Always ≥ 1: coordinate
+    /// evidence only ever makes auto-apply HARDER than the static engine,
+    /// or equal (v1 safety choice, documented on `EngineConfig
+    /// .tapVetoBaseline`); the ENABLING half acts through the cheaper
+    /// per-tap substitution costs instead.
+    ///
+    /// Aggregation is candidate-aware — the veto must come from taps that
+    /// CONTRADICT the rewrite, not from taps the candidate agrees with:
+    ///
+    ///  * same-length candidates aggregate confidence over the tapped
+    ///    positions the candidate REWRITES (a dead-center tap there says
+    ///    "I hit exactly this key" — believe the user; matching positions
+    ///    are consistent with both readings and stay out),
+    ///  * restoration pairs (accent twins, orthographic confusions) never
+    ///    veto: a dead-center base-letter tap is the LAZY-INPUT signal, and
+    ///    confusions are cognitive — the tap carries no information,
+    ///  * a substitution-split's consumed letter (candidate has ' ' there)
+    ///    stays out: its evidence is already priced through the tap-scaled
+    ///    split penalty, and the key-normalized confidence cannot see the
+    ///    spacebar as an alternative target,
+    ///  * length-changing rewrites (indels, insertion splits) fall back to
+    ///    the whole-word aggregate: deliberately hitting every key
+    ///    dead-center is evidence against ANY rewrite of the token — this
+    ///    is what makes an all-dead-center unknown word essentially never
+    ///    auto-replace.
+    func tapVetoFactor(
+        typedChars: [Character], candidate: String, perTap: PerTapCostProvider?
+    ) -> Double {
+        guard let perTap else { return 1 }
+        let candidateChars = Array(candidate)
+        let mean: Double?
+        if candidateChars.count == typedChars.count {
+            var sum = 0.0
+            var count = 0
+            for index in 0..<typedChars.count where typedChars[index] != candidateChars[index] {
+                let intended = candidateChars[index]
+                if intended == " " { continue }
+                if Self.isRestorationPair(typedChars[index], intended) { continue }
+                guard perTap.hasTap(at: index) else { continue }
+                sum += perTap.confidence(position: index)
+                count += 1
+            }
+            mean = count > 0 ? sum / Double(count) : nil
+        } else {
+            mean = perTap.meanTapConfidence
+        }
+        guard let mean else { return 1 }
+        return min(
+            1 + config.tapVetoStrength * max(0, mean - config.tapVetoBaseline),
+            config.tapVetoMaxFactor
+        )
     }
 
     // MARK: - Lane relaxation (restoration auto-apply machinery)
@@ -638,13 +727,33 @@ public struct Corrector {
     /// Returned tuples mirror the single-word pool's (word, spatialCost,
     /// score) shape; the channel cost stands in for the spatial cost in the
     /// autocorrect conservatism check.
+    /// `taps` (when aligned with `typedChars`) drives the space-adjacent
+    /// evidence rule (PLAN.md "Touch decoding", stage 1): the
+    /// space-substitution penalty scales with the consumed tap's distance
+    /// to the spacebar edge — a tap hugging the bottom of the letter key
+    /// prices the split below the static constant, a dead-center/top-edge
+    /// tap prices it up (see `EngineConfig.tapSpaceSplitSlope`).
     func splitCandidates(
         typedChars: [Character],
         previousWord: String?,
-        pIcelandic: Double
+        pIcelandic: Double,
+        taps: [TapSample?] = []
     ) -> [(word: String, spatialCost: Double, score: Double)] {
         let n = typedChars.count
         guard n >= config.splitMinLength else { return [] }
+
+        /// Tap-scaled space-substitution penalty for consuming position `j`
+        /// as the space; the static constant without an aligned tap.
+        func substitutionSplitPenalty(at j: Int) -> Double {
+            guard j < taps.count, let tap = taps[j], tap.char == typedChars[j] else {
+                return config.splitSubstitutionPenalty
+            }
+            let scaled =
+                config.splitSubstitutionPenalty
+                + config.tapSpaceSplitSlope * (config.tapSpaceSplitNeutralDy - tap.dyNorm)
+            return min(
+                max(scaled, config.tapSpaceSplitMinPenalty), config.splitInsertionPenalty)
+        }
 
         // (left, right, penalty, repairCap) hypotheses. Substitution splits
         // first (strongest evidence, smallest class), then insertion
@@ -669,7 +778,7 @@ public struct Corrector {
                 (
                     Array(typedChars[0..<j]),
                     Array(typedChars[(j + 1)...]),
-                    config.splitSubstitutionPenalty,
+                    substitutionSplitPenalty(at: j),
                     config.splitHalfRepairMaxCost
                 )
             )
@@ -1168,13 +1277,30 @@ public struct Corrector {
     /// Lane-priced channel cost of a candidate with the restoration/error
     /// decomposition (see `ChannelCost`); same strict-prefix completion
     /// shortcut as `spatialCost` — completion characters are error-class
-    /// (a completion is never "restoration-only").
+    /// (a completion is never "restoration-only"). With a per-tap provider
+    /// the DP prices substitutions from the actual tap points (the
+    /// coordinate-decoding re-score); nil = static, byte-identical to the
+    /// pre-coordinate engine.
     func channelCost(
-        typedChars: [Character], candidate: String, pricing: FoldPricing
+        typedChars: [Character],
+        candidate: String,
+        pricing: FoldPricing,
+        perTap: PerTapCostProvider? = nil
     ) -> ChannelCost {
         let candidateChars = Array(candidate)
-        var cost = spatial.channelCost(
-            typed: typedChars, intended: candidateChars, pricing: pricing)
+        var cost =
+            if let perTap {
+                spatial.channelCost(
+                    typed: typedChars,
+                    intended: candidateChars,
+                    pricing: pricing,
+                    positionCosts: perTap,
+                    foldEvidenceCap: config.tapFoldConfidenceMaxPenalty
+                )
+            } else {
+                spatial.channelCost(
+                    typed: typedChars, intended: candidateChars, pricing: pricing)
+            }
         if candidateChars.count > typedChars.count, candidateChars.starts(with: typedChars) {
             let extra = candidateChars.count - typedChars.count
             let completion = Double(extra) * config.completionCharCost

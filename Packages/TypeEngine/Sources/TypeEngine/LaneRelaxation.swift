@@ -162,17 +162,53 @@ struct ChannelCost {
     var isRestorationOnly: Bool { errorOps == 0 && restorationOps > 0 }
 }
 
+/// DP cell of `SpatialModel.channelCost` (file-scope because generic
+/// functions cannot nest types).
+private struct ChannelCostCell {
+    var cost: Double
+    var errorOps: Int32
+    var restorationOps: Int32
+}
+
 extension SpatialModel {
     /// Lane-priced variant of `typingCost` with the restoration/error op
     /// decomposition (see `ChannelCost`). At neutral pricing the total is
     /// byte-identical to `typingCost` — fold pairs already sat at the
     /// `minSubstitution` floor the neutral fold price equals.
     ///
+    /// Static-provider convenience (no per-tap evidence): exactly the
+    /// pre-coordinate behavior.
+    func channelCost(
+        typed: [Character], intended: [Character], pricing: FoldPricing
+    ) -> ChannelCost {
+        channelCost(
+            typed: typed,
+            intended: intended,
+            pricing: pricing,
+            positionCosts: StaticSpatialCostProvider(spatial: self),
+            foldEvidenceCap: 0
+        )
+    }
+
     /// Alignment choice: lexicographic min on (cost, errorOps), so among
     /// equal-cost alignments the most restoration-shaped reading wins and
     /// `isRestorationOnly` is never spuriously false.
-    func channelCost(
-        typed: [Character], intended: [Character], pricing: FoldPricing
+    ///
+    /// Coordinate decoding (PLAN.md "Touch decoding", stage 1): typed
+    /// position `i-1` prices its substitutions through `positionCosts` —
+    /// the per-tap provider when the embedder captured touch points, the
+    /// static provider otherwise (identical costs by construction). Fold
+    /// pricing composes as documented on `FoldPricing`: the tap's
+    /// −ln(confidence) evidence penalty (capped at `foldEvidenceCap`)
+    /// MULTIPLIES into the fold likelihood, and the min() against the
+    /// provider's error-class base still bounds it. Generic over the
+    /// provider so the static hot path stays specialized (bench parity).
+    func channelCost<Provider: PositionCostProvider>(
+        typed: [Character],
+        intended: [Character],
+        pricing: FoldPricing,
+        positionCosts: Provider,
+        foldEvidenceCap: Double
     ) -> ChannelCost {
         let n = typed.count
         let m = intended.count
@@ -192,11 +228,7 @@ extension SpatialModel {
                 total: Double(n) * costs.insertion, errorOps: n, restorationOps: 0)
         }
 
-        struct Cell {
-            var cost: Double
-            var errorOps: Int32
-            var restorationOps: Int32
-        }
+        typealias Cell = ChannelCostCell
         func better(_ a: Cell, _ b: Cell) -> Cell {
             if a.cost < b.cost { return a }
             if b.cost < a.cost { return b }
@@ -227,18 +259,25 @@ extension SpatialModel {
             for j in 1...m {
                 let intendedChar = intended[j - 1]
 
-                // Substitution / match.
+                // Substitution / match. Position-aware: typed index i-1 is
+                // the provider position (per-tap Gaussian when a tap was
+                // captured there, static geometry otherwise).
                 var best: Cell
                 let diagonal = dp[(i - 1) * width + (j - 1)]
                 if typedChar == intendedChar {
                     best = diagonal
                 } else {
-                    let base = substitutionCost(typed: typedChar, intended: intendedChar)
+                    let base = positionCosts.substitutionCost(
+                        position: i - 1, typed: typedChar, intended: intendedChar)
                     if let lane = pricing.substitutionPrice(
                         typed: typedChar, intended: intendedChar, confusionBase: base)
                     {
+                        // Per-tap confidence multiplies into the fold
+                        // likelihood (see the method doc).
+                        let evidence = positionCosts.foldEvidencePenalty(
+                            position: i - 1, cap: foldEvidenceCap)
                         best = Cell(
-                            cost: diagonal.cost + min(lane, base),
+                            cost: diagonal.cost + min(lane + evidence, base),
                             errorOps: diagonal.errorOps,
                             restorationOps: diagonal.restorationOps + 1
                         )

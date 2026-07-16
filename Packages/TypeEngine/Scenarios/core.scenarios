@@ -1083,18 +1083,17 @@ FIELD standard
 
 SCENARIO dont offers don't in an english lane
 # EN profile, apostrophe folding: the omitted apostrophe prices ~ε in a
-# saturated EN lane so don't reaches the bar. Offer-only on the real
-# artifacts: en.lex undercounts contraction frequencies (don't 26.9k vs
-# font 367k — apostrophe-stripped corpus noise), so the error-class rival
-# outranks it. The micro-eval doubles (sane contraction counts) lock the
-# auto-apply behavior; bumping en.lex v3 contraction counts is the data
-# follow-up.
+# saturated EN lane. With en.lex v3's repaired contraction counts
+# (don't 41.4M on-disk vs the dont skeleton folded to 0 — see
+# data/README.md "Contraction frequency repair"), the triple gate passes
+# (dominance + context + no deliberateness) and don't AUTO-APPLIES —
+# the designed behavior the v2 data was too broken to permit. Escape
+# hatches: verbatim slot always present; dead-center taps veto.
 T "and he said why dont"
 EXPECT_POSTERIOR_LT 0.2
-EXPECT_CONTAINS don't
-EXPECT_NO_AUTOCORRECT
+EXPECT_AUTOCORRECT don't
 T " "
-EXPECT_BUFFER "and he said why dont "
+EXPECT_BUFFER "and he said why don't "
 
 SCENARIO personal don't auto-restores from dont in an english lane
 # Personal vocabulary participates in folded matching: the learned
@@ -1107,14 +1106,17 @@ EXPECT_AUTOCORRECT don't
 T " "
 EXPECT_BUFFER "and he said why don't "
 
-SCENARIO cant keeps its english reading
-# Dominance-ratio fail, EN side: "cant" is genuine English vocabulary
-# (142k) and can't (7.5k) is nowhere near 10× above it — offer-only
-# territory at best, never auto-applied.
+SCENARIO cant restores to can't under v3 dominance
+# en.lex v2 had cant (996k, apostrophe-stripped corpus artifact)
+# outranking can't (52k) — backwards. v3's repair reassigns that mass:
+# can't 20.5M vs cant floored at 99.6k ⇒ dominance ~205x ≥ 10x, context
+# supports, no deliberateness ⇒ auto-restores, matching real usage
+# (genuine "cant" = rare noun; typed deliberately it survives via
+# dead-center tap veto or the verbatim slot).
 T "she said that she cant"
-EXPECT_NO_AUTOCORRECT
+EXPECT_AUTOCORRECT can't
 T " "
-EXPECT_BUFFER "she said that she cant "
+EXPECT_BUFFER "she said that she can't "
 
 SCENARIO lone i capitalizes to I in an english lane
 # The EN mirror of a→á: lone i → I may auto-apply once the lane is
@@ -1136,3 +1138,156 @@ SCENARIO lone i at a neutral lane is offer-only both ways
 T i
 EXPECT_VERBATIM i
 EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# Coordinate-level decoding (PLAN.md "Touch decoding", stage 1): the TAP
+# <char> <dx> <dy> directive types one character WITH its touch point
+# (within-key normalized offsets, −0.5…+0.5 at the cell edges, x right /
+# y down — the extension's action-handler forwarding, verbatim). The
+# bidirectional evidence principle end to end: boundary taps ENABLE
+# corrections, dead-center taps VETO them, tapless typing is byte-identical
+# to the static engine.
+
+SCENARIO dead-center taps veto the koetip auto-apply
+# Statically "koetip " auto-applies "kortið" (the beam-decoder dogfood
+# case). With every tap dead center the user demonstrably hit exactly
+# k-o-e-t-i-p — believe them: the substitutions price near the Gaussian
+# exponent of a full key pitch, kortið drops out, nothing auto-applies.
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+EXPECT_NO_AUTOCORRECT
+EXPECT_NOT_CONTAINS kortið
+T " "
+EXPECT_BUFFER "koetip "
+
+SCENARIO boundary taps keep the koetip auto-apply firing
+# Same word, but the two noisy positions lean toward the keys kortið
+# needs (e→r, p→ð): the neighbor readings become floor-cost and the
+# repair fires exactly like the static engine — the margin veto only
+# aggregates taps that CONTRADICT the rewrite, and these support it.
+TAP k 0 0
+TAP o 0 0
+TAP e 0.45 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0.45 0
+EXPECT_AUTOCORRECT kortið
+T " "
+EXPECT_BUFFER "kortið "
+
+SCENARIO tap direction disambiguates hestir
+# Statically "hestir" ranks gestir (g→h) above hestur (i→u) — both ~1-nat
+# static substitutions. A boundary tap on the i leaning toward u makes
+# the hestur reading floor-cost, while the dead-center taps everywhere
+# else price the rival substitutions near the cap — the tap-supported
+# reading leads the bar. (hestir is BÍN-valid, so nothing may auto-apply
+# — ranking only.)
+TAP h 0 0
+TAP e 0 0
+TAP s 0 0
+TAP t 0 0
+TAP i -0.45 0
+TAP r 0 0
+EXPECT_TOP hestur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO dead-center taps demote the substitution readings of hestir
+# Same word, all dead center: no substitution reading can be a slip, so
+# the indel-shaped hesti (omitted-r) leads and hestur drops out of the
+# bar entirely. (gestir stays reachable — the FIRST beam edit allows any
+# key up to the cost cap — but only in the tail, never on top.)
+TAP h 0 0
+TAP e 0 0
+TAP s 0 0
+TAP t 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP hesti
+EXPECT_NOT_CONTAINS hestur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO tapless typing after tapped words stays static
+# TAP evidence is per word: the record retires at the commit, and a
+# tapless word behaves exactly like the pre-coordinate engine.
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+T " koetip"
+EXPECT_AUTOCORRECT kortið
+
+SCENARIO backspace retires the tap of the removed character
+# Dead-center taps veto kortið; backspacing the p and retyping it
+# WITHOUT a tap leaves position 5 static — but positions 0–4 keep their
+# dead-center veto, so kortið stays out and nothing auto-applies.
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+BACKSPACE
+T p
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO touch samples are emitted only for committed as-typed words
+# Dead-center taps → "koetip" commits as typed → 1 wordCommitted + 6
+# touchSample events (per-key Gaussians groundwork, M2 stage 2).
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+T " "
+EXPECT_LAST_COMMIT koetip
+EXPECT_EVENTS 7
+
+SCENARIO corrected words emit no touch samples
+# Boundary taps → the kortið auto-apply fires on space → the commit is a
+# suggestionAccepted (1 event, no touchSamples: corrected taps were
+# errors and must not train the touch model).
+TAP k 0 0
+TAP o 0 0
+TAP e 0.45 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0.45 0
+T " "
+EXPECT_LAST_COMMIT kortið
+EXPECT_EVENTS 1
+
+SCENARIO url fields emit no touch samples
+# The hard privacy gate covers coordinates too.
+FIELD url
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+T " "
+EXPECT_EVENTS 0
+
+SCENARIO dead-center base-vowel taps keep accent restoration firing
+# The fold-composition rule (FoldPricing doc): a dead-center tap on the
+# BASE key is exactly the lazy-input signal — confidence ≈ 1 multiplies a
+# ≈0 evidence penalty into the fold likelihood, and restoration pairs are
+# exempt from the margin veto. The error-class substitutions (bus, bid)
+# get vetoed off the bar while búð still auto-restores; the LONGPRESS
+# deliberateness veto (previous scenarios) remains the signal that stops
+# folding — taps and callouts compose, they do not conflict.
+T "hann sagði að við hefðum "
+TAP b 0 0
+TAP u 0 0
+TAP d 0 0
+EXPECT_AUTOCORRECT búð
+EXPECT_NOT_CONTAINS bus
+T " "
+EXPECT_BUFFER "hann sagði að við hefðum búð "

@@ -234,6 +234,33 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    /// Per-keystroke coordinate forwarding (PLAN.md "Touch decoding",
+    /// stage 1): the action handler sends each released character with its
+    /// within-key normalized touch offsets (−0.5…+0.5 at the touch-cell
+    /// edges, x right / y down — the ReplayRig TSI convention); the session
+    /// aligns them with the pending word on the engine queue and the
+    /// corrector prices substitutions from the actual tap points. O(1) on
+    /// the caller's thread: one value capture + one queue enqueue, no
+    /// allocation beyond the block.
+    func noteKeyTap(_ character: Character, dx: Double, dy: Double) {
+        queue.async { [weak self] in
+            self?.session?.noteTap(char: character, dx: dx, dy: dy)
+        }
+    }
+
+    /// Callout-selected (long-press) character: the strongest
+    /// deliberateness signal (lane-relaxation triple gate part 3a — the
+    /// session vetoes accent folding for the pending word and never
+    /// auto-applies a candidate that drops the character). Forwarded by
+    /// `BetterKeyboardActionHandler` when the vendored fork marks the
+    /// release as a callout selection; such characters carry NO tap sample
+    /// (the finger's location belongs to the base key's gesture).
+    func noteLongPressInsertion(_ character: Character) {
+        queue.async { [weak self] in
+            self?.session?.noteLongPressInsertion(character)
+        }
+    }
+
     /// The user tapped the verbatim (quoted `.unknown`) suggestion:
     /// remember the choice so an immediately following delimiter cannot
     /// re-correct the token (layer 1 escape hatch). Forwarded by

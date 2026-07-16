@@ -406,6 +406,12 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
 ///    next keystroke is a letter/digit, the session orders a proxy edit
 ///    that restores the originally typed token before the new character is
 ///    inserted — URLs self-heal ("prófílmynd." → "profilmynd.t…").
+/// 3b. **Coordinate plumbing (PLAN.md "Touch decoding", stage 1)**: every
+///    released character forwards its touch point (within-key normalized
+///    offsets from the vendored fork's `Keyboard.TouchEvidence` latch) to
+///    the session via `noteKeyTap`; callout-selected (long-press)
+///    characters forward `noteLongPressInsertion` instead — the
+///    deliberateness signal, with no tap sample.
 /// 4. **Verbatim taps**: tapping the quoted `.unknown` escape-hatch slot
 ///    commits the literal token (KeyboardKit inserts tapped suggestions
 ///    as-is and never re-applies an autocorrect on that path — the
@@ -488,6 +494,23 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
             char.count == 1,
             let character = char.first
         {
+            // Coordinate plumbing (PLAN.md "Touch decoding", stage 1):
+            // forward the released character's touch point — or its
+            // callout-selection deliberateness marker — to the session
+            // BEFORE super inserts the text: the autocomplete pass that
+            // consumes the tap is enqueued by that insertion, after this
+            // note, on the same serial engine queue (ordering guaranteed).
+            // The fork's TouchEvidence latches are consume-on-read and
+            // matched on the action, so a stale point can never attach to
+            // the wrong keystroke. All O(1), no per-tap allocation.
+            if Keyboard.TouchEvidence.consumeCalloutSelection(matching: action) {
+                // Long-press callout character: deliberateness signal, no
+                // tap sample (the touch belongs to the base key).
+                betterAutocompleteService?.noteLongPressInsertion(character)
+            } else if let touch = Keyboard.TouchEvidence.consumeReleaseTouch(matching: action) {
+                betterAutocompleteService?.noteKeyTap(
+                    character, dx: touch.dxNorm, dy: touch.dyNorm)
+            }
             if character.isLetter || character.isNumber,
                 let revert = betterAutocompleteService?.pendingContinuationRevert(for: character)
             {

@@ -152,6 +152,66 @@ public struct EngineConfig: Sendable {
     /// suppress it (junk one edit from everything — the 4b rationale).
     public var beamDeepGate: Double = 3.5
 
+    // --- Coordinate (per-tap) decoding (PLAN.md "Touch decoding", stage 1).
+    // When the embedder threads touch points through TypingSession.noteTap,
+    // the corrector swaps the static PositionCostProvider for a
+    // PerTapCostProvider: substitutions are priced from a 2D Gaussian at the
+    // ACTUAL tap point, and per-tap confidence feeds the bidirectional
+    // evidence principle — near-boundary taps make the neighbor reading
+    // cheap (enable corrections), dead-center taps make every substitution
+    // expensive AND raise the autocorrect margin (the correction veto).
+    // With no taps the static provider runs and every value below is inert
+    // (eval/bench byte-parity).
+
+    /// Within-key tap σ in key-pitch units, x axis. Seeded from the Google
+    /// TSI human traces (ReplayRig/traces/tsi-distributions.json:
+    /// dxNorm std 0.263 over 41k kept taps).
+    public var tapSigmaX: Double = 0.263
+    /// Within-key tap σ in key-pitch units, y axis (TSI dyNorm std 0.188 —
+    /// vertical taps are tighter than horizontal ones).
+    public var tapSigmaY: Double = 0.188
+    /// Cap on the evidence penalty −ln(confidence) that a low-confidence
+    /// (boundary/sloppy) tap MULTIPLIES into the fold-pricing likelihood
+    /// (see FoldPricing's composition doc: a dead-center base-vowel tap is
+    /// the lazy-input signal, folds stay at the lane price; a sloppy tap is
+    /// weaker evidence of deliberate base-letter input, so the fold price
+    /// rises — never past the provider's error-class base cost, which the
+    /// min() composition still bounds).
+    public var tapFoldConfidenceMaxPenalty: Double = 2.5
+    /// Space-substitution split evidence (PLAN stage 1: "the space-miss
+    /// penalty becomes a function of tap-to-spacebar distance"): with a tap
+    /// present on the consumed letter, the split penalty becomes
+    ///   splitSubstitutionPenalty + slope · (neutralDy − dyNorm)
+    /// (dyNorm +0.5 = the key's bottom edge, i.e. AT the spacebar): taps
+    /// hugging the spacebar edge price the split BELOW the static constant
+    /// (the miss is nearly certain), dead-center/top-edge taps price it up
+    /// (the user really meant the letter). Clamped to
+    /// [tapSpaceSplitMinPenalty, splitInsertionPenalty].
+    public var tapSpaceSplitSlope: Double = 2.0
+    /// dyNorm at which the tap-scaled split penalty equals the static
+    /// constant (below-center: the static penalty already assumes the tap
+    /// leaned toward the spacebar).
+    public var tapSpaceSplitNeutralDy: Double = 0.25
+    /// Floor of the tap-scaled space-substitution penalty, in nats.
+    public var tapSpaceSplitMinPenalty: Double = 1.0
+    /// Autocorrect-margin modulation from aggregate word tap confidence
+    /// (the VETO half of the bidirectional principle):
+    ///   margin × min(1 + strength · max(0, meanConfidence − baseline),
+    ///                maxFactor)
+    /// v1 SAFETY CHOICE (deliberate, documented): the max(0, …) means
+    /// coordinate evidence only ever RAISES the margin — an all-dead-center
+    /// word (mean confidence ≈ 1) needs ~maxFactor× today's margin and
+    /// essentially never auto-replaces, while sloppy words bottom out at
+    /// exactly today's margins (never below — auto-apply is only ever
+    /// HARDER than the static engine or equal; the enabling half of the
+    /// principle acts through the cheaper per-tap substitution costs, not
+    /// through the margin).
+    public var tapVetoBaseline: Double = 0.5
+    /// Nats-per-unit-confidence slope of the veto curve.
+    public var tapVetoStrength: Double = 6.0
+    /// Clamp on the veto factor.
+    public var tapVetoMaxFactor: Double = 4.0
+
     // --- Space-miss split correction (PLAN.md "Space-miss correction"):
     // an unknown all-letter token may really be two words with a missed or
     // mis-hit spacebar tap ("smelirna" = "smellir á"). Splits only run when

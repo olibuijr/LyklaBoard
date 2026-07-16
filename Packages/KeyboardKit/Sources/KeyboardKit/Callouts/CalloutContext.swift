@@ -74,6 +74,12 @@ public extension CalloutContext {
     @discardableResult
     func handleSelectedSecondaryAction() -> Bool {
         guard let action = selectedSecondaryAction else { return false }
+        // better-keyboard fork: mark the action as callout-selected before
+        // it reaches the action handler — the deliberateness signal for
+        // TypeEngine (long-pressed characters veto lane folding), and the
+        // cue NOT to attribute the base key's touch point to this
+        // character. See Keyboard.TouchEvidence.
+        Keyboard.TouchEvidence.noteCalloutSelection(action)
         actionHandler(action)
         resetSecondaryActions()
         return true

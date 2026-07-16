@@ -23,6 +23,9 @@ struct Repl {
               :learn <w>        session-immediate explicit learn (verbatim-tap path)
               :longpress <c>    type <c> as LONG-PRESS callout characters
                                 (deliberateness signal: folding vetoed for the word)
+              :tap <c> <dx> <dy>  type <c> with its touch point (within-key
+                                normalized offsets, −0.5…+0.5 at the cell
+                                edges, x right / y down — coordinate decoding)
               :learned          list personal snapshot + session-learned words
               :events           list learning events emitted so far
               :timing           toggle per-keystroke latency listing
@@ -95,6 +98,17 @@ struct Repl {
             }
             typist.longPress(ScenarioRunner.unquote(argument))
             report(typist, lineLatencies: [], showPerChar: false)
+        case ":tap":
+            let parts = argument.split(separator: " ").map(String.init)
+            guard parts.count == 3, parts[0].count == 1,
+                let character = parts[0].first,
+                let dx = Double(parts[1]), let dy = Double(parts[2])
+            else {
+                print("usage: :tap <char> <dx> <dy>   (offsets in −0.5…+0.5)")
+                break
+            }
+            typist.tapCharacter(character, dx: dx, dy: dy)
+            report(typist, lineLatencies: [typist.lastLatencyMicros], showPerChar: false)
         case ":learn":
             guard !argument.isEmpty else {
                 print("usage: :learn <word>")

@@ -26,6 +26,13 @@ import TypeEngine
 ///   FIELD <kind>             field type: standard|url|email|webSearch (layer 2 gate)
 ///   TAP <text>               tap the bar suggestion with exactly this text
 ///                            (KeyboardKit tap semantics: replace token + space)
+///   TAP <char> <dx> <dy>     type ONE character with its touch point —
+///                            within-key normalized offsets from the key
+///                            center (−0.5…+0.5 at the cell edges, x right,
+///                            y down; PLAN.md "Touch decoding"). Selected
+///                            over the suggestion-tap form when the
+///                            argument parses as exactly (1 char, number,
+///                            number).
 ///   DOT_APPLY on|off         model STOCK KeyboardKit '.'-autocorrect-apply
 ///                            (off = our action handler's deferral, the default)
 ///
@@ -206,7 +213,14 @@ struct ScenarioRunner {
                 typist.appliesAutocorrectOnDot = (argument == "on")
 
             case "TAP":
-                if !typist.tapSuggestion(Self.unquote(argument)) {
+                // Touch-tap form: TAP <char> <dx> <dy> (see cheatsheet).
+                let parts = argument.split(separator: " ").map(String.init)
+                if parts.count == 3, parts[0].count == 1,
+                    let character = parts[0].first,
+                    let dx = Double(parts[1]), let dy = Double(parts[2])
+                {
+                    typist.tapCharacter(character, dx: dx, dy: dy)
+                } else if !typist.tapSuggestion(Self.unquote(argument)) {
                     fail("no suggestion \"\(argument)\" to tap, bar: \(Self.describe(typist.lastSuggestions))")
                 }
 
