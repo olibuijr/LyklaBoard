@@ -16,7 +16,28 @@ by default. Each session produces two JSONL files in the App Group container's
   action (autocorrect / suggestion tap / none), touch samples since the last
   pass, backspaces, and the field kind.
 
-## Pull from a device
+## Getting sessions off the device
+
+Two paths, both landing in `./sessions/`:
+
+### 1. OTA via the developer's own iCloud Drive (no cable)
+
+On **stop** (and retroactively for any earlier unexported session), developer
+mode copies each session's `-app.jsonl` + `-kb.jsonl` + a `-meta.json` manifest
+into the app's iCloud ubiquity container (`iCloud.is.lyklabord`,
+document-scope-public). It syncs to **the developer's own iCloud Drive** — no
+servers — and lands on this Mac at:
+
+```
+~/Library/Mobile Documents/iCloud~is~lyklabord/Documents/sessions
+```
+
+Note the tilde-encoding: the container id `iCloud.is.lyklabord` becomes
+`iCloud~is~lyklabord` (dots → tildes, **no** team prefix and **no** `.ios`
+suffix). Override with `--ubiquity-dir` / `LYKLABORD_UBIQUITY_DIR` if your
+account encodes it differently.
+
+### 2. USB pull (`pull.sh`)
 
 ```sh
 ./pull.sh                 # auto-pick the first connected device
@@ -28,6 +49,65 @@ Copies `Documents/sessions/` from the app container (`is.lyklabord.ios`) into
 unlocked, app installed. (Simulator: use
 `xcrun simctl get_app_container booted is.lyklabord.ios data` and copy
 `Documents/sessions` by hand — `devicectl` is device-only.)
+
+## Ingest (collect + analyze + aggregate)
+
+`ingest.py` is the one command to run — it pulls from every source into
+`./sessions/`, analyzes new arrivals, and rebuilds the aggregate + corpus:
+
+```sh
+python3 ingest.py            # one pass (iCloud mirror → sessions/ → analyze → aggregate)
+python3 ingest.py --watch    # poll every 15s while you type on the device
+python3 ingest.py --ubiquity-dir DIR --pull-dir DIR --sessions-dir DIR
+```
+
+Dedupe is by **session id**: a file is copied only when absent or larger
+(sessions are append-only, so larger == superset). Only changed sessions are
+re-analyzed. A missing iCloud dir is skipped, never fatal.
+
+## Aggregate
+
+`aggregate.py` (run for you by `ingest.py`, or standalone) rolls **all**
+sessions up **by engine build** (from each `-meta.json`'s `engineCommit`,
+stamped at build time via `App/BuildInfo.swift`; sessions with no manifest
+group under `unknown`). It writes, into the gitignored `sessions/` dir:
+
+- `AGGREGATE.md` — per-build totals + rates (autocorrect false-positive rate,
+  MISS_OFFERED/ABSENT, INFLECTION_MISS, SILENT_MISS, taps/session), a **weighted
+  per-key tap-offset** table, a **PATTERNS** section (recurring `typo→intended`
+  pairs and same-category counts = tuning candidates; singles = watch list), a
+  **build-over-build trend** table (does a new build regress real-typing
+  rates?), and **PENDING-REVIEW** (ambiguous cases awaiting confirmation).
+- `aggregate.json` — the same, machine-readable.
+
+```sh
+python3 aggregate.py [sessions-dir]   # default: ./sessions
+```
+
+## Personal eval corpus
+
+`aggregate.py` also maintains **`personal-eval.jsonl`** (this dir; **gitignored**
+— it quotes real typed text): confirmed, unambiguous candidates in the
+`data/eval/dev.jsonl` schema, deduped and **append-only**, each with provenance
+(`session`, `engine_commit`, `class`, `source`). This is a **first-class tuning
+gate** — a build change must not regress these cases.
+
+Eligible (unambiguous intended word): `AUTOCORRECT_UNDONE`, `MISS_OFFERED`,
+`MISS_ABSENT` (the user produced the intended word themselves), plus
+`SILENT_MISS` **only** when the top guess is uncontested (single penalty-0 edit
+that clearly beats the runner-up). Held back to `PENDING-REVIEW` in
+`AGGREGATE.md`: `INFLECTION_MISS` (inflection backlog, not the corrector) and
+contested `SILENT_MISS`. Nothing ambiguous enters the corpus without Jökull's
+confirmation.
+
+## Privacy / git hygiene
+
+`sessions/` and `personal-eval.jsonl` are **gitignored**: every output that
+quotes typed text (`AGGREGATE.md`, `aggregate.json`, `<id>-report.md`,
+`<id>-candidates.jsonl`, `<id>-meta.json`, the corpus) stays local. Only this
+README and the scripts are committed. The iCloud copy goes to the developer's
+**own** iCloud Drive and is user-visible + deletable in Files (see
+`docs/PRIVACY.md` → "Þróunarhamur").
 
 ## Analyze
 

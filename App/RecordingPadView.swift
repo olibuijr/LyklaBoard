@@ -60,6 +60,11 @@ struct RecordingPadView: View {
             // Never leave the keyboard armed behind our back.
             if store.isRecording { store.stopRecording() }
         }
+        .task {
+            // Retroactively push any finished-but-unexported sessions to the
+            // user's iCloud Drive (and write any missing manifests).
+            store.exportPendingSessions()
+        }
     }
 
     // MARK: - Record control bar
@@ -129,6 +134,11 @@ private struct SessionsListView: View {
                         systemImage: "waveform",
                         description: Text(Strings.Developer.sessionsEmptyBody))
                 } else {
+                    if store.iCloudAvailable == false {
+                        Label(Strings.Developer.syncUnavailableNote, systemImage: "icloud.slash")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(store.sessions) { session in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -139,6 +149,7 @@ private struct SessionsListView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
+                            SyncBadge(state: store.syncState(for: session.id))
                             ShareLink(items: session.fileURLs) {
                                 Image(systemName: "square.and.arrow.up")
                             }
@@ -162,6 +173,33 @@ private struct SessionsListView: View {
 
     private func displayName(_ session: Session) -> String {
         Self.display.string(from: session.startedAt)
+    }
+
+    private typealias SyncState = RecordingStore.SyncState
+
+    /// Per-session iCloud sync indicator.
+    private struct SyncBadge: View {
+        let state: SyncState
+
+        var body: some View {
+            switch state {
+            case .uploaded:
+                icon("checkmark.icloud", .green, Strings.Developer.syncUploaded)
+            case .syncing:
+                icon("arrow.clockwise.icloud", .secondary, Strings.Developer.syncPending)
+            case .localOnly:
+                icon("icloud.slash", .secondary, Strings.Developer.syncLocalOnly)
+            case .unavailable:
+                icon("icloud.slash", .secondary, Strings.Developer.syncUnavailable)
+            }
+        }
+
+        private func icon(_ name: String, _ color: Color, _ label: String) -> some View {
+            Image(systemName: name)
+                .foregroundStyle(color)
+                .accessibilityLabel(label)
+                .help(label)
+        }
     }
 
     private func subtitle(_ session: Session) -> String {

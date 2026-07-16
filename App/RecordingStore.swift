@@ -17,9 +17,16 @@
 //  │   leaves the foreground (`noteScenePhaseInactive`), (b) a 10-minute      │
 //  │   auto-expiry bumped by pad activity, and (c) an always-visible red      │
 //  │   recording indicator in the pad.                                        │
-//  │ • Sessions are LOCAL ONLY — App Group Documents/sessions/. They leave    │
-//  │   the device only by explicit user share-sheet export or a developer    │
-//  │   USB pull. Nothing is networked.                                        │
+//  │ • Sessions are written to App Group Documents/sessions/ (LOCAL) and, on  │
+//  │   stop, ALSO copied into the USER'S OWN iCloud Drive (the app's ubiquity │
+//  │   container iCloud.is.lyklabord, document-scope-public → visible &       │
+//  │   deletable in Files). This is an OTA convenience for the developer's    │
+//  │   own devices — the user's private iCloud, no servers of ours, same      │
+//  │   promise as the dictionary's optional CloudKit sync. The local copies   │
+//  │   and the share-sheet export / USB pull all remain. iCloud copy is       │
+//  │   best-effort and off-main; when iCloud is unavailable it stays          │
+//  │   local-only (surfaced in the UI). Nothing is sent to us; the extension  │
+//  │   still has ZERO network/iCloud entitlements.                            │
 //  │ • The learning event log and the personal dictionary are UNAFFECTED —    │
 //  │   these are separate files with a separate lifecycle.                    │
 //  └──────────────────────────────────────────────────────────────────────────┘
@@ -27,6 +34,7 @@
 
 import Foundation
 import Observation
+import UIKit  // UIDevice — device model / iOS version for the session manifest
 
 @MainActor
 @Observable
@@ -39,6 +47,31 @@ final class RecordingStore {
     static let sessionsSubdirectory = "sessions"
     /// Auto-expiry window; re-stamped on every pad change while recording.
     static let armWindow: TimeInterval = 10 * 60
+
+    /// The app's iCloud Documents (ubiquity) container — SAME id as CloudKit.
+    /// Sessions are copied here on stop so they sync to the developer's own
+    /// iCloud Drive and can be picked up on the Mac (tools/session-analyzer
+    /// ingest.py), no servers involved. App-only; the extension never touches it.
+    static let ubiquityContainerId = "iCloud.is.lyklabord"
+
+    /// Optional App Group key a FUTURE keyboard-extension wave may stamp with
+    /// its own marketing/build version so the manifest can record the exact
+    /// extension binary that produced `<id>-kb.jsonl`. Absent today (the
+    /// extension stamps nothing) — the manifest falls back to the app build and
+    /// records `kbVersionSource: "app-build-fallback"`. Defined here so a later
+    /// extension wave has a stable key to write.
+    static let kbVersionKey = "is.lyklabord.dev.kbVersion"
+
+    static let manifestSchema = "lyklabord.session-manifest.v1"
+
+    // MARK: - Per-session iCloud sync state (UI indicator)
+
+    enum SyncState: String, Equatable {
+        case localOnly   // on device only — iCloud copy not (yet) present
+        case syncing     // copy in flight
+        case uploaded    // present in the ubiquity container
+        case unavailable // iCloud account/container unavailable on this device
+    }
 
     // MARK: - A recorded session on disk
 
@@ -59,6 +92,18 @@ final class RecordingStore {
     private(set) var currentSessionId: String?
     private(set) var sessions: [Session] = []
     private(set) var lastErrorMessage: String?
+
+    /// Per-session iCloud sync state, keyed by session id. Updated by the
+    /// off-main export task; unknown ids read as `.localOnly`.
+    private(set) var syncStates: [String: SyncState] = [:]
+    /// False once an export attempt found no iCloud container (drives the
+    /// "iCloud unavailable — sessions stay on this device" UI note).
+    private(set) var iCloudAvailable = true
+
+    func syncState(for id: String) -> SyncState {
+        if !iCloudAvailable { return .unavailable }
+        return syncStates[id] ?? .localOnly
+    }
 
     // MARK: - Wiring
 
@@ -104,6 +149,9 @@ final class RecordingStore {
         currentSessionId = nil
         _ = id
         refreshSessions()
+        // OTA: copy the just-finished session (and any earlier unexported ones)
+        // into the user's iCloud Drive. Best-effort, off-main.
+        exportPendingSessions()
     }
 
     /// Pad text changed — snapshot the full text (the authoritative timeline)
@@ -181,6 +229,157 @@ final class RecordingStore {
         refreshSessions()
     }
 
+    // MARK: - iCloud (ubiquity) export
+
+    /// Values needed to build a manifest, snapshotted on the main actor so the
+    /// export can run fully off-main.
+    private struct ManifestEnv {
+        let appShortVersion: String
+        let appBuild: String
+        let engineCommit: String
+        let deviceModel: String
+        let iosVersion: String
+        let kbVersion: String?
+    }
+
+    private func currentManifestEnv() -> ManifestEnv {
+        let info = Bundle.main.infoDictionary
+        return ManifestEnv(
+            appShortVersion: info?["CFBundleShortVersionString"] as? String ?? "?",
+            appBuild: info?["CFBundleVersion"] as? String ?? "?",
+            engineCommit: BuildInfo.engineCommit,
+            deviceModel: Self.deviceModelIdentifier(),
+            iosVersion: UIDevice.current.systemVersion,
+            kbVersion: defaults?.string(forKey: Self.kbVersionKey))
+    }
+
+    /// Ensure every finished session has a local manifest, then copy the pair
+    /// of JSONL files + the manifest into the iCloud ubiquity container so they
+    /// sync to the developer's own iCloud Drive. Idempotent (skips sessions
+    /// already present in iCloud with matching sizes), best-effort, off-main.
+    func exportPendingSessions() {
+        guard let sessionsDir else { return }
+        let snapshot = sessions
+        let env = currentManifestEnv()
+        // Optimistic UI: anything not already uploaded shows as syncing.
+        for s in snapshot where (syncStates[s.id] ?? .localOnly) != .uploaded {
+            syncStates[s.id] = .syncing
+        }
+        Task.detached(priority: .utility) { [weak self] in
+            let result = Self.exportWork(
+                localDir: sessionsDir, sessions: snapshot, env: env,
+                containerId: Self.ubiquityContainerId)
+            await self?.applyExportResult(result)
+        }
+    }
+
+    private func applyExportResult(_ result: ExportResult) {
+        iCloudAvailable = result.iCloudAvailable
+        for (id, state) in result.states {
+            syncStates[id] = state
+        }
+        refreshSessions()  // pick up freshly written local <id>-meta.json files
+    }
+
+    private struct ExportResult {
+        let iCloudAvailable: Bool
+        let states: [String: SyncState]
+    }
+
+    /// Off-main worker: writes local manifests and (when iCloud is available)
+    /// copies each session's files into the ubiquity container's
+    /// Documents/sessions/. `nonisolated static` so it never touches actor state.
+    nonisolated private static func exportWork(
+        localDir: URL, sessions: [Session], env: ManifestEnv, containerId: String
+    ) -> ExportResult {
+        let fm = FileManager.default
+
+        // 1. Ensure a local manifest exists for each session (also pulled via USB).
+        for s in sessions {
+            let metaURL = localDir.appendingPathComponent("\(s.id)-meta.json")
+            if !fm.fileExists(atPath: metaURL.path) {
+                if let data = manifestData(for: s.id, env: env) {
+                    try? data.write(to: metaURL, options: .atomic)
+                }
+            }
+        }
+
+        // 2. iCloud container. This call blocks — hence off-main. nil ⇒ the
+        //    account/container is unavailable; stay local-only, note in UI.
+        guard let ubiquity = fm.url(forUbiquityContainerIdentifier: containerId) else {
+            var states: [String: SyncState] = [:]
+            for s in sessions { states[s.id] = .localOnly }
+            return ExportResult(iCloudAvailable: false, states: states)
+        }
+        let destDir = ubiquity
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent(sessionsSubdirectory, isDirectory: true)
+        try? fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+
+        var states: [String: SyncState] = [:]
+        for s in sessions {
+            let names = ["\(s.id)-app.jsonl", "\(s.id)-kb.jsonl", "\(s.id)-meta.json"]
+            var ok = true
+            var copiedAny = false
+            for name in names {
+                let src = localDir.appendingPathComponent(name)
+                guard fm.fileExists(atPath: src.path) else { continue }
+                let dst = destDir.appendingPathComponent(name)
+                // Skip if already present with the same size (idempotent retro-export).
+                if let sSize = fileSize(fm, src), let dSize = fileSize(fm, dst), sSize == dSize {
+                    copiedAny = true
+                    continue
+                }
+                do {
+                    if fm.fileExists(atPath: dst.path) { try fm.removeItem(at: dst) }
+                    try fm.copyItem(at: src, to: dst)
+                    copiedAny = true
+                } catch {
+                    ok = false
+                }
+            }
+            states[s.id] = (ok && copiedAny) ? .uploaded : .localOnly
+        }
+        return ExportResult(iCloudAvailable: true, states: states)
+    }
+
+    nonisolated private static func fileSize(_ fm: FileManager, _ url: URL) -> Int? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
+    /// Build the JSON manifest bytes for a session. `nonisolated static` — pure.
+    nonisolated private static func manifestData(for id: String, env: ManifestEnv) -> Data? {
+        let manifest = SessionManifest(
+            schema: manifestSchema,
+            sessionId: id,
+            appShortVersion: env.appShortVersion,
+            appBuild: env.appBuild,
+            engineCommit: env.engineCommit,
+            deviceModel: env.deviceModel,
+            iosVersion: env.iosVersion,
+            kbVersion: env.kbVersion,
+            kbVersionSource: env.kbVersion == nil ? "app-build-fallback" : "app-group",
+            createdAt: Date().timeIntervalSince1970)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(manifest)
+    }
+
+    /// Hardware model identifier, e.g. `iPhone15,2`. On the Simulator the raw
+    /// utsname is the host arch, so prefer `SIMULATOR_MODEL_IDENTIFIER`.
+    nonisolated private static func deviceModelIdentifier() -> String {
+        if let sim = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] {
+            return sim
+        }
+        var sys = utsname()
+        uname(&sys)
+        let id = withUnsafeBytes(of: &sys.machine) { raw -> String in
+            let bytes = raw.prefix { $0 != 0 }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+        return id.isEmpty ? "unknown" : id
+    }
+
     // MARK: - Arming (App Group flag)
 
     private func arm(sessionId: String) {
@@ -245,4 +444,23 @@ private struct AppRecord: Encodable {
     let sid: String
     let kind: String  // "start" | "snapshot" | "stop"
     let text: String
+}
+
+// MARK: - Session manifest (`<id>-meta.json`)
+
+/// Small provenance sidecar written next to a session's JSONL files and copied
+/// into iCloud alongside them. Lets the Mac-side aggregate group real-typing
+/// rates by ENGINE BUILD (the anti-overcorrection instrument) and know the
+/// device/OS a session came from. Contains NO typed text — safe metadata only.
+private struct SessionManifest: Encodable {
+    let schema: String
+    let sessionId: String
+    let appShortVersion: String   // CFBundleShortVersionString (MARKETING_VERSION)
+    let appBuild: String          // CFBundleVersion (CURRENT_PROJECT_VERSION)
+    let engineCommit: String      // BuildInfo.engineCommit (git short hash)
+    let deviceModel: String       // e.g. iPhone15,2
+    let iosVersion: String        // UIDevice.systemVersion
+    let kbVersion: String?        // extension-stamped version, nil today
+    let kbVersionSource: String   // "app-group" | "app-build-fallback"
+    let createdAt: Double         // unix seconds the manifest was written
 }

@@ -19,5 +19,9 @@ ReplayRig/.derived/
 __pycache__/
 *.pyc
 
-# Personal typing sessions — never commit
+# Personal typing sessions — never commit (raw typed text + all derived
+# reports: <id>-report.md, <id>-candidates.jsonl, AGGREGATE.md, aggregate.json).
 tools/session-analyzer/sessions/
+# Personal eval corpus — quotes real typed text (typo/intended/context), so it
+# is gitignored even though it lives outside sessions/. Feeds tuning locally.
+tools/session-analyzer/personal-eval.jsonl

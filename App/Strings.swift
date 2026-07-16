@@ -250,6 +250,13 @@ enum Strings {
         static let sessionsEmptyTitle = "Engar upptökur"
         static let sessionsEmptyBody = "Hefðu upptöku og skrifaðu á svæðinu til að búa til upptöku."
 
+        // iCloud Drive OTA sync state (per-session indicator).
+        static let syncUploaded = "Í iCloud Drive"
+        static let syncPending = "Afritar…"
+        static let syncLocalOnly = "Aðeins í tæki"
+        static let syncUnavailable = "iCloud ekki tiltækt"
+        static let syncUnavailableNote = "iCloud Drive er ekki tiltækt — upptökur haldast aðeins í tækinu og er hægt að deila handvirkt."
+
         static let unavailableTitle = "App Group ekki tiltækt"
         static let unavailableBody = "Upptaka þarf sameiginlega App Group gagnageymslu. Þetta virkar á tæki með réttum heimildum."
     }

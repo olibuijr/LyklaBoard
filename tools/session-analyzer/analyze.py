@@ -836,6 +836,27 @@ def _repo_root() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
+def analyze_one(directory: str, sid: str, repo_root: Optional[str] = None) -> dict:
+    """Analyze a single session id in `directory`, writing `<id>-report.md` and
+    `<id>-candidates.jsonl`. Returns a small summary dict (also used by
+    ingest.py to log per-session results). Importable — no process exit."""
+    repo_root = repo_root or _repo_root()
+    app_path = os.path.join(directory, f"{sid}-app.jsonl")
+    kb_path = os.path.join(directory, f"{sid}-kb.jsonl")
+    app, kb = load_session(app_path, kb_path)
+    events = classify(app, kb)
+    silent, silent_source = silent_miss_scan(app, repo_root)
+    report = render_report(sid, app, kb, events, silent, silent_source)
+    with open(os.path.join(directory, f"{sid}-report.md"), "w", encoding="utf-8") as fh:
+        fh.write(report)
+    with open(os.path.join(directory, f"{sid}-candidates.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(candidates_jsonl(events))
+    sm = sum(1 for m in silent if m.cls == "SILENT_MISS")
+    ur = sum(1 for m in silent if m.cls == "UNRESOLVABLE")
+    return {"sid": sid, "events": len(events), "silent_miss": sm,
+            "unresolvable": ur, "silent_source": silent_source}
+
+
 def analyze_dir(directory: str) -> int:
     ids = discover_sessions(directory)
     if not ids:
@@ -843,20 +864,10 @@ def analyze_dir(directory: str) -> int:
         return 1
     repo_root = _repo_root()
     for sid in ids:
-        app_path = os.path.join(directory, f"{sid}-app.jsonl")
-        kb_path = os.path.join(directory, f"{sid}-kb.jsonl")
-        app, kb = load_session(app_path, kb_path)
-        events = classify(app, kb)
-        silent, silent_source = silent_miss_scan(app, repo_root)
-        report = render_report(sid, app, kb, events, silent, silent_source)
-        with open(os.path.join(directory, f"{sid}-report.md"), "w", encoding="utf-8") as fh:
-            fh.write(report)
-        with open(os.path.join(directory, f"{sid}-candidates.jsonl"), "w", encoding="utf-8") as fh:
-            fh.write(candidates_jsonl(events))
-        sm = sum(1 for m in silent if m.cls == "SILENT_MISS")
-        ur = sum(1 for m in silent if m.cls == "UNRESOLVABLE")
-        print(f"{sid}: {len(events)} events, {sm} silent-miss / {ur} unresolvable "
-              f"({silent_source}) → {sid}-report.md, {sid}-candidates.jsonl")
+        s = analyze_one(directory, sid, repo_root)
+        print(f"{s['sid']}: {s['events']} events, {s['silent_miss']} silent-miss / "
+              f"{s['unresolvable']} unresolvable ({s['silent_source']}) → "
+              f"{sid}-report.md, {sid}-candidates.jsonl")
     return 0
 
 
