@@ -152,7 +152,9 @@ public struct Corrector {
         // provider (identical to the pre-coordinate engine).
         let perTap: PerTapCostProvider? =
             taps.count == typedChars.count && taps.contains(where: { $0 != nil })
-            ? PerTapCostProvider(taps: taps, spatial: spatial, config: config)
+            ? PerTapCostProvider(
+                taps: taps, spatial: spatial, config: config,
+                personalTouch: model.touch.snapshot)
             : nil
 
         // Hyphenated compound rule (PLAN.md "Compounds" + harness quirk
@@ -889,13 +891,32 @@ public struct Corrector {
 
         /// Tap-scaled space-substitution penalty for consuming position `j`
         /// as the space; the static constant without an aligned tap.
+        ///
+        /// Stage 2 (personal touch model): the tap's dy is read RELATIVE to
+        /// the user's habitual (shrunk) dy on that key when its personal
+        /// stats cleared the gate — a user who always taps low is not
+        /// leaning toward the spacebar when they tap low, and a habitual
+        /// high-tapper's low tap is unusually strong space evidence, so
+        /// their split hypotheses cheapen exactly by slope·|habitual dy|.
+        /// Same clamps as stage 1; no snapshot (or a cold key) is the
+        /// stage-1 arithmetic byte-identically.
         func substitutionSplitPenalty(at j: Int) -> Double {
             guard j < taps.count, let tap = taps[j], tap.char == typedChars[j] else {
                 return config.splitSubstitutionPenalty
             }
-            let scaled =
-                config.splitSubstitutionPenalty
-                + config.tapSpaceSplitSlope * (config.tapSpaceSplitNeutralDy - tap.dyNorm)
+            let scaled: Double
+            if let habitual = model.touch.snapshot?
+                .blendedMeanOffset(for: tap.char, config: config)
+            {
+                scaled =
+                    config.splitSubstitutionPenalty
+                    + config.tapSpaceSplitSlope
+                        * (config.tapSpaceSplitNeutralDy - (tap.dyNorm - habitual.y))
+            } else {
+                scaled =
+                    config.splitSubstitutionPenalty
+                    + config.tapSpaceSplitSlope * (config.tapSpaceSplitNeutralDy - tap.dyNorm)
+            }
             return min(
                 max(scaled, config.tapSpaceSplitMinPenalty), config.splitInsertionPenalty)
         }

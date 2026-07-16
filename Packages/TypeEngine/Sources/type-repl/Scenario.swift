@@ -46,6 +46,13 @@ import TypeEngine
 ///   LEARN <word>                       session-immediate explicit learn
 ///                                      (same path as a verbatim tap /
 ///                                      KeyboardKit learnWord forward)
+///   PERSONAL_TOUCH <char> <count> <meanDx> <meanDy> <sigmaX> <sigmaY> [cov]
+///                                      seed per-key adaptive touch stats
+///                                      (stage 2 personal Gaussians; units =
+///                                      key pitch, sigmas are STANDARD
+///                                      DEVIATIONS, cov defaults to 0);
+///                                      replaces any `--personal` touch
+///                                      baseline until the next SCENARIO
 ///
 ///   NOTE: the verbatim escape-hatch slot (the literal typed token, quoted
 ///   on device) always leads a non-empty bar; EXPECT_TOP and
@@ -84,6 +91,8 @@ struct ScenarioRunner {
     var defaultLimit = 5
     /// The `--personal` baseline snapshot, restored at each SCENARIO start.
     var basePersonal: PersonalVocabulary?
+    /// The `--personal` baseline TOUCH snapshot, same restore rule.
+    var basePersonalTouch: PersonalTouchSnapshot?
 
     func run(fileAt path: String) -> Int {
         guard let raw = try? String(contentsOfFile: path, encoding: .utf8) else {
@@ -99,9 +108,15 @@ struct ScenarioRunner {
         var limit = defaultLimit
         var typist = Typist(engine: engine, limit: limit)
         var seeds = SeededPersonalVocabulary()
+        var touchSeeds: [Character: PersonalTouchSnapshot.KeyStats] = [:]
 
         func applySeeds() {
             engine.setPersonalVocabulary(seeds.isEmpty ? basePersonal : seeds)
+            engine.setPersonalTouch(
+                touchSeeds.isEmpty
+                    ? basePersonalTouch
+                    : PersonalTouchSnapshot(keys: touchSeeds)
+            )
         }
 
         func finishScenario() {
@@ -134,6 +149,7 @@ struct ScenarioRunner {
                 currentName = argument
                 currentFailed = false
                 seeds = SeededPersonalVocabulary()
+                touchSeeds = [:]
                 applySeeds()  // back to the --personal baseline (or none)
                 typist = Typist(engine: engine, limit: limit)
                 typist.reset()  // also clears the session-learned overlay
@@ -240,6 +256,33 @@ struct ScenarioRunner {
                     applySeeds()
                 } else {
                     fail("usage: PERSONAL_BIGRAM <first> <second> <count>")
+                }
+
+            case "PERSONAL_TOUCH":
+                // <char> <count> <meanDx> <meanDy> <sigmaX> <sigmaY> [cov]
+                // — sigmas are standard deviations (squared into the
+                // snapshot's variances), cov is the covariance itself.
+                let parts = argument.split(separator: " ").map(String.init)
+                if parts.count >= 6, parts.count <= 7, parts[0].count == 1,
+                    let char = parts[0].first,
+                    let count = Double(parts[1]),
+                    let meanDx = Double(parts[2]), let meanDy = Double(parts[3]),
+                    let sigmaX = Double(parts[4]), let sigmaY = Double(parts[5]),
+                    let cov = parts.count == 7 ? Double(parts[6]) : 0
+                {
+                    touchSeeds[char] = PersonalTouchSnapshot.KeyStats(
+                        meanDX: meanDx,
+                        meanDY: meanDy,
+                        varianceX: sigmaX * sigmaX,
+                        varianceY: sigmaY * sigmaY,
+                        covarianceXY: cov,
+                        count: count
+                    )
+                    applySeeds()
+                } else {
+                    fail(
+                        "usage: PERSONAL_TOUCH <char> <count> <meanDx> <meanDy> <sigmaX> <sigmaY> [cov]"
+                    )
                 }
 
             case "TOMBSTONE":

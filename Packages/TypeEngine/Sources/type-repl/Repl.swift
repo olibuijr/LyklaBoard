@@ -29,6 +29,8 @@ struct Repl {
                                 normalized offsets, −0.5…+0.5 at the cell
                                 edges, x right / y down — coordinate decoding)
               :learned          list personal snapshot + session-learned words
+              :touchstats       per-key personal touch stats (stage 2): count,
+                                mean offset, σ, ρ, shrinkage weight, gate status
               :events           list learning events emitted so far
               :timing           toggle per-keystroke latency listing
               :context          show proxy window vs full document
@@ -150,6 +152,38 @@ struct Repl {
             let session = engine.sessionLearnedWords
             print("  snapshot (\(snapshot.count)): \(snapshot.isEmpty ? "-" : snapshot.joined(separator: " "))")
             print("  session  (\(session.count)): \(session.isEmpty ? "-" : session.joined(separator: " "))")
+        case ":touchstats":
+            guard let touch = engine.personalTouchSnapshot, !touch.isEmpty else {
+                print("  (no personal touch model loaded — use --personal <model.json>)")
+                break
+            }
+            let config = engine.config
+            print(
+                "  gate: count >= \(String(format: "%.0f", config.touchPersonalMinSamples))"
+                    + "  shrinkage w = n/(n+\(String(format: "%.0f", config.touchPriorStrength)))"
+                    + "  prior σ = (\(String(format: "%.3f", config.tapSigmaX)),"
+                    + " \(String(format: "%.3f", config.tapSigmaY)))"
+            )
+            for char in touch.keys {
+                guard let stats = touch.stats(for: char) else { continue }
+                let weight = stats.count / (stats.count + config.touchPriorStrength)
+                let sigmaX = stats.varianceX >= 0 ? stats.varianceX.squareRoot() : .nan
+                let sigmaY = stats.varianceY >= 0 ? stats.varianceY.squareRoot() : .nan
+                let rho =
+                    sigmaX > 0 && sigmaY > 0
+                    ? stats.covarianceXY / (sigmaX * sigmaY) : 0
+                let active = stats.count >= config.touchPersonalMinSamples
+                print(
+                    "  \(char)  n=\(String(format: "%7.1f", stats.count))"
+                        + "  mean=(\(String(format: "%+.3f", stats.meanDX)),"
+                        + " \(String(format: "%+.3f", stats.meanDY)))"
+                        + "  σ=(\(String(format: "%.3f", sigmaX)),"
+                        + " \(String(format: "%.3f", sigmaY)))"
+                        + "  ρ=\(String(format: "%+.2f", rho))"
+                        + "  w=\(String(format: "%.2f", weight))"
+                        + "  \(active ? "ACTIVE" : "below gate (prior)")"
+                )
+            }
         case ":events":
             typist.collectPendingEvents()
             if typist.collectedEvents.isEmpty {

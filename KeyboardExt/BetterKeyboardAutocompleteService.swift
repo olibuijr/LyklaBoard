@@ -449,6 +449,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         guard modified != nil else {
             // Model file disappeared (user reset / first run): clear.
             engine.setPersonalVocabulary(nil)
+            engine.setPersonalTouch(nil)
             return
         }
         do {
@@ -456,10 +457,30 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 try PersonalModel(contentsOf: url)
             }
             engine.setPersonalVocabulary(PersonalSnapshot(model: model))
-            NSLog("[better-keyboard] personal snapshot loaded (%d words)", engine.personalSnapshotWords.count)
+            // Personal touch model (PLAN.md "Touch decoding", stage 2):
+            // extracted from the SAME model load — no extra I/O; it rides
+            // this mtime re-stat path for refreshes exactly like the
+            // vocabulary snapshot.
+            let touch = PersonalTouchSnapshot(model: model)
+            engine.setPersonalTouch(touch.isEmpty ? nil : touch)
+            // QA-only aggregates (key identities and counts, never typed
+            // content): how much adaptive-touch mass this device has and how
+            // many keys are past the min-samples gate — the on-device signal
+            // that personal Gaussians are (or are not yet) active.
+            let eligible = touch.keys.filter {
+                (touch.stats(for: $0)?.count ?? 0) >= engine.config.touchPersonalMinSamples
+            }
+            NSLog(
+                "[better-keyboard] personal snapshot loaded (%d words; touch: %d keys, %.0f effective taps, %d past gate)",
+                engine.personalSnapshotWords.count,
+                touch.keys.count,
+                touch.totalEffectiveSamples,
+                eligible.count
+            )
         } catch {
             // Corrupt/unreadable model: keep typing, drop personal ranking.
             engine.setPersonalVocabulary(nil)
+            engine.setPersonalTouch(nil)
             NSLog("[better-keyboard] personal model load failed: %@", String(describing: error))
         }
     }

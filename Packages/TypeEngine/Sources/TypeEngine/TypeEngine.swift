@@ -98,6 +98,24 @@ public final class TypeEngine {
         rebuildLemmaLift()
     }
 
+    /// Inject (or clear) the per-user adaptive touch snapshot (PLAN.md
+    /// "Touch decoding", stage 2 — the touch half of personal learning,
+    /// extracted from the SAME `PersonalModel` load as the vocabulary
+    /// snapshot). A single reference assignment — no rebuild, no
+    /// recalibration; with no snapshot (or with taps absent) correction is
+    /// byte-identical to the stage-1 engine. Must be called on the queue
+    /// that owns this engine (the `setPersonalVocabulary` confinement
+    /// contract, verbatim).
+    public func setPersonalTouch(_ snapshot: PersonalTouchSnapshot?) {
+        model.touch.setSnapshot(snapshot)
+    }
+
+    /// The currently injected personal touch snapshot (diagnostics: REPL
+    /// `:touchstats`, tests); nil when none is loaded.
+    public var personalTouchSnapshot: PersonalTouchSnapshot? {
+        model.touch.snapshot
+    }
+
     /// Session-immediate learning: make `word` valid + suggestible RIGHT NOW
     /// (verbatim tap / explicit learn signals must not wait for the app's
     /// compaction). The overlay lives until `clearSessionVocabulary()`.

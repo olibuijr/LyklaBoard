@@ -86,15 +86,23 @@ do {
     exit(2)
 }
 
-// Personal-learning snapshot (M2): same injection path as the extension.
+// Personal-learning snapshot (M2): same injection path as the extension —
+// ONE model load feeds both the vocabulary snapshot and the stage-2
+// personal touch snapshot.
 var basePersonal: PersonalVocabulary?
+var basePersonalTouch: PersonalTouchSnapshot?
 if let personalOverride {
     do {
         let model = try PersonalModel(contentsOf: URL(fileURLWithPath: personalOverride))
         let snapshot = PersonalSnapshot(model: model)
         basePersonal = snapshot
         engine.setPersonalVocabulary(snapshot)
-        warn("personal model loaded: \(engine.personalSnapshotWords.count) words")
+        let touch = PersonalTouchSnapshot(model: model)
+        basePersonalTouch = touch.isEmpty ? nil : touch
+        engine.setPersonalTouch(basePersonalTouch)
+        warn(
+            "personal model loaded: \(engine.personalSnapshotWords.count) words, "
+                + "\(touch.keys.count) touch keys (:touchstats)")
     } catch {
         warn("failed to load personal model: \(error)")
         exit(2)
@@ -110,7 +118,8 @@ case "run":
     let runner = ScenarioRunner(
         engine: engine,
         defaultLimit: limitOverride ?? 5,
-        basePersonal: basePersonal
+        basePersonal: basePersonal,
+        basePersonalTouch: basePersonalTouch
     )
     exit(Int32(runner.run(fileAt: arguments[1])))
 

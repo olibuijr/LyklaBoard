@@ -230,6 +230,38 @@ public struct EngineConfig: Sendable {
     /// Clamp on the veto factor.
     public var tapVetoMaxFactor: Double = 4.0
 
+    // --- Personal adaptive touch model (PLAN.md "Touch decoding", stage 2).
+    // When a `PersonalTouchSnapshot` is injected (TypeEngine.setPersonalTouch)
+    // AND taps flow, the PerTapCostProvider prices keys that cleared the
+    // min-samples gate against a PERSONAL 2D Gaussian: the TSI prior shrunk
+    // toward the user's own per-key distribution. Shrinkage (per key, with
+    // n = effective sample count, k = touchPriorStrength, w = n/(n+k)):
+    //
+    //   mean_blend = w · mean_personal            (prior mean = key center)
+    //   var_blend  = w · var_personal + (1−w) · tapSigma{X,Y}²
+    //   cov_blend  = w · cov_personal             (prior covariance = 0)
+    //
+    // so a cold key IS the prior, and the personal distribution takes over
+    // smoothly as evidence accumulates (steady state under the Learning
+    // decay: n ≈ 250–500 → w ≈ 0.83–0.91). With no snapshot — or no key past
+    // the gate — pricing is byte-identical to the stage-1 static provider.
+
+    /// Effective per-key sample count a key must reach before its personal
+    /// statistics participate at all (below: the pure TSI prior). Keeps
+    /// early, noisy Welford estimates out of pricing.
+    public var touchPersonalMinSamples: Double = 30
+    /// k in the n/(n+k) shrinkage weight: the prior's strength in
+    /// equivalent samples. 50 ≈ "the TSI prior is worth 50 of the user's
+    /// taps" — at the 30-sample gate the blend is still 62% prior.
+    public var touchPriorStrength: Double = 50
+    /// Floor on each blended per-key σ, in key-pitch units. A user with a
+    /// pathologically tight cloud (or a corrupt/near-zero variance) must
+    /// not price every neighbor at absurd likelihood ratios: 0.08 caps the
+    /// per-axis exponent of a full key pitch at ~78 nats BEFORE the
+    /// min/maxSubstitution clamps (which still bound every priced cost) and,
+    /// more importantly, keeps the confidence normalization well-behaved.
+    public var touchSigmaFloor: Double = 0.08
+
     // --- Space-miss split correction (PLAN.md "Space-miss correction"):
     // an unknown all-letter token may really be two words with a missed or
     // mis-hit spacebar tap ("smelirna" = "smellir á"). Splits only run when
@@ -717,6 +749,10 @@ struct BlendedLanguageModel {
     /// lemma lift), shared by reference exactly like `personal` — inert
     /// (nil model) unless the embedder injects one.
     let inflection: InflectionStore
+    /// Personal adaptive-touch holder (PLAN.md "Touch decoding", stage 2),
+    /// shared by reference exactly like `personal` — inert (nil snapshot)
+    /// unless the embedder injects one via `TypeEngine.setPersonalTouch`.
+    let touch: TouchModelStore
 
     init(
         icelandic: Lexicon,
@@ -724,7 +760,8 @@ struct BlendedLanguageModel {
         morphology: MorphologyProviding?,
         config: EngineConfig,
         personal: PersonalStore = PersonalStore(),
-        inflection: InflectionStore = InflectionStore()
+        inflection: InflectionStore = InflectionStore(),
+        touch: TouchModelStore = TouchModelStore()
     ) {
         self.icelandic = icelandic
         self.english = english
@@ -732,6 +769,7 @@ struct BlendedLanguageModel {
         self.config = config
         self.personal = personal
         self.inflection = inflection
+        self.touch = touch
         self.icelandicCalibration = LexiconCalibration.measure(icelandic, addK: config.addK)
         self.englishCalibration = LexiconCalibration.measure(english, addK: config.addK)
     }

@@ -1,0 +1,118 @@
+# Personal adaptive touch model (PLAN.md "Touch decoding", stage 2).
+#
+# PERSONAL_TOUCH seeds per-key Welford aggregates (count, mean offset,
+# sigmas, covariance) exactly as the extension would extract them from
+# personal-model.json; the engine prices tapped substitutions against the
+# shrinkage-blended personal Gaussian once a key clears the min-samples
+# gate (EngineConfig.touchPersonalMinSamples = 30, prior strength k = 50).
+# All runs use the REAL artifacts — every flip below is a ranking the
+# TSI-seeded static prior does NOT produce (the stage-1 twins of these
+# scenarios live in core.scenarios: "tap direction disambiguates hestir",
+# "dead-center taps demote the substitution readings of hestir",
+# "dead-center taps veto the koetip auto-apply").
+
+SCENARIO below-gate touch stats keep the static ranking
+# 20 effective samples < the 30-sample gate: the personal mean must not
+# participate — same bar as the tapless-prior core scenario (hesti leads,
+# hestur priced out of the bar by the dead-center taps).
+PERSONAL_TOUCH u 20 0.45 0.0 0.263 0.188
+TAP h 0 0
+TAP e 0 0
+TAP s 0 0
+TAP t 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP hesti
+EXPECT_NOT_CONTAINS hestur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO habitual right-edge u tapper resurrects hestur from dead-center taps
+# The user's u taps center 0.45 key pitches RIGHT (toward i) with prior-
+# shaped spread, 500 effective samples → blended personal u sits ~0.41
+# toward the i key. A dead-center i tap — which the static prior reads as
+# "definitely i", demoting every substitution — is now a plausible u for
+# THIS user: the hestur (i→u) reading cheapens from the ~7-nat static
+# exponent to ~2.4 nats and retakes the top of the bar. hestir is BÍN-
+# valid, so ranking only — nothing may auto-apply.
+PERSONAL_TOUCH u 500 0.45 0.0 0.263 0.188
+TAP h 0 0
+TAP e 0 0
+TAP s 0 0
+TAP t 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP hestur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO gair static baseline for the personal flip
+# All-dead-center taps: both 1-sub readings (hair g→h, fair g→f) price
+# near the full-pitch exponent, so the extra-character reading "air"
+# (flat 4-nat indel — taps cannot reprice indels) leads. Margin-tied
+# tail, nothing auto-applies.
+TAP g 0 0
+TAP a 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP air
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO habitual left-edge h tapper flips gair to hair
+# Same taps, same word. This user's h taps center 0.45 key pitches LEFT
+# (toward g): the dead-center g tap lands well inside their personal h
+# cloud, the hair reading undercuts the 4-nat indel, and the top of the
+# bar flips air → hair — a ranking the static prior cannot produce from
+# these coordinates.
+PERSONAL_TOUCH h 500 -0.45 0.0 0.263 0.188
+TAP g 0 0
+TAP a 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP hair
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO corrupt touch stats fall back to the static prior
+# A NaN mean (corrupt model file) must drop the key to the prior, not
+# poison pricing: identical bar to the below-gate scenario.
+PERSONAL_TOUCH u 500 nan 0.0 0.263 0.188
+TAP h 0 0
+TAP e 0 0
+TAP s 0 0
+TAP t 0 0
+TAP i 0 0
+TAP r 0 0
+EXPECT_TOP hesti
+EXPECT_NOT_CONTAINS hestur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO neutral personal stats leave the dead-center koetip veto intact
+# Personal data whose blend ~reproduces the prior (zero mean, TSI sigmas)
+# must not weaken the stage-1 correction veto: dead-center koetip taps
+# still say "believe the user".
+PERSONAL_TOUCH e 500 0.0 0.0 0.263 0.188
+PERSONAL_TOUCH p 500 0.0 0.0 0.263 0.188
+TAP k 0 0
+TAP o 0 0
+TAP e 0 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0 0
+EXPECT_NO_AUTOCORRECT
+EXPECT_NOT_CONTAINS kortið
+T " "
+EXPECT_BUFFER "koetip "
+
+SCENARIO neutral personal stats keep the boundary-tap koetip repair firing
+# And the ENABLING half survives too: the same neutral personal stats,
+# boundary taps toward the keys kortið needs — the repair fires exactly
+# like the static engine.
+PERSONAL_TOUCH e 500 0.0 0.0 0.263 0.188
+PERSONAL_TOUCH p 500 0.0 0.0 0.263 0.188
+TAP k 0 0
+TAP o 0 0
+TAP e 0.45 0
+TAP t 0 0
+TAP i 0 0
+TAP p 0.45 0
+EXPECT_AUTOCORRECT kortið
+T " "
+EXPECT_BUFFER "kortið "
