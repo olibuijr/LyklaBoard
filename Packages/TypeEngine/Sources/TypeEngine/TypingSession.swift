@@ -52,11 +52,18 @@ public struct RevertInstruction: Equatable, Sendable {
 ///    becomes a committing delimiter once the next event shows whitespace/
 ///    another delimiter after it ("word. " commits; "word.t" keeps growing
 ///    one dotted token),
-/// 2. classify how the window changed since the previous call (append /
-///    word-replacement / shrink / truncation slide / external change) and
-///    only treat a delimiter-completed word as committed when the change is
-///    a valid single-keystroke evolution — cursor jumps and host-app
-///    mutations are detected internally and never miscounted as commits,
+/// 2. classify how the window changed since the previous call and only
+///    treat a delimiter-completed word as committed when the change is a
+///    valid single-keystroke evolution. The classification is ledger-first
+///    (azooKey's expected-edit pattern, research/oss-harvest.md §2): an
+///    embedder that reports every proxy edit it performs via
+///    `noteSelfEdit(before:after:)` gets EXACT self-vs-external attribution
+///    — an observed window matching a recorded expectation is certainly our
+///    own edit, anything unexplained is certainly external (cursor jump,
+///    host mutation, autofill) and resets pending-word state. The legacy
+///    shape heuristics (append / word-replacement / shrink / truncation
+///    slide) remain as (a) the shape classifier for explained changes and
+///    (b) the whole classifier for embedders that never record self-edits,
 /// 3. feed genuinely committed words to `TypeEngine.confirmWord` (language
 ///    posterior update),
 /// 4. apply the ≥2-typed-characters gate before completion/correction-style
@@ -98,6 +105,24 @@ public final class TypingSession {
     /// nil when there is no trusted last-seen state (fresh session, reset,
     /// or just after an external change).
     private var lastSeenWindow: String?
+    /// Proxy-edit ledger (azooKey `ExpectedEditTracker` pattern,
+    /// research/oss-harvest.md §2): the expectations recorded by
+    /// `noteSelfEdit(before:after:)`, matched against every window
+    /// observation by `classifyChange`.
+    private var ledger = ExpectedEditLedger()
+    /// The exact window string the previous `suggestions(for:)` call
+    /// observed — the ledger's anchor. Unlike `lastSeenWindow` it is NEVER
+    /// patched by the revert/attachment memo fixups (those adjust the shape
+    /// DIFF's anchor; the ledger is anchored at real observed windows) and
+    /// never nils out on external changes (external adopts the new window).
+    private var lastObservedWindow: String?
+    /// True once the embedder has recorded at least one self-edit. From
+    /// then on the embedder is contractually telling us about EVERY proxy
+    /// mutation it performs, so a changed window with NO pending
+    /// expectation is external by definition — no shape guessing. Cleared
+    /// only by `reset()` (a fresh harness scenario), never by external
+    /// changes (the embedder keeps instrumenting).
+    private var ledgerRecordsSelfEdits = false
     /// The `currentWord` parsed from the previous `suggestions(for:)` call,
     /// used by the word-commit transition check.
     private var previousCurrentWord = ""
@@ -239,6 +264,10 @@ public final class TypingSession {
         case .external:
             carriedContext = nil
             verbatimChoice = nil
+            // Expectations recorded against the pre-discontinuity world can
+            // never confirm; the next observation starts from the adopted
+            // window.
+            ledger.clear()
             // Coordinate evidence never survives a discontinuity. The
             // queued taps survive only the fresh-state shape (see
             // `hadTrustedWindow`); the reconcile step still refuses any
@@ -260,6 +289,7 @@ public final class TypingSession {
 
         previousCurrentWord = currentWord
         lastSeenWindow = textBeforeCursor
+        lastObservedWindow = textBeforeCursor
 
         // Long-press deliberateness memos belong to the pending word: once
         // it commits or is abandoned (no word in progress), they retire.
@@ -435,16 +465,48 @@ public final class TypingSession {
         return RevertInstruction(deleteCount: 2, text: ".")
     }
 
+    /// Tell the session about one self-caused proxy edit BEFORE its window
+    /// observation arrives (the proxy-edit ledger; azooKey
+    /// `ExpectedEditTracker` pattern, research/oss-harvest.md §2): `before`
+    /// and `after` are the truncated before-cursor windows snapshotted
+    /// immediately around the proxy mutation(s) of one logical action — a
+    /// keystroke and everything it triggered (autocorrect apply, sentence
+    /// ender), a suggestion tap, a revert-on-continuation or punctuation-
+    /// attachment edit, a mode-2 prediction insert, one backspace.
+    ///
+    /// Once an embedder records self-edits, window classification runs on
+    /// the ledger: an observation matching a recorded expectation is
+    /// certainly self-caused (its shape is then diffed exactly as before);
+    /// an observation matching the oldest expectation's `before` is a stale
+    /// proxy read (state carries, the edit confirms later); anything else —
+    /// including a changed window with NO pending expectation — is external
+    /// and resets pending-word state. Expectations the host swallows expire
+    /// after `ExpectedEditLedger.expiryObservations` observations, after
+    /// which the legacy shape heuristics take over again (graceful
+    /// degradation; the session must never wedge).
+    ///
+    /// No-op windows (`before == after`) are ignored, so embedders may call
+    /// this unconditionally around actions that might not edit the proxy.
+    public func noteSelfEdit(before: String, after: String) {
+        guard before != after else { return }
+        ledgerRecordsSelfEdits = true
+        ledger.record(before: before, after: after, anchor: lastObservedWindow)
+    }
+
     /// Tell the session the text before the cursor changed for a reason
     /// other than typing — cursor jump, host-app mutation (autofill, undo),
     /// switching fields. This clears the pending word-in-progress so the
     /// commit detector doesn't misread the new window as "the user just
     /// finished a word" (spurious `confirmWord`) or attribute a host-inserted
-    /// word to the user. The session also detects most external changes
-    /// internally (see `classifyChange`); this is the belt-and-braces path.
+    /// word to the user. The session also detects external changes
+    /// internally (exactly, via the proxy-edit ledger, for embedders that
+    /// record their self-edits; heuristically otherwise — see
+    /// `classifyChange`); this is the belt-and-braces path.
     public func noteExternalTextChange() {
         previousCurrentWord = ""
         lastSeenWindow = nil
+        lastObservedWindow = nil
+        ledger.clear()
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
@@ -463,12 +525,20 @@ public final class TypingSession {
     /// Window-aware variant, safe to forward from the extension's
     /// `textDidChange`/`selectionDidChange` — which ALSO fire after our own
     /// insertions. Idempotent: the note is ignored when `window` is
-    /// consistent with the session's own last-seen state (unchanged, or a
-    /// valid typing evolution the next `suggestions(for:)` call will handle);
-    /// only a genuinely inconsistent window clears the pending word.
+    /// consistent with the session's own last-seen state — explained by a
+    /// pending ledger expectation (checked WITHOUT consuming it: the
+    /// keystroke's own `suggestions(for:)` observation still gets the exact
+    /// match), unchanged, or a valid typing evolution the next
+    /// `suggestions(for:)` call will handle. Only a genuinely inconsistent
+    /// window clears the pending word. Deliberately judged by the LENIENT
+    /// heuristic (not the strict ledger rule): these callbacks can fire at
+    /// odd moments relative to our own edit batches, and a mid-batch or
+    /// pre-record window must never clobber state — the strict judgment
+    /// belongs to the observation stream, where ordering is guaranteed.
     public func noteExternalTextChange(window: String) {
         guard lastSeenWindow != nil else { return }
-        if case .external = classifyChange(to: window) {
+        if ledger.wouldExplain(observed: window, anchor: lastObservedWindow) { return }
+        if case .external = heuristicChange(to: window) {
             noteExternalTextChange()
         }
     }
@@ -479,6 +549,9 @@ public final class TypingSession {
     public func reset() {
         previousCurrentWord = ""
         lastSeenWindow = nil
+        lastObservedWindow = nil
+        ledger.clear()
+        ledgerRecordsSelfEdits = false
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
@@ -718,7 +791,52 @@ public final class TypingSession {
         case external
     }
 
+    /// Ledger-first window classification (see the type doc, point 2).
+    ///
+    /// The proxy-edit ledger answers WHOSE change this is with certainty
+    /// whenever the embedder records its self-edits; the shape heuristics
+    /// below (`heuristicChange`) answer WHAT the change looks like. The
+    /// conservative resolutions, in order:
+    ///  * ledger says external (unexplained observation, broken chain,
+    ///    anchor drift) → external, no shape guessing,
+    ///  * ledger says stale (the proxy has not echoed our edit yet) → a
+    ///    no-op evolution: state carries, nothing commits, the edit
+    ///    confirms on a later observation,
+    ///  * ledger says matched → the change is certainly ours; its shape is
+    ///    diffed by the heuristics. A matched change whose shape still
+    ///    cannot be explained is ambiguous → external (never guess),
+    ///  * ledger has nothing pending: for a self-edit-recording embedder a
+    ///    CHANGED window is then external by definition (every own edit
+    ///    would have been recorded); an unchanged window — and every window
+    ///    from an embedder that never records — falls through to the
+    ///    legacy heuristics unchanged.
     private func classifyChange(to window: String) -> WindowChange {
+        switch ledger.explain(observed: window, anchor: lastObservedWindow) {
+        case .unexplained:
+            return .external
+        case .stale:
+            return .evolution(appendedAfterContext: "")
+        case .matched:
+            let shape = heuristicChange(to: window)
+            if case .external = shape { return .external }
+            return shape
+        case .noRecords:
+            if ledgerRecordsSelfEdits, let anchor = lastObservedWindow,
+                window != anchor
+            {
+                return .external
+            }
+            return heuristicChange(to: window)
+        }
+    }
+
+    /// Legacy shape heuristics: is `window` a plausible typing evolution of
+    /// `lastSeenWindow` (append / word replacement / shrink / truncation
+    /// slide / sentence cut), judged from the strings alone? For embedders
+    /// that record self-edits this only ever runs on changes the ledger has
+    /// already attributed (or on unchanged windows); for everyone else it
+    /// is the whole classifier, exactly as before the ledger existed.
+    private func heuristicChange(to window: String) -> WindowChange {
         guard let previous = lastSeenWindow else {
             // No trusted state: adopt the window without committing anything.
             return .external

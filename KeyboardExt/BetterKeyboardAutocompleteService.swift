@@ -194,14 +194,33 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    /// Record one self-caused proxy edit into the session's proxy-edit
+    /// ledger (azooKey expected-edit pattern, research/oss-harvest.md §2):
+    /// `before`/`after` are `documentContextBeforeInput` snapshotted around
+    /// the proxy mutation(s) of one action-handler `handle` call — see
+    /// `BetterKeyboardActionHandler`. MUST be enqueued before the
+    /// autocomplete pass that observes the edit; the action handler records
+    /// from its `tryPerformAutocomplete` override, which runs before
+    /// KeyboardKit's `service.autocomplete` Task can enqueue onto `queue`,
+    /// so the serial queue guarantees the order. (If an observation ever
+    /// beats its record onto the queue, the session retro-drops the late
+    /// record — degraded to heuristics for that keystroke, never wedged.)
+    func noteSelfEdit(before: String, after: String) {
+        guard before != after else { return }  // nothing was edited
+        queue.async { [weak self] in
+            self?.session?.noteSelfEdit(before: before, after: after)
+        }
+    }
+
     /// Forward a host text/selection change (`textDidChange` /
     /// `selectionDidChange` on the controller) to the typing session, so
     /// cursor jumps and host-app mutations never masquerade as word commits.
     /// Safe to call for changes caused by our own insertions too: the
-    /// session's window-aware note is idempotent — it ignores any window
-    /// that is a valid typing evolution of its own last-seen state and only
-    /// resets on genuinely inconsistent windows (the session also detects
-    /// most external changes internally; this is belt-and-braces).
+    /// session's window-aware note is idempotent — it ignores windows
+    /// explained by the proxy-edit ledger (without consuming the
+    /// expectation) or consistent with its own last-seen state, and only
+    /// resets on genuinely inconsistent windows (the session detects
+    /// external changes exactly via the ledger; this is belt-and-braces).
     func noteTextContextChange(_ textBeforeCursor: String) {
         queue.async { [weak self] in
             self?.session?.noteExternalTextChange(window: textBeforeCursor)

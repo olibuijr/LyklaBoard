@@ -432,6 +432,83 @@ REFRESH
 EXPECT_CONTEXT hestur
 
 # ---------------------------------------------------------------------------
+# Proxy-edit ledger (azooKey expected-edit pattern, research/oss-harvest.md
+# §2): the Typist records every proxy edit it performs into the session's
+# ledger, so self-caused changes are explained exactly and anything
+# unexplained is external. These are the ledger's acceptance cases.
+# ---------------------------------------------------------------------------
+
+SCENARIO ledger: self-edit confirmed late still commits
+# Stale host: every observation lags one edit behind. Each keystroke's
+# expectation is confirmed by the NEXT observation (matched against the
+# pending record's after-window), so commits arrive late but intact —
+# never misread as external.
+STALE_READS on
+T "hestur "
+EXPECT_COMMITS 0
+STALE_READS off
+REFRESH
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT hestur
+EXPECT_BUFFER "hestur "
+
+SCENARIO ledger: swallowed self-edit expires and typing recovers
+T hest
+# The host discards the next keystroke: the expectation ("hest" -> "hestu")
+# never confirms — every observation keeps showing the pre-edit window
+# (stale outcome), and after three such observations the expectation
+# expires and the session degrades to its shape heuristics.
+SWALLOW_EDITS on
+T u
+EXPECT_BUFFER hest
+EXPECT_CONTEXT hest
+SWALLOW_EDITS off
+REFRESH
+REFRESH
+# Expired: typing continues cleanly from the host's real state.
+T "ur "
+EXPECT_BUFFER "hestur "
+EXPECT_COMMITS 1
+EXPECT_LAST_COMMIT hestur
+
+SCENARIO ledger: interleaved host mutation between own edits is external
+T hest
+# The host replaces the document with NO notification, then the user's
+# next keystroke lands: the keystroke's expectation does not chain onto
+# the last observation, so the observation is external — adopted, never
+# credited as a commit.
+HOST_SET_SILENT "allt annad her"
+T u
+EXPECT_COMMITS 0
+EXPECT_BUFFER "allt annad heru"
+EXPECT_CONTEXT "allt annad heru"
+
+SCENARIO ledger: host completing the pending word is never credited
+# The heuristic-fooling case the ledger exists for: a window that LOOKS
+# like a valid single-keystroke evolution ("hest" -> "hestur ") but was a
+# host mutation (autofill/IME completing the word). No expectation
+# explains it, so it is external: no commit, no learning event.
+T hest
+HOST_SET_SILENT "hestur "
+REFRESH
+EXPECT_COMMITS 0
+EXPECT_EVENTS 0
+
+SCENARIO ledger: mode-2 prediction insert plus user space stays explained
+# Spacebar mode 2 inserts the top prediction + a space through the proxy
+# (a self-edit the ledger must record): never misread as external, never
+# credited as a user word commit, and typing continues normally after it.
+PERSONAL_BIGRAM hjá Miðeind 5
+T "hjá "
+EXPECT_COMMITS 1
+PREDICT_SPACE
+EXPECT_BUFFER "hjá Miðeind "
+EXPECT_COMMITS 1
+T "hestur "
+EXPECT_COMMITS 2
+EXPECT_LAST_COMMIT hestur
+
+# ---------------------------------------------------------------------------
 # Verbatim escape hatch + URL handling (PLAN.md, "profilmynd." bug)
 # ---------------------------------------------------------------------------
 

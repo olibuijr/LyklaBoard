@@ -17,6 +17,9 @@ import Foundation
 /// - cursor moves and wholesale host-app text replacement
 /// - optional stale reads: the first context read after an `insertText`
 ///   returns the pre-insert state (real proxies are briefly stale)
+/// - optional swallowed edits: the host discards keyboard edits before the
+///   next observation read (`swallowEdits` — the ledger's "self-edit never
+///   confirmed" degradation case)
 ///
 /// Documented out of scope (device-tested, host-app-specific): per-app
 /// window sizes and boundary quirks (hosts differ wildly), multi-stage
@@ -107,6 +110,19 @@ public final class ProxySimulator {
     /// Pending stale snapshot: (before, after) windows captured pre-edit.
     private var staleSnapshot: (before: String, after: String)?
 
+    /// When true, edits are SWALLOWED by the host: they apply immediately
+    /// (the editor's own synchronous read-back — `trueContextBeforeInput` —
+    /// sees them, exactly like a real proxy's cache reflects self-issued
+    /// edits), but the host discards them before the next observation read
+    /// (`contextBeforeInput`/`contextWindows`), which restores and returns
+    /// the pre-edit document. Models hosts that reject/undo keyboard input
+    /// (read-only-ish fields, validation rollbacks) — the "self-edit never
+    /// confirmed" ledger degradation case. Off by default.
+    public var swallowEdits: Bool = false
+    /// Pre-edit document state to restore at the next observation read
+    /// while `swallowEdits` is on (the first edit of a batch captures it).
+    private var swallowRestore: (document: String, cursor: Int)?
+
     public init(
         document: String = "",
         cursorAt cursor: Int? = nil,
@@ -121,8 +137,9 @@ public final class ProxySimulator {
 
     /// Truncated text before the cursor — the analogue of
     /// `documentContextBeforeInput`. Consumes the stale snapshot if one is
-    /// pending.
+    /// pending, and applies a pending host swallow (see `swallowEdits`).
     public var contextBeforeInput: String {
+        applySwallowRestoreIfPending()
         if let stale = takeStaleSnapshotIfPending() { return stale.before }
         return truncation.apply(to: fullTextBeforeCursor)
     }
@@ -131,6 +148,7 @@ public final class ProxySimulator {
     /// (unbounded here; after-window truncation is not load-bearing for the
     /// engine, which only consumes the before-window).
     public var contextAfterInput: String {
+        applySwallowRestoreIfPending()
         if let stale = takeStaleSnapshotIfPending() { return stale.after }
         return fullTextAfterCursor
     }
@@ -138,14 +156,28 @@ public final class ProxySimulator {
     /// Read both windows in one consistent snapshot (a single stale snapshot
     /// covers both, like one proxy read).
     public func contextWindows() -> (before: String, after: String) {
+        applySwallowRestoreIfPending()
         if let stale = takeStaleSnapshotIfPending() { return stale }
         return (truncation.apply(to: fullTextBeforeCursor), fullTextAfterCursor)
+    }
+
+    /// Ground-truth truncated before-window: what the KEYBOARD ITSELF sees
+    /// when it reads back around its own just-issued edits — a real proxy's
+    /// cache reflects self-issued edits synchronously (the documented
+    /// staleness class is proxy-vs-host divergence on OBSERVATION reads,
+    /// not self-read-back; research/oss-harvest.md §2/§4 Hypothesis B).
+    /// Bypasses the stale snapshot without consuming it and never triggers
+    /// a pending host swallow. This is what the harness Typist snapshots
+    /// around every proxy mutation for the session's expected-edit ledger.
+    public var trueContextBeforeInput: String {
+        truncation.apply(to: fullTextBeforeCursor)
     }
 
     // MARK: - Edits (all the keyboard can do)
 
     public func insertText(_ text: String) {
         captureStaleSnapshotIfEnabled()
+        captureSwallowRestoreIfEnabled()
         let index = characterIndex(at: cursor)
         document.insert(contentsOf: text, at: index)
         cursor += text.count
@@ -154,6 +186,7 @@ public final class ProxySimulator {
     public func deleteBackward() {
         guard cursor > 0 else { return }
         captureStaleSnapshotIfEnabled()
+        captureSwallowRestoreIfEnabled()
         let index = characterIndex(at: cursor - 1)
         document.remove(at: index)
         cursor -= 1
@@ -166,6 +199,7 @@ public final class ProxySimulator {
     public func moveCursor(to offset: Int) {
         cursor = min(max(offset, 0), document.count)
         staleSnapshot = nil
+        swallowRestore = nil
     }
 
     /// Move the caret by a relative delta.
@@ -179,6 +213,7 @@ public final class ProxySimulator {
         document = newDocument
         cursor = min(cursorAt ?? newDocument.count, newDocument.count)
         staleSnapshot = nil
+        swallowRestore = nil
     }
 
     // MARK: - Internals
@@ -198,6 +233,22 @@ public final class ProxySimulator {
     private func captureStaleSnapshotIfEnabled() {
         guard staleReads else { return }
         staleSnapshot = (truncation.apply(to: fullTextBeforeCursor), fullTextAfterCursor)
+    }
+
+    /// First swallowed edit of a batch: remember the pre-edit document so
+    /// the next observation read can restore it (the host discarding what
+    /// the keyboard inserted). Later edits of the same batch keep the
+    /// original restore point — the whole batch vanishes together.
+    private func captureSwallowRestoreIfEnabled() {
+        guard swallowEdits, swallowRestore == nil else { return }
+        swallowRestore = (document, cursor)
+    }
+
+    private func applySwallowRestoreIfPending() {
+        guard let restore = swallowRestore else { return }
+        swallowRestore = nil
+        document = restore.document
+        cursor = restore.cursor
     }
 
     private func takeStaleSnapshotIfPending() -> (before: String, after: String)? {

@@ -172,11 +172,15 @@ final class KeyboardViewController: KeyboardInputViewController {
     // Forward host text and selection changes to the autocomplete service so
     // TypingSession never misreads a cursor jump or host-app mutation
     // (autofill, undo, programmatic set) as a user word commit. Both
-    // callbacks ALSO fire after our own insertions; the session's
-    // window-aware note is idempotent for windows that are valid typing
-    // evolutions of its own last-seen state, and the session additionally
-    // detects non-append window changes internally — this forwarding is the
-    // belt-and-braces layer for cases internal detection cannot see.
+    // callbacks ALSO fire after our own insertions; the session recognizes
+    // those EXACTLY via its proxy-edit ledger (every proxy mutation our
+    // action handler performs is recorded as an expected before→after
+    // window transform — see `BetterKeyboardActionHandler`'s ledger
+    // section), and the window-aware note peeks at the same ledger without
+    // consuming it, so it is idempotent for our own edits and only resets
+    // on genuinely inconsistent windows. This forwarding remains the
+    // belt-and-braces layer for changes that never trigger an autocomplete
+    // pass of their own.
 
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
@@ -418,6 +422,12 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
 ///    follow-up `handle(.release, on: .character(""))` is not an
 ///    autocorrect trigger); we additionally tell the session, so a
 ///    delimiter typed right after cannot re-correct the token either.
+/// 5. **Proxy-edit ledger**: every outermost `handle` call snapshots
+///    `documentContextBeforeInput` around ALL the proxy edits it causes and
+///    records the before→after pair into the session's expected-edit
+///    ledger (azooKey pattern, research/oss-harvest.md §2), giving the
+///    session exact self-vs-external attribution for every window
+///    observation — see the "Proxy-edit ledger" section below.
 ///
 /// It also implements PLAN.md "Spacebar behavior" **mode 2** ("always insert
 /// a prediction"): on a `.space` release with no word in progress it injects
@@ -431,6 +441,50 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
 
     private var betterAutocompleteService: BetterKeyboardAutocompleteService? {
         autocompleteService as? BetterKeyboardAutocompleteService
+    }
+
+    // MARK: - Proxy-edit ledger (azooKey pattern, research/oss-harvest.md §2)
+
+    // Every proxy mutation this handler causes — the keystroke insert and
+    // everything KeyboardKit hangs off it (autocorrect apply, auto-inserted
+    // space, double-space sentence ender), suggestion taps, our own
+    // revert/attachment edits and the mode-2 prediction insert — is
+    // recorded into the TypingSession's expected-edit ledger as ONE
+    // before→after window transform per outermost `handle` call. The
+    // session then attributes window observations EXACTLY: explained
+    // changes are certainly ours, anything else is external (cursor jump,
+    // host mutation, autofill) — no shape heuristics on device.
+    //
+    // Snapshot discipline: `documentContextBeforeInput` reflects our own
+    // just-issued edits synchronously (the documented staleness class is
+    // proxy-vs-host divergence on later reads, not self-read-back), so the
+    // before/after pair is exact. The record is flushed from
+    // `tryPerformAutocomplete` — after every edit of the handle sequence,
+    // but BEFORE KeyboardKit's autocomplete call can enqueue the observing
+    // pass onto the service's serial queue — with a depth-guarded fallback
+    // at the outermost `handle` exit for paths that skip autocomplete.
+
+    /// Window snapshot taken at the OUTERMOST `handle` entry; consumed by
+    /// `recordPendingSelfEdit()`. `handle(_ suggestion:)` nests a
+    /// `handle(.release, .character(""))` call, hence the depth guard.
+    private var ledgerBeforeWindow: String?
+    private var ledgerHandleDepth = 0
+
+    private func recordPendingSelfEdit() {
+        guard let before = ledgerBeforeWindow else { return }
+        ledgerBeforeWindow = nil
+        let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        betterAutocompleteService?.noteSelfEdit(before: before, after: after)
+    }
+
+    override func tryPerformAutocomplete(
+        after gesture: Keyboard.Gesture,
+        on action: KeyboardAction
+    ) {
+        // Flush the ledger record FIRST: its queue.async must precede the
+        // autocomplete Task's, so the observation finds the expectation.
+        recordPendingSelfEdit()
+        super.tryPerformAutocomplete(after: gesture, on: action)
     }
 
     override func shouldApplyAutocorrectSuggestion(
@@ -464,6 +518,20 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         on action: KeyboardAction,
         replaced: Bool
     ) {
+        // Proxy-edit ledger: snapshot the window before ANY of this call's
+        // proxy edits (including the mode-2 insert below); flushed by the
+        // tryPerformAutocomplete override, or at the exit fallback for
+        // paths that never reach autocomplete. Outermost call only.
+        if ledgerHandleDepth == 0 {
+            ledgerBeforeWindow =
+                keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        }
+        ledgerHandleDepth += 1
+        defer {
+            ledgerHandleDepth -= 1
+            if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
+        }
+
         // Spacebar mode 2 ("always insert a prediction", PLAN.md "Spacebar
         // behavior — three user-selectable modes"): on a `.space` release
         // with NO word in progress, insert the top bar prediction BEFORE the
@@ -585,6 +653,22 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
     }
 
     override func handle(_ suggestion: Autocomplete.Suggestion) {
+        // Proxy-edit ledger: a suggestion tap edits the proxy
+        // (`insertAutocompleteSuggestion`: replace token + auto-space) and
+        // then nests a `handle(.release, .character(""))` — the depth guard
+        // makes this ONE record covering the whole tap. Same flush points
+        // as the gesture path (the nested handle's tryPerformAutocomplete,
+        // else the exit fallback).
+        if ledgerHandleDepth == 0 {
+            ledgerBeforeWindow =
+                keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        }
+        ledgerHandleDepth += 1
+        defer {
+            ledgerHandleDepth -= 1
+            if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
+        }
+
         // 4. Verbatim tap: `.unknown` suggestions are only ever produced by
         // our service's verbatim escape-hatch slot.
         if suggestion.isUnknown {

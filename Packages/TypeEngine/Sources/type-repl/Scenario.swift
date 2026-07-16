@@ -22,6 +22,12 @@ import TypeEngine
 ///                            (idempotent window-aware note)
 ///   TRUNCATE_AT <n>          cap the context window at n chars (proxy truncation)
 ///   STALE_READS on|off       next proxy read after each edit returns pre-edit text
+///   SWALLOW_EDITS on|off     host discards keyboard edits before the next
+///                            observation read (the ledger's "self-edit
+///                            never confirmed" degradation case)
+///   PREDICT_SPACE            spacebar mode 2: insert the top bar prediction
+///                            then a space (no word may be in progress;
+///                            fails when the bar has no prediction)
 ///   REFRESH                  re-read proxy + re-run autocomplete (no keystroke)
 ///   FIELD <kind>             field type: standard|url|email|webSearch (layer 2 gate)
 ///   TAP <text>               tap the bar suggestion with exactly this text
@@ -214,6 +220,18 @@ struct ScenarioRunner {
 
             case "STALE_READS":
                 typist.proxy.staleReads = (argument == "on")
+
+            case "SWALLOW_EDITS":
+                typist.proxy.swallowEdits = (argument == "on")
+
+            case "PREDICT_SPACE":
+                // Spacebar mode 2 ("always insert a prediction"): top bar
+                // prediction + space, ledger-recorded like every self-edit.
+                if !typist.predictSpace() {
+                    fail(
+                        "PREDICT_SPACE needs no word in progress and a prediction in the bar: \(Self.describe(typist.lastSuggestions))"
+                    )
+                }
 
             case "REFRESH":
                 typist.refresh()

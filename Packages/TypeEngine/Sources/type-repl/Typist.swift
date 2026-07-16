@@ -8,6 +8,12 @@ import TypeEngine
 /// - every keystroke is `proxy.insertText` (or `deleteBackward`),
 /// - the session only ever sees `proxy.contextBeforeInput` — the truncated
 ///   window, never the full document,
+/// - every batch of proxy edits the Typist performs is recorded into the
+///   session's proxy-edit ledger via `noteSelfEdit(before:after:)` — the
+///   before/after window snapshots around one logical action — exactly like
+///   the extension's action handler wraps its own `handle` calls, so the
+///   ledger path (exact self-vs-external attribution) is what every
+///   scenario exercises,
 /// - typing a word delimiter while the bar holds an `.autocorrect`
 ///   suggestion first replaces the current word (delete-backward x n +
 ///   insert), mirroring KeyboardKit's `StandardActionHandler` space-commit.
@@ -75,6 +81,13 @@ final class Typist {
     func typeCharacter(_ character: Character) {
         lastAppliedAutocorrect = nil
         lastRevert = nil
+        // Proxy-edit ledger: one record covers everything this keystroke
+        // does to the proxy (revert/attachment edits, autocorrect apply,
+        // the keystroke insert) — mirroring the extension's one record per
+        // action-handler `handle` call. `trueContextBeforeInput` is the
+        // keyboard's own synchronous read-back (never stale for self-issued
+        // edits), NOT the observation read.
+        let ledgerBefore = proxy.trueContextBeforeInput
         // Revert-on-continuation (extension action-handler hook): before a
         // letter/digit lands, the session may order the last '.'-triggered
         // auto-replacement undone. Non-continuation characters discard the
@@ -111,6 +124,7 @@ final class Typist {
             }
         }
         proxy.insertText(String(character))
+        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
         refresh()
     }
 
@@ -139,7 +153,9 @@ final class Typist {
 
     func pressBackspace(_ count: Int = 1) {
         for _ in 0..<count {
+            let ledgerBefore = proxy.trueContextBeforeInput
             proxy.deleteBackward()
+            session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
             refresh()
         }
     }
@@ -164,6 +180,7 @@ final class Typist {
         if suggestion.isVerbatim {
             session.noteVerbatimChoice(suggestion.text)
         }
+        let ledgerBefore = proxy.trueContextBeforeInput
         let word = currentWord
         for _ in 0..<word.count { proxy.deleteBackward() }
         proxy.insertText(suggestion.text)
@@ -171,6 +188,31 @@ final class Typist {
         if !before.hasSuffix(" "), !after.hasPrefix(" ") {
             proxy.insertText(" ")
         }
+        session.noteSelfEdit(before: ledgerBefore, after: proxy.trueContextBeforeInput)
+        refresh()
+        return true
+    }
+
+    /// Spacebar mode 2 ("always insert a prediction", PLAN.md "Spacebar
+    /// behavior"): with NO word in progress, insert the top bar prediction
+    /// followed by the space — the extension action handler's
+    /// `shouldInsertSpacePrediction`/`spacePrediction` path, ledger-recorded
+    /// as one self-edit exactly like every other action. Returns false when
+    /// the guards fail (word in progress, or no prediction in the bar).
+    @discardableResult
+    func predictSpace() -> Bool {
+        let windowBefore = proxy.trueContextBeforeInput
+        guard windowBefore.isEmpty || windowBefore.hasSuffix(" ") else { return false }
+        guard
+            let prediction = lastSuggestions.first(where: {
+                !$0.isVerbatim && !$0.text.isEmpty
+            })
+        else { return false }
+        lastAppliedAutocorrect = nil
+        lastRevert = nil
+        proxy.insertText(prediction.text)
+        proxy.insertText(" ")
+        session.noteSelfEdit(before: windowBefore, after: proxy.trueContextBeforeInput)
         refresh()
         return true
     }
