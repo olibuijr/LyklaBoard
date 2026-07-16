@@ -1,0 +1,11 @@
+import puppeteer from "puppeteer-core";
+const browser = await puppeteer.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true, args: ["--force-device-scale-factor=2"] });
+const page = await browser.newPage();
+page.on("pageerror", e => console.log("PAGEERROR", e.message));
+await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 2 });
+await page.goto("https://lyklabord.solberg.is/", { waitUntil: "networkidle0" });
+await page.waitForFunction(() => !document.getElementById("hero-hint").hidden, { timeout: 15000 });
+await new Promise(r => setTimeout(r, 600));
+await page.screenshot({ path: "scripts/shots/live.png" });
+console.log("live hero OK");
+await browser.close();

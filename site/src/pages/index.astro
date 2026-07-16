@@ -1,0 +1,377 @@
+---
+// Lyklaborð — landing page. Static, Icelandic-first, one JS island (the hero).
+const title = "Lyklaborð — íslenskt lyklaborð sem kann íslensku";
+const description =
+  "Lyklaborð er opið og ókeypis iOS-lyklaborð fyrir íslensku og ensku í senn: leiðréttingar sem skilja beygingar (byggðar á BÍN), broddar settir sjálfkrafa, ekkert netsamband. Væntanlegt í App Store.";
+---
+
+<!doctype html>
+<html lang="is">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content="Lyklaborð" />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="/keycap-fallback.png" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+  </head>
+  <body>
+    <main>
+      <!-- ================================================== Hero -->
+      <section class="hero">
+        <header class="hero-copy">
+          <h1 class="wordmark">Lyklaborð</h1>
+          <p class="pitch">Íslenskt lyklaborð sem kann íslensku.</p>
+          <p class="meta">
+            <span>Opinn hugbúnaður</span>
+            <span aria-hidden="true">·</span>
+            <span>Ekkert netsamband</span>
+            <span aria-hidden="true">·</span>
+            <span>Væntanlegt í App&nbsp;Store</span>
+          </p>
+        </header>
+
+        <div
+          class="hero-stage"
+          id="hero-stage"
+          tabindex="0"
+          role="img"
+          aria-label="Þrívíður Ð-hnappur af Apple Extended Keyboard II. Smelltu á hnappinn eða sláðu á takka til að ýta honum niður."
+        >
+          <noscript>
+            <img src="/keycap-fallback.png" alt="Ð-hnappur" class="hero-fallback" />
+          </noscript>
+        </div>
+        <p class="hero-hint" id="hero-hint" hidden>Smelltu á hnappinn — eða sláðu á hvaða takka sem er.</p>
+      </section>
+
+      <!-- ================================================== Features -->
+      <section class="features" aria-label="Eiginleikar">
+        <div class="feature">
+          <h2>Íslenska og enska á einu lyklaborði</h2>
+          <p>
+            Tveggja akreina mállíkan fylgir þér á milli mála. Stakar slettur trufla
+            ekkert — og lyklaborðið hrifsar aldrei völdin í miðri setningu. Þegar þú
+            skiptir í alvöru yfir í ensku fylgir það með.
+          </p>
+        </div>
+        <div class="feature">
+          <h2>Fyrsta lyklaborðið sem skilur beygingar</h2>
+          <p>
+            Allar þrjár milljónir orðmynda úr
+            <a href="https://bin.arnastofnun.is">BÍN</a> eru gildur orðaforði, og
+            tillögur taka mið af falli og samhengi — „frá“ kallar á þágufall og
+            lyklaborðið veit það.
+          </p>
+        </div>
+        <div class="feature">
+          <h2>Skrifaðu broddlaust</h2>
+          <p>
+            Að sleppa broddum er innsláttaraðferð, ekki villa. Þú skrifar
+            <em>„flytjum i bud“</em> á fullri ferð og færð
+            <em>„flytjum í búð“</em> — lyklaborðið setur broddana á sinn stað.
+          </p>
+        </div>
+        <div class="feature">
+          <h2>Leiðréttir minna, ekki meira</h2>
+          <p>
+            Gildu orði er aldrei skipt út sjálfkrafa, og orðið sem þú slóst inn er
+            alltaf í boði í tillögustikunni. Vefslóðir, netföng og skammstafanir fá
+            að vera í friði.
+          </p>
+        </div>
+        <div class="feature">
+          <h2>Orðaforðinn þinn — í alvöru þinn</h2>
+          <p>
+            Lyklaborðið lærir orðin þín á tækinu sjálfu. Þú getur skoðað hvert og
+            eitt, eytt þeim hverju fyrir sig — og flutt orðaforðann þinn inn úr
+            SwiftKey.
+          </p>
+        </div>
+        <div class="feature">
+          <h2>Ekkert netsamband</h2>
+          <p>
+            Lyklaborðsviðbótin inniheldur engan netkóða — ekkert símtal heim, engin
+            gagnasöfnun, engir skilmálar. Fullyrðingin er sannreynanleg í
+            frumkóðanum, ekki bara loforð.
+          </p>
+        </div>
+      </section>
+
+      <!-- ================================================== Trust -->
+      <section class="trust">
+        <h2>Opið og sannreynanlegt</h2>
+        <p>
+          Allur kóðinn er opinn á
+          <a href="https://github.com/jokull/LyklabordApp">GitHub</a> undir
+          MIT-leyfi. Persónuverndarstefnan er
+          <a href="https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
+            >skjalfest í kóðasafninu</a
+          >. Íslensk málgögn eru fengin úr
+          <a href="https://bin.arnastofnun.is">Beygingarlýsingu íslensks nútímamáls</a>,
+          © Stofnun Árna Magnússonar í íslenskum fræðum.
+        </p>
+      </section>
+
+      <!-- ================================================== English -->
+      <section class="english" lang="en">
+        <h2>In English</h2>
+        <p>
+          Lyklaborð is a free, open-source, privacy-first iOS keyboard for
+          Icelandic that also types excellent English — on a single layout, with
+          no language switching. Autocorrect is morphology-aware, built on the
+          BÍN database of 3&nbsp;million Icelandic word forms; type accent-naked
+          and the accents are restored for you. Everything the keyboard learns
+          stays on your device, individually inspectable and deletable, with
+          SwiftKey import. The keyboard extension contains zero networking code —
+          a claim you can verify in the source, not just a promise. Coming to the
+          App&nbsp;Store.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        MIT-leyfi · BÍN © Stofnun Árna Magnússonar í íslenskum fræðum · Smíðað á
+        Íslandi
+      </p>
+    </footer>
+
+    <script>
+      import { initHero } from "../scripts/hero.js";
+
+      const stage = document.getElementById("hero-stage");
+      const hint = document.getElementById("hero-hint");
+
+      function showFallback() {
+        const img = document.createElement("img");
+        img.src = "/keycap-fallback.png";
+        img.alt = "Ð-hnappur";
+        img.className = "hero-fallback";
+        stage.replaceChildren(img);
+      }
+
+      const hero = initHero(stage);
+      if (!hero) {
+        showFallback();
+      } else {
+        stage.addEventListener("hero:ready", () => {
+          hint.hidden = false;
+        });
+        stage.addEventListener("hero:failed", showFallback);
+      }
+    </script>
+
+    <style is:global>
+      :root {
+        --plastic: #d7d2c8;
+        --bg: #faf9f6;
+        --bg-raised: #f1efe9;
+        --ink: #1c1b1a;
+        --ink-soft: #55524d;
+        --rule: #e3e0d8;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1b1a;
+          --bg-raised: #242220;
+          --ink: #e8e5e0;
+          --ink-soft: #a5a19a;
+          --rule: #33302c;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #faf9f6;
+        --bg-raised: #f1efe9;
+        --ink: #1c1b1a;
+        --ink-soft: #55524d;
+        --rule: #e3e0d8;
+      }
+      :root[data-theme="dark"] {
+        --bg: #1c1b1a;
+        --bg-raised: #242220;
+        --ink: #e8e5e0;
+        --ink-soft: #a5a19a;
+        --rule: #33302c;
+      }
+
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      html {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+      }
+      main {
+        width: min(68rem, 100%);
+        margin: 0 auto;
+        padding: 0 1.5rem;
+        flex: 1;
+      }
+      a {
+        color: inherit;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 0.18em;
+        text-decoration-color: var(--ink-soft);
+      }
+      a:hover {
+        text-decoration-color: var(--ink);
+      }
+
+      /* ------------------------------------------------ hero */
+      .hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding-top: clamp(3rem, 8vh, 6rem);
+      }
+      .wordmark {
+        font-size: clamp(2.4rem, 6vw, 3.6rem);
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+      }
+      .pitch {
+        margin-top: 0.9rem;
+        font-size: clamp(1.1rem, 2.6vw, 1.35rem);
+        color: var(--ink-soft);
+      }
+      .meta {
+        margin-top: 1.1rem;
+        font-size: 0.85rem;
+        letter-spacing: 0.02em;
+        color: var(--ink-soft);
+        display: flex;
+        gap: 0.6em;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .hero-stage {
+        margin-top: 1rem;
+        width: min(34rem, 92vw);
+        aspect-ratio: 5 / 4;
+        position: relative;
+        cursor: pointer;
+        outline: none;
+        border-radius: 1.5rem;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+      .hero-stage:focus-visible {
+        box-shadow: 0 0 0 2px var(--ink-soft);
+      }
+      .hero-stage::after {
+        /* vignette that melts the 3D tabletop into the page */
+        content: "";
+        position: absolute;
+        inset: -1px;
+        pointer-events: none;
+        background:
+          radial-gradient(ellipse 68% 62% at 50% 52%, transparent 62%, var(--bg) 98%);
+      }
+      .hero-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100% !important;
+        height: 100% !important;
+        display: block;
+      }
+      .hero-fallback {
+        position: absolute;
+        inset: 12%;
+        width: 76%;
+        height: auto;
+        margin: auto;
+      }
+      .hero-hint {
+        font-size: 0.8rem;
+        color: var(--ink-soft);
+        margin-top: -0.4rem;
+        opacity: 0.8;
+      }
+
+      /* ------------------------------------------------ features */
+      .features {
+        margin-top: clamp(4rem, 10vh, 7rem);
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+        gap: 1px;
+        background: var(--rule);
+        border-block: 1px solid var(--rule);
+      }
+      .feature {
+        background: var(--bg);
+        padding: 2rem 1.6rem 2.2rem;
+      }
+      .feature h2 {
+        font-size: 1.05rem;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        margin-bottom: 0.6rem;
+      }
+      .feature p {
+        font-size: 0.95rem;
+        color: var(--ink-soft);
+      }
+      .feature em {
+        font-style: normal;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85em;
+        background: var(--bg-raised);
+        padding: 0.1em 0.35em;
+        border-radius: 0.35em;
+        white-space: nowrap;
+      }
+
+      /* ------------------------------------------------ trust + english */
+      .trust,
+      .english {
+        margin: clamp(3.5rem, 9vh, 6rem) auto 0;
+        max-width: 44rem;
+      }
+      .trust h2,
+      .english h2 {
+        font-size: 1.05rem;
+        font-weight: 650;
+        margin-bottom: 0.6rem;
+      }
+      .trust p,
+      .english p {
+        color: var(--ink-soft);
+        font-size: 0.95rem;
+      }
+
+      /* ------------------------------------------------ footer */
+      footer {
+        margin-top: clamp(4rem, 10vh, 7rem);
+        border-top: 1px solid var(--rule);
+        padding: 1.6rem 1.5rem 2.2rem;
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--ink-soft);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </body>
+</html>
