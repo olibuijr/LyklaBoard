@@ -20,6 +20,9 @@ struct Repl {
               :reset            fresh field (document, session, posterior)
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
+              :why              decision trace of the LAST suggestions() pass:
+                                per-candidate cost/score, margin vs runner-up,
+                                which auto-apply rule ran, every gate's value
               :gov <w>          case-government distribution when <w> is a governor
                                 (inflection intelligence: P(case | w) from governors.json.gz)
               :learn <w>        session-immediate explicit learn (verbatim-tap path)
@@ -90,11 +93,19 @@ struct Repl {
             let fEN = d.frequencyEN.map(String.init) ?? "-"
             print("  is.lex  f=\(fIS)  z=\(String(format: "%+.2f", d.zIS))")
             print("  en.lex  f=\(fEN)  z=\(String(format: "%+.2f", d.zEN))")
-            print("  BÍN     \(d.binKnown ? "known" : "-")")
+            print(
+                "  BÍN     \(d.binKnown ? "known" : "-")"
+                    + (d.binCases.isEmpty ? "" : "  cases: \(d.binCases.joined(separator: " "))"))
             print(
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":why":
+            if let trace = typist.lastTrace {
+                print(trace.report)
+            } else {
+                print("  (no suggestions() pass recorded yet)")
+            }
         case ":gov":
             guard !argument.isEmpty else {
                 print("usage: :gov <word>")

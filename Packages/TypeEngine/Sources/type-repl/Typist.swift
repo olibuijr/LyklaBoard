@@ -46,6 +46,8 @@ final class Typist {
     private(set) var lastAppliedAutocorrect: (from: String, to: String)?
     /// Set when the most recent keystroke executed a revert-on-continuation.
     private(set) var lastRevert: RevertInstruction?
+    /// Decision trace of the most recent suggestions() pass (`:why`).
+    private(set) var lastTrace: CorrectionTrace?
     /// Learning events drained from the session so far (the harness twin of
     /// the extension's per-pass EventLog flush; `EXPECT_EVENTS` asserts on
     /// this — the URL-field zero-events test hook).
@@ -203,9 +205,11 @@ final class Typist {
     func refresh() {
         let before = proxy.contextBeforeInput
         lastContextBefore = before
+        let trace = CorrectionTrace()
         let start = clock.now
-        lastSuggestions = session.suggestions(for: before, limit: limit)
+        lastSuggestions = session.suggestions(for: before, limit: limit, trace: trace)
         let micros = start.duration(to: clock.now).microseconds
+        lastTrace = trace
         lastLatencyMicros = micros
         latenciesMicros.append(micros)
         collectPendingEvents()

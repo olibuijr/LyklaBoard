@@ -8,7 +8,7 @@ final class ConfigOverridesTests: XCTestCase {
 
     func testAppliesDoubleOverride() throws {
         var config = EngineConfig()
-        XCTAssertEqual(config.autocorrectMargin, 1.25, accuracy: 1e-9)
+        XCTAssertEqual(config.autocorrectMargin, 1.15, accuracy: 1e-9)
         let keys = try ConfigOverrides.apply(["autocorrectMargin": 2.5], to: &config)
         XCTAssertEqual(config.autocorrectMargin, 2.5, accuracy: 1e-9)
         XCTAssertEqual(keys, ["autocorrectMargin"])

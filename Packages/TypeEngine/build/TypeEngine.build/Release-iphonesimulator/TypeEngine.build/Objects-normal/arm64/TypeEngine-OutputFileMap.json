@@ -1,0 +1,86 @@
+{
+  "" : {
+    "const-values" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary.swiftconstvalues",
+    "dependencies" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary.d",
+    "diagnostics" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary.dia",
+    "emit-module-dependencies" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary-emit-module.dia",
+    "pch" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine-primary.swiftdeps"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/BeamDecoder.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/BeamDecoder.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/BeamDecoder.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/BeamDecoder.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/CorrectionTrace.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/CorrectionTrace.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/CorrectionTrace.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/CorrectionTrace.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/Corrector.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Corrector.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Corrector.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Corrector.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/DictLexicon.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/DictLexicon.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/DictLexicon.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/DictLexicon.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/Inflection.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Inflection.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Inflection.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Inflection.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/LaneRelaxation.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LaneRelaxation.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LaneRelaxation.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LaneRelaxation.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/LanguageModel.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LanguageModel.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LanguageModel.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/LanguageModel.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/PerTapCostProvider.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PerTapCostProvider.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PerTapCostProvider.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PerTapCostProvider.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/PersonalTouch.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalTouch.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalTouch.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalTouch.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/PersonalVocabulary.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalVocabulary.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalVocabulary.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/PersonalVocabulary.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/Predictor.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Predictor.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Predictor.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/Predictor.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/ProxySimulator.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/ProxySimulator.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/ProxySimulator.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/ProxySimulator.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/SpatialModel.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/SpatialModel.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/SpatialModel.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/SpatialModel.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/TypeEngine.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypeEngine.o"
+  },
+  "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/Sources/TypeEngine/TypingSession.swift" : {
+    "index-unit-output-path" : "/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypingSession.o",
+    "llvm-bc" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypingSession.bc",
+    "object" : "/Users/jokull/Code/better-keyboard/Packages/TypeEngine/build/TypeEngine.build/Release-iphonesimulator/TypeEngine.build/Objects-normal/arm64/TypingSession.o"
+  }
+}

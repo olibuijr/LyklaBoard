@@ -202,12 +202,14 @@ public final class TypeEngine {
         currentWord: String,
         limit: Int = 3,
         deliberateCharacters: [Character] = [],
-        taps: [TapSample?] = []
+        taps: [TapSample?] = [],
+        trace: CorrectionTrace? = nil
     ) -> [Suggestion] {
         let previous = Self.lastWord(in: context)
         let trimmed = currentWord.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
+            trace?.rule = "prediction (no word in progress)"
             return restorePersonalSurfaces(
                 predictor.nextWords(
                     previousWord: previous,
@@ -223,7 +225,10 @@ public final class TypeEngine {
             pIcelandic: probabilityIcelandic,
             limit: limit,
             deliberateCharacters: deliberateCharacters,
-            taps: taps.count == trimmed.count ? taps : []
+            taps: taps.count == trimmed.count ? taps : [],
+            capitalizedMidSentence: trimmed.first?.isUppercase == true
+                && Self.isMidSentence(context: context),
+            trace: trace
         )
         var suggestions = restorePersonalSurfaces(result.suggestions)
 
@@ -280,10 +285,31 @@ public final class TypeEngine {
     /// Personal surface forms are byte-exact and case-preserving
     /// ("Miðeind") while the correction/prediction pipeline works in
     /// lowercase — restore the canonical personal casing on the way out.
+    ///
+    /// ALL-CAPS artifact guard (live-session diagnosis, 2026-07-16: the bar
+    /// offered "MEÐ"/"NEW" mid-sentence): a personal surface learned in
+    /// all caps is usually an autocap/caps-lock artifact of the learning
+    /// event, not the word's identity. When the word is also BASE-lexicon
+    /// vocabulary (með, new, and) the caps carry no information — keep the
+    /// pipeline casing. Genuine acronyms are OOV ("HTML", "ÍSÍ") and still
+    /// restore their learned caps; leading-cap surfaces ("Miðeind",
+    /// "Ísland") are untouched (the lowercased corpora cannot distinguish
+    /// proper nouns, and losing them would be the worse trade).
     private func restorePersonalSurfaces(_ suggestions: [Suggestion]) -> [Suggestion] {
         suggestions.map { suggestion in
             guard let surface = model.personal.displaySurface(of: suggestion.text) else {
                 return suggestion
+            }
+            let isAllCaps =
+                surface.count > 1
+                && surface == surface.uppercased()
+                && surface != surface.lowercased()
+            if isAllCaps {
+                let lowered = surface.lowercased()
+                let baseAttested =
+                    model.icelandic.frequency(of: lowered) != nil
+                    || model.english.frequency(of: lowered) != nil
+                if baseAttested { return suggestion }
             }
             return Suggestion(
                 text: surface,
@@ -341,7 +367,7 @@ public final class TypeEngine {
     public func laneDiagnostics(for word: String)
         -> (
             frequencyIS: UInt32?, frequencyEN: UInt32?, zIS: Double, zEN: Double,
-            binKnown: Bool, evidence: Double
+            binKnown: Bool, binCases: [String], evidence: Double
         )
     {
         let w = word.lowercased()
@@ -351,6 +377,7 @@ public final class TypeEngine {
             zIS: model.calibratedUnigramScore(of: w, language: .icelandic),
             zEN: model.calibratedUnigramScore(of: w, language: .english),
             binKnown: model.morphology?.isKnown(w) == true,
+            binCases: model.morphology?.nounAdjectiveCases(of: w) ?? [],
             evidence: model.laneEvidence(of: w)
         )
     }
@@ -369,6 +396,18 @@ public final class TypeEngine {
     }
 
     // MARK: - Internals
+
+    /// A word typed after this context is MID-sentence: the context has
+    /// committed text and does not end in a sentence terminator. Drives the
+    /// proper-noun guard (capitalized mid-sentence unknown tokens are
+    /// names; see `EngineConfig.properNounGuardEnabled`); sentence-initial
+    /// capitals (empty context, or right after . ! ? …) stay ordinary.
+    static func isMidSentence(context: String) -> Bool {
+        guard let last = context.trimmingCharacters(in: .whitespacesAndNewlines).last else {
+            return false
+        }
+        return !".!?…".contains(last)
+    }
 
     /// Trailing word of the committed context, lowercased and stripped of
     /// surrounding punctuation; nil if there is none.

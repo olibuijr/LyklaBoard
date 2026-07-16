@@ -127,16 +127,28 @@ public struct Corrector {
     ///     targeted generation passes (`edits1Costed` costs, split-half
     ///     repairs) stay static-priced: they only PROPOSE candidates, and
     ///     every admitted candidate is re-scored by the per-tap DP.
+    /// - Parameter capitalizedMidSentence: the typed token starts with an
+    ///   uppercase letter in the middle of a sentence (the embedder/facade
+    ///   computes this from the raw context) — the proper-noun signal that
+    ///   suppresses ERROR-class auto-apply when `properNounGuardEnabled`
+    ///   (restoration-only winners and bar suggestions are unaffected).
     public func correct(
         typed rawTyped: String,
         previousWord: String? = nil,
         pIcelandic: Double = 0.5,
         limit: Int = 3,
         deliberateCharacters: [Character] = [],
-        taps: [TapSample?] = []
+        taps: [TapSample?] = [],
+        capitalizedMidSentence: Bool = false,
+        trace: CorrectionTrace? = nil
     ) -> CorrectionResult {
         let typed = rawTyped.lowercased()
         let typedChars = Array(typed)
+        if let trace {
+            trace.typed = typed
+            trace.previousWord = previousWord
+            trace.pIcelandic = pIcelandic
+        }
         guard !typedChars.isEmpty, limit > 0 else {
             return CorrectionResult(suggestions: [], typedWordIsValid: false)
         }
@@ -170,6 +182,7 @@ public struct Corrector {
         // and so are TOMBSTONED words, because deletion means "stop
         // suggesting", never "punish typing" (isValidTypedWord docs).
         let typedIsValid = model.isValidTypedWord(typed)
+        trace?.typedIsValid = typedIsValid
 
         // Single-letter input: the general pipeline is both too expensive
         // (1-char completion ranges) and too noisy for one letter — the only
@@ -177,11 +190,13 @@ public struct Corrector {
         // a→á, i→í are extreme-frequency Icelandic words typed accentless
         // because accents live behind long-press). Dedicated targeted path.
         if typedChars.count == 1 {
+            trace?.rule = "single-letter"
             return singleLetterCorrection(
                 letter: typedChars[0],
                 previousWord: previousWord,
                 pIcelandic: pIcelandic,
-                typedIsValid: typedIsValid
+                typedIsValid: typedIsValid,
+                trace: trace
             )
         }
 
@@ -301,6 +316,62 @@ public struct Corrector {
             for word in Self.diacriticVariants(of: base, maxChanges: 2)
             where isCandidateWord(word, checkMorphology: true) {
                 admit(word)
+            }
+        }
+
+        // 2e. Short double-substitution repairs (live-session "habb" →
+        // "hann", 2026-07-16; the same structural cap behind the known
+        // ik → ok weakness): a 3-4 char unknown token was limited to ONE
+        // beam edit (the deep multi-edit decode gates on length ≥
+        // beamLongMinLength, and its no-close-attested gate is anyway held
+        // shut by wrong-but-close 1-sub rivals like "gabb"), so double
+        // adjacent-key noise could never reach the target no matter how
+        // frequent. Enumerate the tiny cheap-neighbor space (both subs ≤
+        // `shortDoubleSubMaxEditCost`, ≈ adjacent keys only) and admit only
+        // HIGH-TYPICALITY attested words (`shortDoubleSubMinZ`): "hann"
+        // (+2.7) qualifies, junk neighbors of junk do not. Margins and the
+        // ordinary conservatism rules judge auto-apply as usual; attested
+        // typed words never enter (typedIsValid gate).
+        if !typedIsValid,
+            typedChars.count >= 3,
+            typedChars.count < config.beamLongMinLength,
+            typedChars.allSatisfy(\.isLetter)
+        {
+            let n = typedChars.count
+            // Cheap neighbor sets per position (adjacent-key tier).
+            var cheap: [[Character]] = []
+            cheap.reserveCapacity(n)
+            for ch in typedChars {
+                cheap.append(
+                    Self.alphabet.filter {
+                        $0 != ch
+                            && spatial.substitutionCost(typed: ch, intended: $0)
+                                <= config.shortDoubleSubMaxEditCost
+                    })
+            }
+            var variant = typedChars
+            for i in 0..<(n - 1) {
+                for j in (i + 1)..<n {
+                    for ci in cheap[i] {
+                        variant[i] = ci
+                        for cj in cheap[j] {
+                            variant[j] = cj
+                            let word = String(variant)
+                            guard candidates[word] == nil else { continue }
+                            let typical =
+                                model.isPersonalValid(word)
+                                || (model.icelandic.frequency(of: word) != nil
+                                    && model.calibratedUnigramScore(of: word, language: .icelandic)
+                                        >= config.shortDoubleSubMinZ)
+                                || (model.english.frequency(of: word) != nil
+                                    && model.calibratedUnigramScore(of: word, language: .english)
+                                        >= config.shortDoubleSubMinZ)
+                            if typical { admit(word) }
+                        }
+                        variant[j] = typedChars[j]
+                    }
+                    variant[i] = typedChars[i]
+                }
             }
         }
 
@@ -443,6 +514,7 @@ public struct Corrector {
         {
             runBeam(maxEdits: config.beamMaxEdits)
         }
+
         let bestSoFar = candidates.values.map(\.total).min() ?? .infinity
 
         // ---- Scoring ------------------------------------------------------
@@ -509,6 +581,24 @@ public struct Corrector {
 
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
 
+        if let trace {
+            // Language contribution backed out of the final score (covers
+            // split candidates' pair scores and the morph term uniformly):
+            // score = -cost + languageWeight·S  =>  S = (score+cost)/weight.
+            trace.candidates = scored.prefix(8).map { entry in
+                CorrectionTrace.Candidate(
+                    word: entry.word,
+                    costTotal: entry.cost.total,
+                    errorOps: entry.cost.errorOps,
+                    restorationOps: entry.cost.restorationOps,
+                    languageScore: config.languageWeight != 0
+                        ? (entry.score + entry.cost.total) / config.languageWeight
+                        : 0,
+                    score: entry.score
+                )
+            }
+        }
+
         // ---- Conservatism / autocorrect decision --------------------------
         // Every auto-apply margin below is multiplied by `tapMarginFactor`
         // (≥ 1): the aggregate-confidence VETO of the bidirectional
@@ -516,16 +606,54 @@ public struct Corrector {
         // demands ~4× today's evidence; a tapless or sloppy word keeps
         // today's margins exactly.
         var autocorrect = false
-        if let best = scored.first,
-            typedChars.count >= config.minAutocorrectLength,
-            best.cost.total <= config.autocorrectMaxSpatialCost,
-            Self.preservesApostrophes(of: typed, in: best.word),
-            Self.preservesDeliberateCharacters(deliberate, of: typedChars, in: best.word)
-        {
+        if let best = scored.first {
+            // Preconditions of every auto-apply rule; computed individually
+            // (all pure) so the trace can report which one blocked. The
+            // `preconditionsOK` conjunction reproduces the original guard.
+            let lengthOK = typedChars.count >= config.minAutocorrectLength
+            let costOK = best.cost.total <= config.autocorrectMaxSpatialCost
+            let apostrophesOK = Self.preservesApostrophes(of: typed, in: best.word)
+            let deliberateOK = Self.preservesDeliberateCharacters(
+                deliberate, of: typedChars, in: best.word)
+            let preconditionsOK = lengthOK && costOK && apostrophesOK && deliberateOK
             let margin = scored.count > 1 ? best.score - scored[1].score : .infinity
             let tapMarginFactor = tapVetoFactor(
-                typedChars: typedChars, candidate: best.word, perTap: perTap)
-            if !typedIsValid, best.word.contains(" ") {
+                typedChars: typedChars,
+                candidate: best.word,
+                perTap: perTap,
+                isRestorationOnly: best.cost.isRestorationOnly,
+                winnerTypicality: model.isPersonalValid(best.word)
+                    ? .infinity
+                    : (attestedTypicality(of: best.word) ?? -.infinity)
+            )
+            if let trace {
+                trace.margin = margin
+                trace.tapVetoFactor = tapMarginFactor
+                trace.rule =
+                    !typedIsValid && best.word.contains(" ")
+                    ? "split"
+                    : !typedIsValid
+                        ? "ordinary-unknown"
+                        : best.cost.isRestorationOnly && !best.word.contains(" ")
+                            && deliberate.isEmpty
+                            ? "skeleton-restoration" : "valid-word (no auto-apply path)"
+                if !lengthOK {
+                    trace.gate(
+                        "minAutocorrectLength",
+                        "typed length \(typedChars.count) < \(config.minAutocorrectLength)",
+                        pass: false)
+                }
+                if !costOK {
+                    trace.gate(
+                        "autocorrectMaxSpatialCost",
+                        "best cost \(String(format: "%.3f", best.cost.total))"
+                            + " > \(config.autocorrectMaxSpatialCost)",
+                        pass: false)
+                }
+                if !apostrophesOK { trace.gate("preservesApostrophes", "candidate drops a typed apostrophe", pass: false) }
+                if !deliberateOK { trace.gate("preservesDeliberateCharacters", "candidate drops a long-pressed character", pass: false) }
+            }
+            if preconditionsOK, !typedIsValid, best.word.contains(" ") {
                 // Split auto-apply (dogfood "fara lega" tightening): a split
                 // is a bigger intervention than a repair, so it must clear a
                 // RAISED margin AND the merged token must have no plausible
@@ -537,9 +665,23 @@ public struct Corrector {
                     .filter { !$0.word.contains(" ") && isAttestedOrPersonal($0.word) }
                     .map(\.cost.total)
                     .min() ?? .infinity
-                autocorrect = margin >= config.splitAutocorrectMargin * tapMarginFactor
-                    && bestSingleCost > config.splitAutoApplySingleWordCutoff
-            } else if !typedIsValid {
+                let marginOK = margin >= config.splitAutocorrectMargin * tapMarginFactor
+                let noSingleRepair = bestSingleCost > config.splitAutoApplySingleWordCutoff
+                if let trace {
+                    trace.requiredMargin = config.splitAutocorrectMargin
+                    trace.gate(
+                        "splitMargin",
+                        "margin \(String(format: "%.3f", margin))"
+                            + " >= \(config.splitAutocorrectMargin) x \(String(format: "%.2f", tapMarginFactor))",
+                        pass: marginOK)
+                    trace.gate(
+                        "noSingleWordRepair",
+                        "best attested single-word cost \(String(format: "%.3f", bestSingleCost))"
+                            + " > cutoff \(config.splitAutoApplySingleWordCutoff)",
+                        pass: noSingleRepair)
+                }
+                autocorrect = marginOK && noSingleRepair
+            } else if preconditionsOK, !typedIsValid {
                 // Single-word auto-apply additionally requires the winner to
                 // be typical vocabulary (attested at z ≥ autocorrectMinZ;
                 // personal words are exempt): BÍN-floored junk like
@@ -553,26 +695,144 @@ public struct Corrector {
                     model.isPersonalValid(best.word)
                     ? Double.infinity
                     : (attestedTypicality(of: best.word) ?? -.infinity)
-                let minZ =
-                    Self.rewriteDistance(typedChars, Array(best.word))
-                        >= config.autocorrectFarRepairEdits
+                let rewrite = Self.rewriteDistance(typedChars, Array(best.word))
+                let farRepair = rewrite >= config.autocorrectFarRepairEdits
+                // Short-token discipline (dogfood "eg"/"vð", 2026-07-16):
+                // a 2-letter token carries almost no spatial evidence, so
+                // auto-apply demands a headline-vocabulary winner (ég, við
+                // — the words people actually mean) via the raised floor.
+                let short = typedChars.count <= config.autocorrectShortLengthMax
+                var minZ =
+                    farRepair
                     ? max(config.autocorrectMinZ, config.autocorrectFarRepairMinZ)
                     : config.autocorrectMinZ
+                if short { minZ = max(minZ, config.autocorrectShortMinZ) }
+                // A short token never auto-EXPANDS into a strict-prefix
+                // completion ("fo" must not commit "for" uninvited — two
+                // keystrokes are evidence of a two-letter word, not of any
+                // particular continuation); repairs ("vð" → "við", "eg" →
+                // "ég") are unaffected.
+                let shortCompletion =
+                    short && best.word.count > typedChars.count
+                    && best.word.hasPrefix(typed)
                 // RESTORATION-only winners (every edit an acute fold /
                 // directional confusion / apostrophe insertion) get the
                 // relaxed margin once the lane ramp is open: restoration
                 // serves an input method and does not compete for the
                 // error-budget margin. At/below the neutral prior the
                 // ordinary margin applies — nothing changes there.
+                let profileWeight = restorationProfileWeight(
+                    typed: typed, candidate: best.word, pricing: pricing)
+                let restorationRelaxed = best.cost.isRestorationOnly && profileWeight > 0
                 let requiredMargin =
-                    best.cost.isRestorationOnly
-                        && restorationProfileWeight(
-                            typed: typed, candidate: best.word, pricing: pricing) > 0
+                    restorationRelaxed
                     ? config.restorationAutoApplyMargin
                     : config.autocorrectMargin
-                autocorrect = margin >= requiredMargin * tapMarginFactor
-                    && typicality >= minZ
-            } else if best.cost.isRestorationOnly, !best.word.contains(" "),
+                var marginOK = margin >= requiredMargin * tapMarginFactor
+                var typicalityOK = typicality >= minZ
+                // Vacuum auto-apply (dogfood "stökklrikanum" wave): a
+                // BÍN-valid winner below the typicality floor may still
+                // fire when the pool holds NO attested-or-personal repair
+                // within the close-candidate bound — with no attested
+                // competition, the morphologically valid word one cheap
+                // edit away beats leaving the typo. Stricter margin; far
+                // repairs keep the hard attested-common rule (mash never
+                // becomes BÍN junk).
+                var vacuum = false
+                if config.vacuumAutoApplyEnabled,
+                    !typicalityOK, !farRepair, !short,
+                    model.morphology?.isKnown(best.word) == true,
+                    bestAttestedCost(in: candidates) > config.closeCandidateGate
+                {
+                    vacuum = true
+                    typicalityOK = true
+                    marginOK =
+                        margin >= max(requiredMargin, config.vacuumAutoApplyMargin)
+                            * tapMarginFactor
+                }
+                // Proper-noun possessive guard: a capitalized mid-sentence
+                // s-ending token whose stem is NOT English vocabulary is
+                // overwhelmingly Name+s (a possessive typed without the
+                // apostrophe — "Corgans", "LSUs", "Rugovas") that the
+                // possessive-derivation pass could not read (stem absent
+                // from en.lex), so any error-class winner is a guess at a
+                // DIFFERENT word ("Organs", "Arcs") — bar-only. Attested
+                // stems keep every rule (the derived possessive competes
+                // honestly), restoration-only winners are the lazy-input
+                // case and still fire ("Olafur" → "Ólafur"). Deliberately
+                // NOT a blanket capitalized-token veto: on the dev corpus
+                // most mid-sentence-capital corrections are honest fixes
+                // of attested names (87% of what a blanket guard blocked).
+                let properNounOK: Bool
+                if config.properNounGuardEnabled, capitalizedMidSentence,
+                    !best.cost.isRestorationOnly,
+                    typedChars.count >= 4,
+                    typedChars.last == "s",
+                    typedChars.allSatisfy(\.isLetter)
+                {
+                    let stem = String(typedChars.dropLast())
+                    // Guarded shape: the stem is a KNOWN token (is.lex —
+                    // names surface in the Icelandic web corpus) that
+                    // en.lex lacks, so the possessive derivation could not
+                    // read Name+'s. A junk stem (typo inside the stem,
+                    // attested nowhere) is an ordinary typo and repairs
+                    // freely; an en.lex-attested stem competes honestly
+                    // via the derived possessive.
+                    properNounOK =
+                        model.english.frequency(of: stem) != nil
+                        || model.icelandic.frequency(of: stem) == nil
+                } else {
+                    properNounOK = true
+                }
+                if let trace {
+                    if config.properNounGuardEnabled, capitalizedMidSentence, !properNounOK {
+                        trace.gate(
+                            "proper-noun-possessive-guard",
+                            "capitalized mid-sentence Name+s with unattested stem;"
+                                + " error-class auto-apply suppressed",
+                            pass: false)
+                    }
+                }
+                if let trace {
+                    trace.requiredMargin =
+                        vacuum ? max(requiredMargin, config.vacuumAutoApplyMargin) : requiredMargin
+                    trace.note(
+                        restorationRelaxed
+                            ? "restoration-only winner, lane ramp open (weight "
+                                + "\(String(format: "%.2f", profileWeight))) -> relaxed margin"
+                            : best.cost.isRestorationOnly
+                                ? "restoration-only winner but lane ramp CLOSED -> ordinary margin"
+                                : "error-class winner (rewriteDistance \(rewrite)"
+                                    + "\(farRepair ? ", FAR repair" : ""))")
+                    if vacuum {
+                        trace.note(
+                            "VACUUM: BÍN-valid winner below the typicality floor, no attested"
+                                + " repair within closeCandidateGate -> stricter margin, floor waived")
+                    }
+                    trace.gate(
+                        "margin",
+                        "margin \(String(format: "%.3f", margin))"
+                            + " >= \(String(format: "%.3f", vacuum ? max(requiredMargin, config.vacuumAutoApplyMargin) : requiredMargin))"
+                            + " x \(String(format: "%.2f", tapMarginFactor))"
+                            + (vacuum ? " (vacuum margin)" : ""),
+                        pass: marginOK)
+                    trace.gate(
+                        "typicality",
+                        "winner z \(typicality == .infinity ? "personal" : String(format: "%+.3f", typicality))"
+                            + " >= minZ \(String(format: "%+.3f", minZ))"
+                            + (farRepair ? " (far-repair floor)" : "")
+                            + (short ? " (short-token floor)" : ""),
+                        pass: typicalityOK)
+                }
+                if let trace, shortCompletion {
+                    trace.gate(
+                        "short-completion",
+                        "short token; winner \"\(best.word)\" is a strict-prefix"
+                            + " completion — never auto-expanded",
+                        pass: false)
+                }
+                autocorrect = marginOK && typicalityOK && properNounOK && !shortCompletion
+            } else if preconditionsOK, best.cost.isRestorationOnly, !best.word.contains(" "),
                 deliberate.isEmpty
             {
                 // Skeleton collision (PLAN.md "The hard part"): the typed
@@ -581,16 +841,32 @@ public struct Corrector {
                 // auto-apply PAST it only through the triple gate
                 // (dominance × context × no deliberateness signal), plus
                 // the sletta guard and the relaxed margin.
-                autocorrect =
+                let marginOK =
                     margin >= config.restorationAutoApplyMargin * tapMarginFactor
-                    && passesRestorationTripleGate(
-                        typed: typed,
-                        candidate: best.word,
-                        previousWord: previousWord,
-                        pIcelandic: pIcelandic
-                    )
+                if let trace {
+                    trace.requiredMargin = config.restorationAutoApplyMargin
+                    trace.gate(
+                        "margin",
+                        "margin \(String(format: "%.3f", margin))"
+                            + " >= \(config.restorationAutoApplyMargin)"
+                            + " x \(String(format: "%.2f", tapMarginFactor))",
+                        pass: marginOK)
+                }
+                // Pure function: safe to evaluate even when the margin
+                // failed, so the trace always carries the full triple-gate
+                // picture.
+                let tripleOK = passesRestorationTripleGate(
+                    typed: typed,
+                    candidate: best.word,
+                    previousWord: previousWord,
+                    pIcelandic: pIcelandic,
+                    trace: trace
+                )
+                autocorrect = marginOK && tripleOK
             }
         }
+
+        trace?.autocorrect = autocorrect
 
         // ---- Confidence: softmax over the top of the candidate pool -------
         let confidencePool = scored.prefix(8)
@@ -686,17 +962,39 @@ public struct Corrector {
     ///    stays out: its evidence is already priced through the tap-scaled
     ///    split penalty, and the key-normalized confidence cannot see the
     ///    spacebar as an alternative target,
-    ///  * length-changing rewrites (indels, insertion splits) fall back to
-    ///    the whole-word aggregate: deliberately hitting every key
-    ///    dead-center is evidence against ANY rewrite of the token — this
-    ///    is what makes an all-dead-center unknown word essentially never
-    ///    auto-replace.
+    ///  * RESTORATION-ONLY candidates (every edit an acute fold /
+    ///    directional confusion / apostrophe insertion — the caller passes
+    ///    `isRestorationOnly` from the winner's channel-cost decomposition)
+    ///    never veto REGARDLESS of length change (veto-asymmetry fix,
+    ///    2026-07-16): a dead-center tap on the base vowel is the
+    ///    LAZY-INPUT signal FOR restoration — the fold pricing already
+    ///    prices per-tap evidence through `foldEvidencePenalty`, and the
+    ///    whole-word aggregate was double-punishing careful typists on
+    ///    apostrophe insertions ("dont"→"don't", the one length-changing
+    ///    restoration shape),
+    ///  * remaining length-changing rewrites (indels, insertion splits)
+    ///    fall back to the whole-word aggregate: deliberately hitting every
+    ///    key dead-center is evidence against ANY error-class rewrite of
+    ///    the token — this is what makes an all-dead-center unknown word
+    ///    essentially never auto-replace. One relaxation (veto asymmetry,
+    ///    2026-07-16): the taps cannot reprice indels, so this branch was
+    ///    blocking careful typists' omission typos ("vð" → "við") on the
+    ///    margin alone with no contradicting tap — an EXTREME-vocabulary
+    ///    winner (`winnerTypicality` ≥ `tapVetoCommonWinnerMinZ`; personal
+    ///    words qualify) therefore gets the softer
+    ///    `tapVetoCommonMaxFactor` clamp.
     func tapVetoFactor(
-        typedChars: [Character], candidate: String, perTap: PerTapCostProvider?
+        typedChars: [Character],
+        candidate: String,
+        perTap: PerTapCostProvider?,
+        isRestorationOnly: Bool = false,
+        winnerTypicality: Double = -.infinity
     ) -> Double {
         guard let perTap else { return 1 }
+        if isRestorationOnly { return 1 }
         let candidateChars = Array(candidate)
         let mean: Double?
+        var maxFactor = config.tapVetoMaxFactor
         if candidateChars.count == typedChars.count {
             var sum = 0.0
             var count = 0
@@ -711,11 +1009,14 @@ public struct Corrector {
             mean = count > 0 ? sum / Double(count) : nil
         } else {
             mean = perTap.meanTapConfidence
+            if winnerTypicality >= config.tapVetoCommonWinnerMinZ {
+                maxFactor = min(maxFactor, config.tapVetoCommonMaxFactor)
+            }
         }
         guard let mean else { return 1 }
         return min(
             1 + config.tapVetoStrength * max(0, mean - config.tapVetoBaseline),
-            config.tapVetoMaxFactor
+            maxFactor
         )
     }
 
@@ -761,16 +1062,29 @@ public struct Corrector {
         typed: String,
         candidate: String,
         previousWord: String?,
-        pIcelandic: Double
+        pIcelandic: Double,
+        trace: CorrectionTrace? = nil
     ) -> Bool {
+        // All gates are evaluated (pure lookups) and ANDed so a trace
+        // carries the full picture; without a trace the result is identical
+        // to the original early-return chain.
+        var pass = true
+        func gate(_ name: String, _ detail: @autoclosure () -> String, _ ok: Bool) {
+            trace?.gate(name, detail(), pass: ok)
+            if !ok { pass = false }
+        }
+
         // Deliberateness, part (c): the user previously learned or
         // verbatim-tapped the skeleton (personal dict outranks restoration),
         // or tombstoned it (deletion means "stop suggesting", never "start
         // correcting what I type"). Tombstoned candidates never got here —
         // admit() excludes them.
-        guard !model.isPersonalValid(typed), !model.isPersonalTombstoned(typed) else {
-            return false
-        }
+        let personalSkeleton =
+            model.isPersonalValid(typed) || model.isPersonalTombstoned(typed)
+        gate(
+            "no-personal-skeleton",
+            "skeleton \"\(typed)\" is\(personalSkeleton ? "" : " not") personal/tombstoned",
+            !personalSkeleton)
 
         // Profile from the restoration direction: apostrophe additions are
         // the English profile, acute folds the Icelandic one.
@@ -785,29 +1099,60 @@ public struct Corrector {
         // path's auto-apply posterior (that path is the special case of
         // this rule) — never past the valid-word rule from a neutral or
         // off-lane posterior.
-        guard pLane >= config.accentAutoApplyMinPosterior else { return false }
+        gate(
+            "lane-posterior",
+            "P(lane) \(String(format: "%.3f", pLane))"
+                + " >= accentAutoApplyMinPosterior \(config.accentAutoApplyMinPosterior)",
+            pLane >= config.accentAutoApplyMinPosterior)
 
         // Gate 1 — frequency dominance in the lane lexicon (the is.lex
         // accent-dominance ratio machinery): the restored form must be
         // ≥ restorationDominanceRatio× the skeleton. fór (369k) over an
         // is.lex-absent "for" passes trivially; víst (+0.78, below
         // restorationDominanceMinZ) over BÍN-valid "vist" does not.
-        guard let candidateFrequency = model.lexicon(for: lane).frequency(of: candidate) else {
-            return false
-        }
-        if let skeletonFrequency = model.lexicon(for: lane).frequency(of: typed) {
-            guard
-                Double(candidateFrequency)
-                    >= config.restorationDominanceRatio * Double(skeletonFrequency)
-            else { return false }
-        } else if lane == .icelandic, model.morphology?.isKnown(typed) == true {
-            // BÍN-valid skeleton of unknown frequency: the ratio machinery
-            // has no denominator, so only headline-frequency restored forms
-            // may claim dominance over a real-but-unmeasured word.
-            guard
-                model.calibratedUnigramScore(of: candidate, language: lane)
-                    >= config.restorationDominanceMinZ
-            else { return false }
+        let candidateFrequency = model.lexicon(for: lane).frequency(of: candidate)
+        if let candidateFrequency {
+            if let skeletonFrequency = model.lexicon(for: lane).frequency(of: typed) {
+                gate(
+                    "dominance-ratio",
+                    "f(\(candidate)) \(candidateFrequency)"
+                        + " >= \(config.restorationDominanceRatio) x f(\(typed)) \(skeletonFrequency)",
+                    Double(candidateFrequency)
+                        >= config.restorationDominanceRatio * Double(skeletonFrequency))
+            } else if lane == .icelandic, model.morphology?.isKnown(typed) == true {
+                // BÍN-valid skeleton of unknown frequency: the ratio
+                // machinery has no denominator, so only headline-frequency
+                // restored forms may claim dominance over a
+                // real-but-unmeasured word. EXCEPT oblique-only skeletons
+                // (noun/adjective readings with no nominative — "simanum",
+                // þgf-only): those are never a citation-form word typed
+                // deliberately, only the accent-dropped spelling of their
+                // restored twin, so a lexicon-average restored form
+                // (`restorationDominanceObliqueMinZ`) already dominates.
+                // Base-form skeletons ("vist", "for" — nf-readable) and
+                // non-noun skeletons keep the strict bar.
+                let z = model.calibratedUnigramScore(of: candidate, language: lane)
+                let skeletonCases = model.morphology?.nounAdjectiveCases(of: typed) ?? []
+                let obliqueOnly = !skeletonCases.isEmpty && !skeletonCases.contains("nf")
+                let minZ =
+                    obliqueOnly
+                    ? config.restorationDominanceObliqueMinZ
+                    : config.restorationDominanceMinZ
+                gate(
+                    "dominance-minZ",
+                    "BÍN-valid skeleton, no lane frequency"
+                        + " (cases: \(skeletonCases.isEmpty ? "-" : skeletonCases.joined(separator: " "))"
+                        + "\(obliqueOnly ? ", oblique-only" : "")): z(\(candidate))"
+                        + " \(String(format: "%+.3f", z))"
+                        + " >= \(obliqueOnly ? "restorationDominanceObliqueMinZ" : "restorationDominanceMinZ")"
+                        + " \(minZ)",
+                    z >= minZ)
+            } else {
+                trace?.note(
+                    "dominance: skeleton valid only outside the lane — no own-lane collision")
+            }
+        } else {
+            gate("dominance-ratio", "candidate \"\(candidate)\" unattested in lane lexicon", false)
         }
         // (Skeleton valid only in the OTHER language — e.g. "bud" via
         // en.lex: no own-lane collision; gate 3 prices the cross-language
@@ -820,9 +1165,13 @@ public struct Corrector {
             of: candidate, previous: previousWord, language: lane)
         let skeletonContext = model.calibratedScore(
             of: typed, previous: previousWord, language: lane)
-        guard candidateContext - skeletonContext >= config.restorationContextMinAdvantage else {
-            return false
-        }
+        gate(
+            "context-advantage",
+            "ctx(\(candidate)) \(String(format: "%+.3f", candidateContext))"
+                + " - ctx(\(typed)) \(String(format: "%+.3f", skeletonContext))"
+                + " = \(String(format: "%+.3f", candidateContext - skeletonContext))"
+                + " >= restorationContextMinAdvantage \(config.restorationContextMinAdvantage)",
+            candidateContext - skeletonContext >= config.restorationContextMinAdvantage)
 
         // Sletta guard: the restored lane reading must dominate the OTHER
         // language's reading of the skeleton under the current blend — the
@@ -836,9 +1185,16 @@ public struct Corrector {
             let advantage =
                 log(clamped / (1 - clamped))
                 + config.calibrationTemperature * (candidateContext - otherScore)
-            guard advantage >= config.slettaGuardBlendThreshold else { return false }
+            gate(
+                "sletta-guard",
+                "log-odds \(String(format: "%+.3f", log(clamped / (1 - clamped))))"
+                    + " + tau·(ctx(\(candidate)) - other(\(typed))"
+                    + " \(String(format: "%+.3f", otherScore)))"
+                    + " = \(String(format: "%+.3f", advantage))"
+                    + " >= slettaGuardBlendThreshold \(config.slettaGuardBlendThreshold)",
+                advantage >= config.slettaGuardBlendThreshold)
         }
-        return true
+        return pass
     }
 
     // MARK: - Space-miss splits
@@ -1156,9 +1512,11 @@ public struct Corrector {
         letter: Character,
         previousWord: String?,
         pIcelandic: Double,
-        typedIsValid: Bool
+        typedIsValid: Bool,
+        trace: CorrectionTrace? = nil
     ) -> CorrectionResult {
         var suggestions: [Suggestion] = []
+        trace?.typedIsValid = typedIsValid
 
         // --- IS profile: bare vowel → long-press accent twin.
         if config.foldProfileISEnabled,
@@ -1183,6 +1541,18 @@ public struct Corrector {
                             >= config.splitSingleCharHalfMinZ)
                 let autocorrect =
                     pIcelandic >= config.accentAutoApplyMinPosterior && !bareIsIcelandicWord
+                if let trace {
+                    trace.gate(
+                        "accentAutoApplyMinPosterior",
+                        "P(IS) \(String(format: "%.3f", pIcelandic))"
+                            + " >= \(config.accentAutoApplyMinPosterior)",
+                        pass: pIcelandic >= config.accentAutoApplyMinPosterior)
+                    trace.gate(
+                        "bare-letter-not-IS-word",
+                        "\"\(letter)\" is\(bareIsIcelandicWord ? "" : " not") genuine IS vocabulary",
+                        pass: !bareIsIcelandicWord)
+                    trace.autocorrect = autocorrect
+                }
 
                 // Confidence: two-way softmax between the accented reading
                 // and the typed letter's own blended score.

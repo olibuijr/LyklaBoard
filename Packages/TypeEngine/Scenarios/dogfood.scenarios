@@ -31,3 +31,172 @@ LIMIT 5
 SCENARIO dogfood line 2026-07-15 replayed raw
 T "Lyklaborð sem.er alveg fara lega hratt og giskar a allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "
 EXPECT_BUFFER "Lyklaborð sem er alveg fara lega hratt og giskar á allt fer sem naður awgke. Hmmm ik - ekki að virka aveg nogg. "
+
+# ============================================================
+# Dogfood line 2026-07-16 (the auto-apply tuning wave). Typed:
+#   "Ef allir krakkarnir ery í simanum hverbjg á eg að hega talað vð þau"
+# Intended fixes, all auto-applied after the wave:
+#   ery → eru        (adjacent-key sub, ordinary margin)
+#   simanum → símanum (restoration past the BÍN-valid skeleton via the
+#                      oblique-only dominance fallback — "simanum" is a
+#                      þgf-only form of BÍN's variant lemma "simi", no
+#                      nominative reading, never a word typed on purpose)
+#   hverbjg → hvernig (deep beam, two substitutions)
+#   eg → ég          (2-char restoration; minAutocorrectLength 3 → 2 with
+#                      the short-token typicality floor)
+#   vð → við         (2-char omission repair, extreme-common winner)
+# Deliberately NOT fixed: "hega" — "að hega talað" has no clean reading
+# ("hega" is attested nowhere and no candidate carries real evidence);
+# verbatim-led is the correct behavior there.
+# ============================================================
+
+SCENARIO dogfood line 2026-07-16 replayed raw
+T "Ef allir krakkarnir ery í simanum hverbjg á eg að hega talað vð þau "
+EXPECT_BUFFER "Ef allir krakkarnir eru í símanum hvernig á ég að hega talað við þau "
+
+SCENARIO dogfood line 2026-07-16 with dead-center taps keeps every restoration
+# The veto-asymmetry decision (2026-07-16): a careful typist (all
+# dead-center taps) STILL gets restoration-class fixes (símanum, ég — the
+# taps are the lazy-input signal, never a veto) and extreme-common
+# omission repairs (við — the taps cannot contradict an omitted
+# keystroke; tapVetoCommonMaxFactor). The cognitive substitutions ery /
+# hverbjg are BELIEVED under dead-center taps — per-tap pricing makes
+# contradicted substitutions expensive (the bidirectional evidence
+# principle's veto half); with real boundary-leaning taps they fire, as
+# the tapless replay above proves.
+T E
+TAP f 0 0
+T " "
+TAP a 0 0
+TAP l 0 0
+TAP l 0 0
+TAP i 0 0
+TAP r 0 0
+T " "
+TAP k 0 0
+TAP r 0 0
+TAP a 0 0
+TAP k 0 0
+TAP k 0 0
+TAP a 0 0
+TAP r 0 0
+TAP n 0 0
+TAP i 0 0
+TAP r 0 0
+T " "
+TAP e 0 0
+TAP r 0 0
+TAP y 0 0
+T " í "
+TAP s 0 0
+TAP i 0 0
+TAP m 0 0
+TAP a 0 0
+TAP n 0 0
+TAP u 0 0
+TAP m 0 0
+T " "
+TAP h 0 0
+TAP v 0 0
+TAP e 0 0
+TAP r 0 0
+TAP b 0 0
+TAP j 0 0
+TAP g 0 0
+T " á "
+TAP e 0 0
+TAP g 0 0
+T " "
+TAP a 0 0
+T "ð "
+TAP h 0 0
+TAP e 0 0
+TAP g 0 0
+TAP a 0 0
+T " "
+TAP t 0 0
+TAP a 0 0
+TAP l 0 0
+TAP a 0 0
+T "ð "
+TAP v 0 0
+T "ð "
+T "þ"
+TAP a 0 0
+TAP u 0 0
+T " "
+EXPECT_BUFFER "Ef allir krakkarnir ery í símanum hverbjg á ég að hega talað við þau "
+
+# ============================================================
+# First recorded live sessions, 2026-07-16 (tools/session-analyzer).
+# REPORT-ONLY cases NOT scenarioed:
+#  * "stökklrikanum" → "stökkleikanum": the intended word is OOV in EVERY
+#    vocabulary source we ship — is.lex unattested AND absent from BÍN
+#    (unregistered compound stökk+leiki; even "stökkleiki" is BÍN-unknown,
+#    while "sveigjanleikanum" is known). No ranking rule can surface a
+#    candidate no lexicon contains; needs the compound-splitter wave
+#    (PLAN.md "Compounds") or personal learning.
+#  * "Kirkjubæjarklaustri" completion offered where "…dundra okkur á X"
+#    wanted accusative "Kirkjubæjarklaustur": split-case governors should
+#    surface both case variants of a lemma in the completion pool —
+#    Stage B inflection follow-up.
+# ============================================================
+
+SCENARIO live session 2026-07-16 sentence-initial Fair restores to Fáir
+# The capital F is AUTOCAP (sentence-initial after "Jökli."); skeleton
+# "fair" is en.lex-attested (+0.57), so this runs the lane-weighted
+# validity machinery — triple gate + sletta guard — at the
+# boundary-DECAYED posterior (P(IS) ≈ 0.74), the least-defended position
+# (no bigram, decayed lane). slettaGuardBlendThreshold 0.25 was
+# calibrated on exactly this replay (advantage +0.47 vs the old 0.5 bar).
+# "fra" → "frá" restores mid-sentence on the way.
+T "Langar sivan fra Jökli. Fair"
+EXPECT_AUTOCORRECT Fáir
+T " "
+EXPECT_BUFFER "Langar sivan frá Jökli. Fáir "
+
+SCENARIO live session 2026-07-16 fa restores to fá at a saturated lane
+# 2-char accent restoration with an en.lex-attested skeleton ("fa" the
+# music note): the short-token paths must not exclude restorations at
+# length 2 — the skeleton-restoration rule has no length gate beyond
+# minAutocorrectLength (now 2).
+T "við þurfum að fa"
+EXPECT_AUTOCORRECT fá
+T " "
+EXPECT_LAST_COMMIT fá
+
+SCENARIO live session 2026-07-16 habb becomes hann via double substitution
+# Both b taps were under-reached n's (tap profile: b drifts +0.235 toward
+# n). 4-char tokens were structurally capped at ONE beam edit; the
+# targeted short double-substitution pass (cheap adjacent subs only,
+# headline-vocabulary candidates only) makes hann reachable, and the
+# ordinary margins fire it over the 1-sub junk rival "gabb".
+T "kartöflunum. Hef séð habb"
+EXPECT_AUTOCORRECT hann
+T " "
+EXPECT_LAST_COMMIT hann
+
+SCENARIO live session 2026-07-16 mew stays typeable
+# "mew" is en.lex-attested — a valid word whose best rival ("new") is
+# ERROR-class: never past the valid-word rule, in any lane. The intended
+# "með" is candidate-strength-limited (w→ð is not a cheap repair and
+# carries no restoration reading) — reported, never forced.
+T "kartöflunum. Hef séð habb mew"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT mew
+
+SCENARIO live session 2026-07-16 dundra offers dúndra tap-only
+# dúndra is attested at z −1.9 (junk-tier): the dominance machinery
+# correctly keeps a RARE restoration offer-only (margin over "sundra" is
+# 0.07 nats — there is a real competing reading). The loop for Jökull:
+# tap it once, personal learning outranks the gate next time.
+T "við ættum náttúrlega bara að dundra"
+EXPECT_CONTAINS dúndra
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO short attested words are untouched by the double substitution pass
+# Regression guard for the habb fix: valid short words never enter the
+# pass (typedIsValid gate) — bað commits as typed in a saturated IS lane.
+T "hann bað "
+EXPECT_LAST_COMMIT bað

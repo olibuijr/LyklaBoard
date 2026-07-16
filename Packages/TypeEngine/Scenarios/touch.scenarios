@@ -116,3 +116,48 @@ TAP p 0.45 0
 EXPECT_AUTOCORRECT kortið
 T " "
 EXPECT_BUFFER "kortið "
+
+# ============================================================
+# Veto asymmetry (2026-07-16): careful typing must never suppress
+# restoration — a dead-center tap on the BASE key is the lazy-input
+# signal FOR restoration (the fold pricing already consumes per-tap
+# evidence); the margin veto is reserved for taps that CONTRADICT an
+# error-class rewrite. Stage-1 taps, real artifacts.
+# ============================================================
+
+SCENARIO dead-center taps never veto accent restoration of simanum
+T "ef allir krakkarnir eru í "
+TAP s 0 0
+TAP i 0 0
+TAP m 0 0
+TAP a 0 0
+TAP n 0 0
+TAP u 0 0
+TAP m 0 0
+EXPECT_AUTOCORRECT símanum
+
+SCENARIO dead-center taps never veto the two letter restoration eg
+T "hvernig á "
+TAP e 0 0
+TAP g 0 0
+EXPECT_AUTOCORRECT ég
+
+SCENARIO dead-center taps allow the extreme common omission repair vd
+# "vð" → "við": the omitted i is a keystroke the taps cannot contradict;
+# the whole-word veto clamps at tapVetoCommonMaxFactor for an
+# extreme-vocabulary winner (við +2.9) instead of the full ×4.
+T "hvernig á ég að hega talað "
+TAP v 0 0
+T "ð"
+EXPECT_AUTOCORRECT við
+
+SCENARIO dead-center taps still veto fixture tier omission repairs
+# The bound of the relaxation: a mid-typicality winner keeps the full
+# whole-word veto — an all-dead-center unknown token never rewrites to
+# anything but headline vocabulary (unit twin: hoes → holes stays vetoed).
+T "ég ætla að kaupa "
+TAP n 0 0
+TAP o 0 0
+TAP g 0 0
+TAP g 0 0
+EXPECT_NO_AUTOCORRECT

@@ -1088,7 +1088,10 @@ SCENARIO dont offers don't in an english lane
 # data/README.md "Contraction frequency repair"), the triple gate passes
 # (dominance + context + no deliberateness) and don't AUTO-APPLIES —
 # the designed behavior the v2 data was too broken to permit. Escape
-# hatches: verbatim slot always present; dead-center taps veto.
+# hatch: the verbatim slot is always present. (Veto-asymmetry decision
+# 2026-07-16: dead-center taps no longer veto restoration-only winners —
+# a careful tap on the base key is the lazy-input signal, not evidence
+# against the apostrophe.)
 T "and he said why dont"
 EXPECT_POSTERIOR_LT 0.2
 EXPECT_AUTOCORRECT don't
@@ -1368,3 +1371,22 @@ SCENARIO substitution split never consumes a shifted letter
 T "the priest of "
 T ThemMangalore
 EXPECT_NO_AUTOCORRECT
+
+# ============================================================
+# Personal surface casing (live session 2026-07-16: the bar offered
+# "MEÐ"/"NEW" mid-sentence). An all-caps LEARNED surface of a word that
+# is also base-lexicon vocabulary is an autocap/caps-lock artifact of
+# the learning event — pipeline casing wins. Genuine acronyms are OOV
+# and keep their learned caps.
+# ============================================================
+
+SCENARIO all caps learned surface of base vocabulary keeps pipeline casing
+PERSONAL MEÐ 10
+T "hef séð me"
+EXPECT_CONTAINS með
+EXPECT_NOT_CONTAINS MEÐ
+
+SCENARIO all caps learned acronym keeps its caps
+PERSONAL XYZK 10
+T "skoða xyz"
+EXPECT_CONTAINS XYZK

@@ -67,7 +67,10 @@ public struct EngineConfig: Sendable {
 
     /// Auto-replace only fires when the top candidate beats the runner-up by
     /// this many nats (conservatism: under-correct rather than over-correct).
-    public var autocorrectMargin: Double = 1.25
+    /// Lowered 1.25 → 1.15 (2026-07-16 auto-apply tuning wave): the
+    /// 1.15–1.25 margin band on corpus dev was 20 correct / 4 false —
+    /// materially under-fired; 1.10 and below degrade toward 70% precision.
+    public var autocorrectMargin: Double = 1.15
     /// Typicality floor for a single-word auto-replacement: the winning
     /// candidate must be ATTESTED in a frequency table (personal words are
     /// exempt — personal attestation is stronger evidence) with a calibrated
@@ -92,8 +95,63 @@ public struct EngineConfig: Sendable {
     /// while 2-edit repairs keep the ordinary `autocorrectMinZ` floor
     /// ("koetip" → "kortið" at z −0.19 still fires).
     public var autocorrectFarRepairMinZ: Double = 0.0
-    /// Never auto-replace very short inputs.
-    public var minAutocorrectLength: Int = 3
+    /// Never auto-replace inputs shorter than this. Lowered 3 → 2 with the
+    /// short-token discipline below (dogfood "eg"/"vð" diagnosis,
+    /// 2026-07-16): two-letter unknown tokens carry little spatial
+    /// evidence, but exactly the extreme-frequency Icelandic function words
+    /// (ég, við, að, þú …) are what people actually mean by them — an
+    /// unconditioned margin rule fired mostly junk on the dev corpus
+    /// (3 of 4 new fires false), while the `autocorrectShortMinZ` floor
+    /// keeps only headline-vocabulary winners.
+    public var minAutocorrectLength: Int = 2
+    /// Tokens of length at or below this are SHORT for the auto-apply
+    /// typicality rule below.
+    public var autocorrectShortLengthMax: Int = 2
+    /// Typicality floor for auto-applying onto a SHORT unknown token: the
+    /// winner must be attested at or above this calibrated z (personal
+    /// words exempt, as everywhere). ég +2.42 / við +2.93 clear it; the
+    /// mid-tier words a 2-letter token sits one edit from do not.
+    public var autocorrectShortMinZ: Double = 1.5
+    /// Short double-substitution repairs (live-session "habb" → "hann",
+    /// 2026-07-16): per-edit spatial-cost ceiling for the targeted 3-4 char
+    /// two-substitution pass — ~adjacent keys only (adjacent ≈ 1.05 nats).
+    public var shortDoubleSubMaxEditCost: Double = 1.2
+    /// Typicality floor for candidates admitted by that pass: only
+    /// headline vocabulary may be reached through two edits on a short
+    /// token ("hann" +2.7 clears it; junk neighbors of junk stay out).
+    public var shortDoubleSubMinZ: Double = 2.0
+
+    /// Vacuum auto-apply (live-session "stökklrikanum" wave, 2026-07-16):
+    /// when the typed token is unknown everywhere AND the candidate pool
+    /// holds NO attested-or-personal repair within `closeCandidateGate`,
+    /// a BÍN-valid winner (normally barred from auto-apply by
+    /// `autocorrectMinZ` — the junk floor) may fire at this STRICTER
+    /// margin: with no attested competition, replacing an unknown token
+    /// with the morphologically valid word one cheap edit away beats
+    /// leaving the typo. Far repairs keep the hard attested-common rule
+    /// (mash must never become BÍN junk — the "garalega" landmine is
+    /// non-vacuum anyway: the honest attested repair is in the pool).
+    public var vacuumAutoApplyMargin: Double = 2.0
+    /// Master toggle for the vacuum auto-apply rule (eval A/B). DEFAULT
+    /// OFF (2026-07-16 verdict): on the dev corpus the rule fired 48 new
+    /// with 7 false — vacuum falses are margin-immune (no runner-up to
+    /// margin against), the overall false-ac ceiling headroom vanished
+    /// (4.87% of 5.0%), and it contradicts the sacred BÍN-junk contract
+    /// (`testBinOnlyCandidateNeverAutoApplies`, the "garalega" landmine).
+    /// Kept as an A/B knob for a future wave with better junk separation
+    /// (e.g. compound-splitter validation instead of raw BÍN validity).
+    public var vacuumAutoApplyEnabled = false
+
+    /// Proper-noun possessive guard (dev contraction_damage diagnosis,
+    /// 2026-07-16): a capitalized MID-SENTENCE unknown token of shape
+    /// Name+s whose stem is not English vocabulary is a possessive typed
+    /// without the apostrophe that the derivation pass cannot read —
+    /// error-class auto-apply is suppressed ("Corgans" must not become
+    /// "Organs", "LSUs" not "Laus"); suggestions and restoration-only
+    /// winners are unaffected, and sentence-initial capitals (empty
+    /// context or after . ! ? …) keep every rule. Deliberately narrow: a
+    /// blanket capitalized-token veto blocked 87% honest fixes on dev.
+    public var properNounGuardEnabled = true
 
     /// Fallback passes (shorter-prefix completions, splits, diacritic
     /// completions) run only when the best candidate found by the cheap
@@ -229,6 +287,20 @@ public struct EngineConfig: Sendable {
     public var tapVetoStrength: Double = 6.0
     /// Clamp on the veto factor.
     public var tapVetoMaxFactor: Double = 4.0
+    /// Veto-asymmetry relaxation (2026-07-16, dogfood "vð" under careful
+    /// taps): the whole-word aggregate veto applies to LENGTH-CHANGING
+    /// rewrites whose indel costs the taps cannot reprice — so a careful
+    /// typist's omission typo ("vð" for "við") was blocked purely by the
+    /// ×4 margin while carrying no contradicting tap. When the winner is
+    /// EXTREME vocabulary (calibrated z at or above
+    /// `tapVetoCommonWinnerMinZ`; personal words qualify), the veto factor
+    /// is clamped at `tapVetoCommonMaxFactor` instead: við (+2.9) fires at
+    /// margin 3.1, while fixture-tier winners ("holes" +0.4) keep the full
+    /// clamp — an all-dead-center unknown word still essentially never
+    /// rewrites to anything but headline vocabulary.
+    public var tapVetoCommonWinnerMinZ: Double = 2.0
+    /// The relaxed clamp for extreme-common winners (see above).
+    public var tapVetoCommonMaxFactor: Double = 2.5
 
     // --- Personal adaptive touch model (PLAN.md "Touch decoding", stage 2).
     // When a `PersonalTouchSnapshot` is injected (TypeEngine.setPersonalTouch)
@@ -431,8 +503,11 @@ public struct EngineConfig: Sendable {
     /// neutral prior and everything below it get no relaxation at all).
     public var laneWeightRampLo: Double = 0.5
     /// Lane posterior at which the fold ramp saturates (laneWeight = 1 —
-    /// folds cost `foldEpsilon`).
-    public var laneWeightRampHi: Double = 0.85
+    /// folds cost `foldEpsilon`). Lowered 0.85 → 0.75 (2026-07-16): a lane
+    /// only a few committed words deep already deserves near-free folds;
+    /// rampLo stays at the neutral 0.5 (the "no relaxation at/below the
+    /// neutral prior" invariant is untouchable).
+    public var laneWeightRampHi: Double = 0.75
     /// Per-profile toggles (eval A/B): the Icelandic acute-vowel profile and
     /// the English apostrophe/lone-i profile.
     public var foldProfileISEnabled = true
@@ -494,6 +569,19 @@ public struct EngineConfig: Sendable {
     /// above this calibrated z may claim dominance. fór (+1.77 on the real
     /// artifacts) clears it; víst (+0.78) does not.
     public var restorationDominanceMinZ: Double = 1.0
+    /// Relaxed dominance fallback for an OBLIQUE-ONLY skeleton (dogfood
+    /// "simanum" diagnosis, 2026-07-16): a BÍN-valid, is.lex-unattested
+    /// skeleton whose noun/adjective readings carry NO nominative — e.g.
+    /// "simanum" (þgf-only form of BÍN's variant lemma "simi") — is not a
+    /// citation-form word anyone types deliberately; it exists only as an
+    /// accent-dropped spelling of its restored twin. Base-form skeletons
+    /// ("vist", "for", "van", "mal" — all nf-readable) and non-noun
+    /// skeletons keep the strict `restorationDominanceMinZ` bar. −0.5
+    /// still demands the restored form be genuinely attested vocabulary
+    /// above the noise tier ("símanum" +0.04 passes with headroom;
+    /// junk-tier restorations stay offer-only). Swept 0.0/−0.5 on dev:
+    /// −0.5 adds one correct fire, zero false.
+    public var restorationDominanceObliqueMinZ: Double = -0.5
     /// Context gate (triple gate, part 2): the accented reading's
     /// calibrated contextual score must beat the skeleton's by at least
     /// this many σ in the lane language ("ég for heim" → fór overwhelmingly).
@@ -504,8 +592,14 @@ public struct EngineConfig: Sendable {
     ///   log(P_lane/(1−P_lane)) + τ·(z_lane(accented) − z_other(skeleton)),
     /// to be at least this many nats. An EN-attested word inside an IS lane
     /// ("for", "van") never gets decorative accents unless the lane is
-    /// saturated enough to overwhelm its English typicality.
-    public var slettaGuardBlendThreshold: Double = 0.5
+    /// saturated enough to overwhelm its English typicality. Lowered
+    /// 0.5 → 0.25 (2026-07-16, first recorded live session): typed "Fair"
+    /// meaning "Fáir" in a young IS lane (P(IS) 0.744) scored +0.47 —
+    /// blocked by a hair while every other gate passed; 0.25 still demands
+    /// the IS reading be ~1.3× likelier under the blend, dev corpus
+    /// byte-identical, sletta scenarios ("deadline", EN "for" at neutral)
+    /// unaffected.
+    public var slettaGuardBlendThreshold: Double = 0.25
 
     // --- Diacritic-restored prefix completions (dogfood "faralega"):
     // an unknown token may combine missing accents in its PREFIX with an

@@ -202,7 +202,9 @@ public final class TypingSession {
     /// macOS). Call this once per text change — it is stateful (commit
     /// detection compares against the previous call).
     @discardableResult
-    public func suggestions(for textBeforeCursor: String, limit: Int = 3) -> [Suggestion] {
+    public func suggestions(
+        for textBeforeCursor: String, limit: Int = 3, trace: CorrectionTrace? = nil
+    ) -> [Suggestion] {
         // A revert or attachment memo not consumed before the next keystroke
         // landed is dead: its one-keystroke window has passed.
         dotReplacement = nil
@@ -268,7 +270,8 @@ public final class TypingSession {
         let bar = buildSuggestions(
             context: context,
             currentWord: currentWord,
-            limit: limit
+            limit: limit,
+            trace: trace
         )
         lastEmittedAutocorrect = bar.first(where: { $0.isAutocorrect })?.text
         lastEmittedSuggestionTexts = bar.filter { !$0.isVerbatim }.map(\.text)
@@ -546,7 +549,8 @@ public final class TypingSession {
     private func buildSuggestions(
         context: String,
         currentWord: String,
-        limit: Int
+        limit: Int,
+        trace: CorrectionTrace? = nil
     ) -> [Suggestion] {
         guard limit > 0 else { return [] }
 
@@ -556,7 +560,8 @@ public final class TypingSession {
             return engine.suggestions(
                 context: effectiveContext,
                 currentWord: "",
-                limit: limit
+                limit: limit,
+                trace: trace
             )
         }
 
@@ -639,7 +644,8 @@ public final class TypingSession {
                 currentWord: stem,
                 limit: limit,
                 deliberateCharacters: deliberate,
-                taps: stemTaps
+                taps: stemTaps,
+                trace: trace
             )
             if pendingDot {
                 engineSuggestions = engineSuggestions.map {
@@ -667,6 +673,12 @@ public final class TypingSession {
         if fieldKind.suppressesAutocorrect || verbatimChoice == currentWord
             || verbatimChoice == stem
         {
+            if engineSuggestions.contains(where: \.isAutocorrect) {
+                trace?.note(
+                    fieldKind.suppressesAutocorrect
+                        ? "auto-apply flag stripped: field kind \(fieldKind.rawValue)"
+                        : "auto-apply flag stripped: verbatim-choice memo")
+            }
             engineSuggestions = engineSuggestions.map {
                 $0.isAutocorrect
                     ? Suggestion(

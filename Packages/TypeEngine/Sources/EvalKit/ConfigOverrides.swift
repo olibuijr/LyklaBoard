@@ -38,6 +38,9 @@ public enum ConfigOverrides {
         "autocorrectMinZ": { $0.autocorrectMinZ = $1 },
         "autocorrectMaxSpatialCost": { $0.autocorrectMaxSpatialCost = $1 },
         "autocorrectFarRepairMinZ": { $0.autocorrectFarRepairMinZ = $1 },
+        "autocorrectShortMinZ": { $0.autocorrectShortMinZ = $1 },
+        "shortDoubleSubMaxEditCost": { $0.shortDoubleSubMaxEditCost = $1 },
+        "shortDoubleSubMinZ": { $0.shortDoubleSubMinZ = $1 },
         "closeCandidateGate": { $0.closeCandidateGate = $1 },
         // Beam decoder
         "beamCostCap": { $0.beamCostCap = $1 },
@@ -61,7 +64,18 @@ public enum ConfigOverrides {
         "laneWeightRampHi": { $0.laneWeightRampHi = $1 },
         "restorationAutoApplyMargin": { $0.restorationAutoApplyMargin = $1 },
         "restorationDominanceRatio": { $0.restorationDominanceRatio = $1 },
+        "restorationDominanceMinZ": { $0.restorationDominanceMinZ = $1 },
+        "restorationDominanceObliqueMinZ": { $0.restorationDominanceObliqueMinZ = $1 },
+        "restorationContextMinAdvantage": { $0.restorationContextMinAdvantage = $1 },
+        "slettaGuardBlendThreshold": { $0.slettaGuardBlendThreshold = $1 },
+        "vacuumAutoApplyMargin": { $0.vacuumAutoApplyMargin = $1 },
         "accentAutoApplyMinPosterior": { $0.accentAutoApplyMinPosterior = $1 },
+        // Coordinate margin veto (tap-veto asymmetry work)
+        "tapVetoBaseline": { $0.tapVetoBaseline = $1 },
+        "tapVetoStrength": { $0.tapVetoStrength = $1 },
+        "tapVetoMaxFactor": { $0.tapVetoMaxFactor = $1 },
+        "tapVetoCommonWinnerMinZ": { $0.tapVetoCommonWinnerMinZ = $1 },
+        "tapVetoCommonMaxFactor": { $0.tapVetoCommonMaxFactor = $1 },
         // Two-lane switching model
         "laneSwitchProbability": { $0.laneSwitchProbability = $1 },
         "laneEmissionTemperature": { $0.laneEmissionTemperature = $1 },
@@ -75,6 +89,7 @@ public enum ConfigOverrides {
     /// Int-valued tunables.
     public static let intSetters: [String: (inout EngineConfig, Int) -> Void] = [
         "minAutocorrectLength": { $0.minAutocorrectLength = $1 },
+        "autocorrectShortLengthMax": { $0.autocorrectShortLengthMax = $1 },
         "autocorrectFarRepairEdits": { $0.autocorrectFarRepairEdits = $1 },
         "beamMaxEdits": { $0.beamMaxEdits = $1 },
         "beamShortMaxEdits": { $0.beamShortMaxEdits = $1 },
@@ -88,6 +103,8 @@ public enum ConfigOverrides {
     public static let boolSetters: [String: (inout EngineConfig, Bool) -> Void] = [
         "foldProfileISEnabled": { $0.foldProfileISEnabled = $1 },
         "foldProfileENEnabled": { $0.foldProfileENEnabled = $1 },
+        "properNounGuardEnabled": { $0.properNounGuardEnabled = $1 },
+        "vacuumAutoApplyEnabled": { $0.vacuumAutoApplyEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.
