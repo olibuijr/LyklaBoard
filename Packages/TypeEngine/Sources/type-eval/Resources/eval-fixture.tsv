@@ -128,3 +128,90 @@ eirld	world	spatial2
 becsise	because	spatial2
 oeiple	people	spatial2
 tonirriw	tomorrow	spatial2
+# ---------------------------------------------------------------------------
+# Lane relaxation wave (2026-07-16) — PLAN.md "Lane relaxation profiles".
+# accentlazy: accent-naked Icelandic (only the six long-press acutes áéíóúý
+# stripped; ð þ æ ö have dedicated keys and never fold), judged inside a
+# SATURATED IS lane (posterior primed to the 0.9 ceiling). Rows GENERATED
+# from data/eval/sentences.is.txt, held-out-style: sentences from line 6000
+# on, first qualifying word per sentence (>= 1 acute, skeleton length >= 4,
+# corpus count >= 8), previous corpus word as 4th-column context. The
+# generator also emits the AccentWordlists Swift literals (unigram = corpus
+# count / 8, context bigram = count / 40) — see Wordlists.swift; these
+# categories run on the SEPARATE accent engine so the categories above stay
+# byte-identical.
+þyðir	þýðir	accentlazy	sem
+sinar	sínar	accentlazy
+bokum	bókum	accentlazy	í
+bokinni	bókinni	accentlazy	af
+bokin	bókin	accentlazy	fyrsta
+moðir	móðir	accentlazy	og
+atti	átti	accentlazy	sem
+latinu	latínu	accentlazy	á
+sotti	sótti	accentlazy	hann
+november	nóvember	accentlazy	bond
+boka	bóka	accentlazy	engin
+aratug	áratug	accentlazy	á
+arunum	árunum	accentlazy	frá
+arið	árið	accentlazy	hans
+aður	áður	accentlazy	tvisvar
+þrjar	þrjár	accentlazy
+arsins	ársins	accentlazy	til
+raða	ráða	accentlazy	aldrei
+akvað	ákvað	accentlazy	connery
+astraliu	ástralíu	accentlazy	frá
+personu	persónu	accentlazy
+bandarisk	bandarísk	accentlazy	er
+olst	ólst	accentlazy
+utskrifaðist	útskrifaðist	accentlazy	hún
+fekk	fékk	accentlazy	og
+agust	ágúst	accentlazy	frá
+sina	sína	accentlazy
+siðan	síðan	accentlazy
+moti	móti	accentlazy	á
+þratt	þrátt	accentlazy
+utgafu	útgáfu	accentlazy	ensku
+ymsum	ýmsum	accentlazy	og
+juni	júní	accentlazy	nóvember
+broðir	bróðir	accentlazy	yngri
+raðgjafi	ráðgjafi	accentlazy	helsti
+manuði	mánuði	accentlazy
+fulltrui	fulltrúi	accentlazy	varð
+kaliforniu	kaliforníu	accentlazy	í
+siðar	síðar	accentlazy	var
+þott	þótt	accentlazy	hafði
+# skeleton-collision positives: restoration may pass the valid-word rule
+# only through the triple gate (+ sletta guard); "for" is EN-valid, fór
+# dominates with "ég" context; lone i restores via the single-letter path.
+for	fór	accentlazy	ég
+i	í	accentlazy
+# accentguard: collision skeletons in skeleton-meaning contexts — typo ==
+# expected means the row PASSES only when nothing auto-applies (any firing
+# = false restoration; the metric that matters). víst/vist ratio 7.6 fails
+# dominance; "í vist" additionally fails the context gate; ver >> vér and
+# van (English) / ván (rare) exercise the wrong-way and sletta guards.
+vist	vist	accentguard	í
+vist	vist	accentguard	var
+ver	ver	accentguard	og
+van	van	accentguard
+# apos: the English mirror — apostrophe folding at a saturated EN lane
+# (dont→don't at ~ε) + lone i→I capitalization. Hand-authored contraction
+# pack with realistic relative counts (see AccentWordlists docs).
+dont	don't	apos	why
+dont	don't	apos
+im	i'm	apos	said
+cant	can't	apos	i
+wont	won't	apos	i
+didnt	didn't	apos	you
+isnt	isn't	apos	he
+youre	you're	apos	and
+ive	i've	apos
+thats	that's	apos
+hes	he's	apos
+i	I	apos	said
+# aposguard: attested English skeletons keep their reading — cant (140) vs
+# can't (150) and ill (90) vs i'll (55) fail the dominance ratio; well is
+# base vocabulary against we'll (40).
+cant	cant	aposguard	she
+ill	ill	aposguard
+well	well	aposguard

@@ -140,6 +140,17 @@ public final class TypingSession {
     /// the token the user explicitly chose. Cleared on commit/external
     /// change/reset.
     private var verbatimChoice: String?
+    /// Characters of the pending word entered via long-press/callout — the
+    /// strongest deliberateness signal in the lane-relaxation hierarchy
+    /// (PLAN.md "Lane relaxation profiles", triple gate part 3a). The
+    /// extension's action handler calls `noteLongPressInsertion(_:)` for
+    /// every callout-selected character; the engine then vetoes accent
+    /// folding for that word and never auto-applies a candidate that drops
+    /// one of these characters (a long-pressed accent is never folded
+    /// away). Only characters still present in the pending word count
+    /// (backspacing one away retires its veto); cleared when the word
+    /// commits or is abandoned, on external change and reset.
+    private var longPressedCharacters: [Character] = []
 
     // MARK: - Learning-event state (M2)
 
@@ -211,6 +222,12 @@ public final class TypingSession {
         previousCurrentWord = currentWord
         lastSeenWindow = textBeforeCursor
 
+        // Long-press deliberateness memos belong to the pending word: once
+        // it commits or is abandoned (no word in progress), they retire.
+        if currentWord.isEmpty {
+            longPressedCharacters = []
+        }
+
         let bar = buildSuggestions(
             context: context,
             currentWord: currentWord,
@@ -219,6 +236,20 @@ public final class TypingSession {
         lastEmittedAutocorrect = bar.first(where: { $0.isAutocorrect })?.text
         lastEmittedSuggestionTexts = bar.filter { !$0.isVerbatim }.map(\.text)
         return bar
+    }
+
+    /// Tell the session a character of the pending word was entered via a
+    /// LONG-PRESS callout (accents á é í ó ú ý, apostrophes, long-press
+    /// symbols) — an explicit input act, the strongest deliberateness
+    /// signal (PLAN.md lane-relaxation triple gate, part 3a). Call BEFORE
+    /// or right after inserting the character through the proxy; the memo
+    /// rides with the pending word and vetoes accent folding for it.
+    /// (KeyboardExt wiring is a one-liner in the action handler for
+    /// callout-selected characters — owned by the extension wave; the
+    /// harness `LONGPRESS` directive drives this API meanwhile.)
+    public func noteLongPressInsertion(_ character: Character) {
+        guard let lowered = String(character).lowercased().first else { return }
+        longPressedCharacters.append(lowered)
     }
 
     /// Tell the session the user committed a token via the verbatim
@@ -359,6 +390,7 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        longPressedCharacters = []
         punctuationAttachmentArmed = false
         lastEmittedSuggestionTexts = []
         // Bigram evidence never spans a discontinuity, and a pending tap
@@ -390,6 +422,7 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        longPressedCharacters = []
         punctuationAttachmentArmed = false
         lastEmittedAutocorrect = nil
         lastEmittedSuggestionTexts = []
@@ -452,7 +485,8 @@ public final class TypingSession {
                     return Suggestion(
                         text: prefix + $0.text + (pendingDot ? "." : ""),
                         isAutocorrect: false,
-                        confidence: $0.confidence
+                        confidence: $0.confidence,
+                        isRestoration: $0.isRestoration
                     )
                 }
             }
@@ -487,20 +521,35 @@ public final class TypingSession {
             // 1-char path is a couple of point lookups, not the 1-char
             // completion scan the gate exists to avoid.
             let effectiveContext = context.isEmpty ? (carriedContext ?? "") : context
+            // Long-press deliberateness memos still present in the pending
+            // stem (backspaced-away characters retire their veto).
+            let stemChars = Array(stem.lowercased())
+            let deliberate = longPressedCharacters.filter { stemChars.contains($0) }
             engineSuggestions = engine.suggestions(
                 context: effectiveContext,
                 currentWord: stem,
-                limit: limit
+                limit: limit,
+                deliberateCharacters: deliberate
             )
             if pendingDot {
                 engineSuggestions = engineSuggestions.map {
                     Suggestion(
                         text: $0.text + ".",
                         isAutocorrect: $0.isAutocorrect,
-                        confidence: $0.confidence
+                        confidence: $0.confidence,
+                        isRestoration: $0.isRestoration
                     )
                 }
             }
+        }
+
+        // Lane-relaxation field gate (PLAN.md invariant "URL/email/secure
+        // fields: no restoration at all"): restoration-class suggestions
+        // are DROPPED, not just de-flagged — domains, e-mail localparts and
+        // search tokens are unaccented by convention, so decorating them is
+        // noise at best ("bud" in a URL bar must not surface "búð").
+        if fieldKind.suppressesAutocorrect {
+            engineSuggestions.removeAll(where: \.isRestoration)
         }
 
         // Field-type gate (layer 2) + verbatim-choice memo (layer 1): keep
@@ -510,7 +559,9 @@ public final class TypingSession {
         {
             engineSuggestions = engineSuggestions.map {
                 $0.isAutocorrect
-                    ? Suggestion(text: $0.text, isAutocorrect: false, confidence: $0.confidence)
+                    ? Suggestion(
+                        text: $0.text, isAutocorrect: false, confidence: $0.confidence,
+                        isRestoration: $0.isRestoration)
                     : $0
             }
         }

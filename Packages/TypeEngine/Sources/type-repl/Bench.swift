@@ -32,6 +32,14 @@ struct Bench {
     /// keystroke budget (<8 ms).
     static let beamWorstCase = "Mávahlíð er komin á koetip"
 
+    /// Lane-relaxation line: a fully accent-naked Icelandic sentence (only
+    /// the long-press acutes stripped; ð/ö keep their dedicated keys) typed
+    /// after an Icelandic warm-up sentence saturates the lane — every
+    /// naked word walks the fold-priced decode. Fold pricing is O(1) per
+    /// beam expansion, so this must stay in the ordinary-typing ballpark.
+    static let accentNakedWarmup = "við erum að versla fyrir helgina. "
+    static let accentNakedCase = "flytjum i bud fyrir helgina og faum okkur kaffi a eftir"
+
     func run(limit: Int) {
         // Production-shaped warm-up: the extension calls engine.warmUp()
         // from its bootstrap. First-keystroke latencies below therefore
@@ -101,6 +109,21 @@ struct Bench {
         print(
             "  beam worst case    \(String(format: "%8.0f", beamWorst)) us"
                 + "  (slowest keystroke while typing \"…á koetip\")"
+        )
+
+        // Lane-relaxation gate (see accentNakedCase docs): a fully
+        // accent-naked IS sentence decoded inside a saturated lane.
+        typist.reset()
+        typist.type(Self.accentNakedWarmup)
+        let nakedStart = typist.latenciesMicros.count
+        typist.type(Self.accentNakedCase)
+        let nakedLatencies = typist.latenciesMicros[nakedStart...].sorted()
+        let nakedWorst = nakedLatencies.last ?? 0
+        let nakedP50 = nakedLatencies.isEmpty ? 0 : nakedLatencies[nakedLatencies.count / 2]
+        print(
+            "  accent-naked IS    \(String(format: "%8.0f", nakedWorst)) us"
+                + "  (slowest; p50 \(String(format: "%.0f", nakedP50)) us"
+                + " while typing \"flytjum i bud …\" at P(IS)≈0.9)"
         )
     }
 }

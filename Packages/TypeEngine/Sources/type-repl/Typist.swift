@@ -112,6 +112,17 @@ final class Typist {
         refresh()
     }
 
+    /// Type characters as LONG-PRESS callout selections (the extension's
+    /// action handler forwards callout-selected characters through
+    /// `noteLongPressInsertion` before inserting them): the deliberateness
+    /// signal of the lane-relaxation triple gate.
+    func longPress(_ text: String) {
+        for character in text {
+            session.noteLongPressInsertion(character)
+            typeCharacter(character)
+        }
+    }
+
     func pressBackspace(_ count: Int = 1) {
         for _ in 0..<count {
             proxy.deleteBackward()

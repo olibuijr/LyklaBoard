@@ -21,6 +21,8 @@ struct Repl {
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
               :learn <w>        session-immediate explicit learn (verbatim-tap path)
+              :longpress <c>    type <c> as LONG-PRESS callout characters
+                                (deliberateness signal: folding vetoed for the word)
               :learned          list personal snapshot + session-learned words
               :events           list learning events emitted so far
               :timing           toggle per-keystroke latency listing
@@ -81,10 +83,18 @@ struct Repl {
             let fEN = d.frequencyEN.map(String.init) ?? "-"
             print("  is.lex  f=\(fIS)  z=\(String(format: "%+.2f", d.zIS))")
             print("  en.lex  f=\(fEN)  z=\(String(format: "%+.2f", d.zEN))")
+            print("  BÍN     \(d.binKnown ? "known" : "-")")
             print(
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":longpress":
+            guard !argument.isEmpty else {
+                print("usage: :longpress <characters>")
+                break
+            }
+            typist.longPress(ScenarioRunner.unquote(argument))
+            report(typist, lineLatencies: [], showPerChar: false)
         case ":learn":
             guard !argument.isEmpty else {
                 print("usage: :learn <word>")

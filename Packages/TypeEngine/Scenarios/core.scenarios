@@ -942,3 +942,197 @@ SCENARIO tonirriw triple noise decodes tomorrow
 # above locks the mash side of the same rule (rare "aegis" stays bar-only).
 T "see you tonirriw"
 EXPECT_AUTOCORRECT tomorrow
+
+# ============================================================
+# Lane relaxation profiles (PLAN.md "diacritics are an input method, not an
+# error"): acute-vowel folds price ~ε inside a saturated Icelandic lane,
+# apostrophe folds + lone-i caps mirror it in English; skeleton collisions
+# auto-apply past the valid-word rule only through the triple gate
+# (dominance × context × deliberateness) plus the sletta guard.
+# ============================================================
+
+SCENARIO accent naked sentence restores end to end in icelandic lane
+# The headline: a rational fast typist skips the long-press accents and the
+# engine restores them. "i" → í (single-letter special case), "bud" → búð
+# (u→ú fold + d→ð confusion discount, past EN-valid "bud" via the triple
+# gate + sletta guard), everything else already valid.
+T "við vorum að versla. "
+EXPECT_POSTERIOR_GT 0.75
+T "flytjum i bud fyrir helgina "
+EXPECT_BUFFER "við vorum að versla. flytjum í búð fyrir helgina "
+EXPECT_POSTERIOR_GT 0.85
+
+SCENARIO for restores to fór through the triple gate in a saturated lane
+# "for" is a valid word (en.lex + BÍN), so the sacred valid-word rule
+# applies — and all gates pass: fór dominates (369k vs a BÍN-only
+# skeleton at headline z +1.77), context "ég fór" supports it, no
+# deliberateness signal, and the saturated lane overwhelms the English
+# reading of "for" (sletta guard).
+T "við vorum að versla. ég for"
+EXPECT_POSTERIOR_GT 0.85
+EXPECT_VERBATIM for
+EXPECT_AUTOCORRECT fór
+T " heim "
+EXPECT_BUFFER "við vorum að versla. ég fór heim "
+
+SCENARIO vist stays offer-only because dominance fails
+# víst sits at z +0.78 — below the dominance bar for a BÍN-valid skeleton
+# of unknown frequency ("vist" is a real word is.lex never measured).
+# Offer-only: both readings visible, nothing auto-applied.
+T "við vorum að versla. þetta er alveg vist"
+EXPECT_POSTERIOR_GT 0.85
+EXPECT_CONTAINS víst
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. þetta er alveg vist "
+
+SCENARIO vil never steals its rare accent twin
+# The ratio machinery proper: vil (178k) ≫ víl (5) — restoration the wrong
+# way around must not even come close.
+T "við vorum að versla. ég vil"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. ég vil "
+
+SCENARIO sletta guard blocks fór at a merely-leaning lane
+# P(IS) ≈ 0.71 clears the lane gate but not the sletta guard: the blend
+# advantage over the English reading of "for" (z +2.36) stays under the
+# threshold — offer-only until the lane saturates.
+T "ekki flytjum "
+EXPECT_POSTERIOR_GT 0.65
+EXPECT_POSTERIOR_LT 0.75
+T for
+EXPECT_CONTAINS fór
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "ekki flytjum for "
+
+SCENARIO english lane leaves for untouched
+T "this is for"
+EXPECT_POSTERIOR_LT 0.3
+EXPECT_NO_AUTOCORRECT
+T " you "
+EXPECT_BUFFER "this is for you "
+
+SCENARIO long-pressed character vetoes folding for the word
+# Deliberateness hierarchy, strongest signal: the o was picked from the
+# long-press callout, so "for" is exactly what the user meant — fór stays
+# offered, never applied, and the literal token commits.
+T "við vorum að versla. ég f"
+LONGPRESS o
+T r
+EXPECT_CONTAINS fór
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. ég for "
+
+SCENARIO long-pressed accent is never folded away
+# Exact-input-wins invariant, long-press flavor: a deliberately entered
+# accent must never be rewritten to its skeleton (or anything else).
+T "við vorum að versla. ég f"
+LONGPRESS ó
+T r
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. ég fór "
+
+SCENARIO exact accented input is never restored differently
+# Exact input wins by ε: deliberately typed accents are never penalized.
+T "við vorum að versla. ég fór heim"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. ég fór heim "
+
+SCENARIO personal skeleton vetoes restoration of itself
+# The user explicitly learned the skeleton (deliberateness part c):
+# personal dict outranks restoration — fór stays offer-only.
+PERSONAL for 5
+T "við vorum að versla. ég for"
+EXPECT_CONTAINS fór
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla. ég for "
+
+SCENARIO tombstoned accented form is never restored to
+TOMBSTONE fór
+T "við vorum að versla. ég for"
+EXPECT_NOT_CONTAINS fór
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO url field gets no restoration at all
+# Field-kind invariant: restoration-class suggestions are dropped, not just
+# de-flagged — domains are unaccented by convention.
+FIELD url
+T "við vorum að versla "
+EXPECT_POSTERIOR_GT 0.85
+T bud
+EXPECT_NOT_CONTAINS búð
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "við vorum að versla bud "
+FIELD standard
+
+SCENARIO secure field gets no restoration at all
+FIELD secure
+T "við vorum að versla "
+T bud
+EXPECT_NOT_CONTAINS búð
+EXPECT_NO_AUTOCORRECT
+FIELD secure
+FIELD standard
+
+SCENARIO dont offers don't in an english lane
+# EN profile, apostrophe folding: the omitted apostrophe prices ~ε in a
+# saturated EN lane so don't reaches the bar. Offer-only on the real
+# artifacts: en.lex undercounts contraction frequencies (don't 26.9k vs
+# font 367k — apostrophe-stripped corpus noise), so the error-class rival
+# outranks it. The micro-eval doubles (sane contraction counts) lock the
+# auto-apply behavior; bumping en.lex v3 contraction counts is the data
+# follow-up.
+T "and he said why dont"
+EXPECT_POSTERIOR_LT 0.2
+EXPECT_CONTAINS don't
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "and he said why dont "
+
+SCENARIO personal don't auto-restores from dont in an english lane
+# Personal vocabulary participates in folded matching: the learned
+# contraction outranks the error-class rivals and passes the triple gate
+# (dominance: dont is not English vocabulary; sletta guard: its is.lex
+# junk-tier reading is overwhelmed in an EN lane).
+PERSONAL don't 6
+T "and he said why dont"
+EXPECT_AUTOCORRECT don't
+T " "
+EXPECT_BUFFER "and he said why don't "
+
+SCENARIO cant keeps its english reading
+# Dominance-ratio fail, EN side: "cant" is genuine English vocabulary
+# (142k) and can't (7.5k) is nowhere near 10× above it — offer-only
+# territory at best, never auto-applied.
+T "she said that she cant"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "she said that she cant "
+
+SCENARIO lone i capitalizes to I in an english lane
+# The EN mirror of a→á: lone i → I may auto-apply once the lane is
+# confidently English.
+T "we said that i"
+EXPECT_AUTOCORRECT I
+T " think "
+EXPECT_BUFFER "we said that I think "
+
+SCENARIO lone i in an icelandic lane still restores í
+# The IS profile wins the same letter inside its own lane (this is the
+# shipped single-letter path, now a special case of the general rule).
+T "við erum i"
+EXPECT_AUTOCORRECT í
+T " "
+EXPECT_BUFFER "við erum í "
+
+SCENARIO lone i at a neutral lane is offer-only both ways
+T i
+EXPECT_VERBATIM i
+EXPECT_NO_AUTOCORRECT

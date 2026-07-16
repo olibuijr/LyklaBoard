@@ -19,17 +19,28 @@ public struct Suggestion: Equatable, Sendable {
     /// keyboard toolbar via KeyboardKit's `.unknown` suggestion type).
     /// Emitted by `TypingSession`, never by the corrector/predictor.
     public let isVerbatim: Bool
+    /// RESTORATION-class candidate (PLAN.md "Lane relaxation profiles"):
+    /// every edit between the typed token and this text is restoration —
+    /// acute-vowel folds (a→á …), directional orthographic confusions
+    /// (d→ð, t→þ, o→ö), apostrophe insertions (dont→don't), or the lone
+    /// i→I capitalization. Distinct from error-class corrections for
+    /// margins, eval bucketing and UI affordances; `TypingSession` drops
+    /// restoration suggestions entirely in URL/email/webSearch/secure
+    /// fields.
+    public let isRestoration: Bool
 
     public init(
         text: String,
         isAutocorrect: Bool,
         confidence: Double,
-        isVerbatim: Bool = false
+        isVerbatim: Bool = false,
+        isRestoration: Bool = false
     ) {
         self.text = text
         self.isAutocorrect = isAutocorrect
         self.confidence = confidence
         self.isVerbatim = isVerbatim
+        self.isRestoration = isRestoration
     }
 }
 
@@ -95,17 +106,32 @@ public struct Corrector {
     ///   - previousWord: last committed word, for bigram context (lowercased)
     ///   - pIcelandic: current language posterior P(IS)
     ///   - limit: max suggestions returned
+    ///   - deliberateCharacters: characters of the pending word entered via
+    ///     an explicit long-press/callout act (fed by the embedder through
+    ///     `TypingSession.noteLongPressInsertion`). Any such character is
+    ///     the strongest deliberateness signal (PLAN.md triple gate, part
+    ///     3a): lane relaxation is vetoed for the whole word, restoration
+    ///     never auto-applies past the valid-word rule, and no candidate
+    ///     that drops one of these characters may auto-apply (a
+    ///     long-pressed accent is never folded away).
     public func correct(
         typed rawTyped: String,
         previousWord: String? = nil,
         pIcelandic: Double = 0.5,
-        limit: Int = 3
+        limit: Int = 3,
+        deliberateCharacters: [Character] = []
     ) -> CorrectionResult {
         let typed = rawTyped.lowercased()
         let typedChars = Array(typed)
         guard !typedChars.isEmpty, limit > 0 else {
             return CorrectionResult(suggestions: [], typedWordIsValid: false)
         }
+        let deliberate = deliberateCharacters.map { Character($0.lowercased()) }
+        // Lane-relaxation pricing for this call (PLAN.md "Lane relaxation
+        // profiles"); a long-pressed character anywhere in the word vetoes
+        // the relaxation outright.
+        let pricing = FoldPricing(
+            config: config, pIcelandic: pIcelandic, vetoRelaxation: !deliberate.isEmpty)
 
         // Hyphenated compound rule (PLAN.md "Compounds" + harness quirk
         // list): a token containing hyphens whose parts are each valid is
@@ -136,15 +162,16 @@ public struct Corrector {
         }
 
         // ---- Candidate generation ----------------------------------------
-        // word -> spatial cost
-        var candidates: [String: Double] = [:]
+        // word -> lane-priced channel cost (total + restoration/error split)
+        var candidates: [String: ChannelCost] = [:]
 
         func admit(_ word: String) {
             guard word != typed, candidates[word] == nil else { return }
             // Tombstoned words are never offered, base-lexicon presence
             // notwithstanding (every generation pass funnels through here).
             guard !model.isPersonalTombstoned(word) else { return }
-            candidates[word] = spatialCost(typedChars: typedChars, candidate: word)
+            candidates[word] = channelCost(
+                typedChars: typedChars, candidate: word, pricing: pricing)
         }
 
         // 1. PRIMARY: beam-search spatial decode over both frequency
@@ -174,6 +201,7 @@ public struct Corrector {
                     lexicon: searchable,
                     lexiconIndex: index,
                     costs: positionCosts,
+                    pricing: pricing,
                     maxEdits: maxEdits
                 ) {
                     admit(word)
@@ -254,7 +282,7 @@ public struct Corrector {
         // Spatial cost still judges the candidates, so junk from the wider
         // buckets ranks on merit.
         if typedChars.count >= 5,
-            (candidates.values.min() ?? .infinity) > config.closeCandidateGate
+            (candidates.values.map(\.total).min() ?? .infinity) > config.closeCandidateGate
         {
             let shortestPrefix = max(3, typedChars.count - 4)
             for length in stride(from: typedChars.count - 1, through: shortestPrefix, by: -1) {
@@ -322,16 +350,18 @@ public struct Corrector {
         {
             runBeam(maxEdits: config.beamMaxEdits)
         }
-        let bestSoFar = candidates.values.min() ?? .infinity
+        let bestSoFar = candidates.values.map(\.total).min() ?? .infinity
 
         // ---- Scoring ------------------------------------------------------
-        // score = -spatialCost + λ·S_lang(candidate | context, posterior),
+        // score = -channelCost + λ·S_lang(candidate | context, posterior),
         // where S_lang blends per-lexicon CALIBRATED scores by the posterior
-        // (see BlendedLanguageModel.blendedScore).
-        var scored: [(word: String, spatialCost: Double, score: Double)] = candidates.map {
+        // (see BlendedLanguageModel.blendedScore). The channel cost is the
+        // lane-priced total, so restoration-class edits cost ~ε inside a
+        // saturated lane while error-class edits keep their full prices.
+        var scored: [(word: String, cost: ChannelCost, score: Double)] = candidates.map {
             word, cost in
             let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
-            return (word, cost, -cost + config.languageWeight * s)
+            return (word, cost, -cost.total + config.languageWeight * s)
         }
 
         // 6. Space-miss splits (PLAN.md "Space-miss correction"): an unknown
@@ -354,7 +384,15 @@ public struct Corrector {
                     typedChars: typedChars,
                     previousWord: previousWord,
                     pIcelandic: pIcelandic
-                )
+                ).map {
+                    // Splits are error-class rewrites by definition (a
+                    // missed keystroke, never restoration).
+                    (
+                        word: $0.word,
+                        cost: ChannelCost(total: $0.spatialCost, errorOps: 1, restorationOps: 0),
+                        score: $0.score
+                    )
+                }
             )
         }
 
@@ -362,14 +400,14 @@ public struct Corrector {
 
         // ---- Conservatism / autocorrect decision --------------------------
         var autocorrect = false
-        if !typedIsValid,
-            let best = scored.first,
+        if let best = scored.first,
             typedChars.count >= config.minAutocorrectLength,
-            best.spatialCost <= config.autocorrectMaxSpatialCost,
-            Self.preservesApostrophes(of: typed, in: best.word)
+            best.cost.total <= config.autocorrectMaxSpatialCost,
+            Self.preservesApostrophes(of: typed, in: best.word),
+            Self.preservesDeliberateCharacters(deliberate, of: typedChars, in: best.word)
         {
             let margin = scored.count > 1 ? best.score - scored[1].score : .infinity
-            if best.word.contains(" ") {
+            if !typedIsValid, best.word.contains(" ") {
                 // Split auto-apply (dogfood "fara lega" tightening): a split
                 // is a bigger intervention than a repair, so it must clear a
                 // RAISED margin AND the merged token must have no plausible
@@ -379,11 +417,11 @@ public struct Corrector {
                 // everything must not block "helloworld" → "hello world").
                 let bestSingleCost = scored
                     .filter { !$0.word.contains(" ") && isAttestedOrPersonal($0.word) }
-                    .map(\.spatialCost)
+                    .map(\.cost.total)
                     .min() ?? .infinity
                 autocorrect = margin >= config.splitAutocorrectMargin
                     && bestSingleCost > config.splitAutoApplySingleWordCutoff
-            } else {
+            } else if !typedIsValid {
                 // Single-word auto-apply additionally requires the winner to
                 // be typical vocabulary (attested at z ≥ autocorrectMinZ;
                 // personal words are exempt): BÍN-floored junk like
@@ -402,8 +440,37 @@ public struct Corrector {
                         >= config.autocorrectFarRepairEdits
                     ? max(config.autocorrectMinZ, config.autocorrectFarRepairMinZ)
                     : config.autocorrectMinZ
-                autocorrect = margin >= config.autocorrectMargin
+                // RESTORATION-only winners (every edit an acute fold /
+                // directional confusion / apostrophe insertion) get the
+                // relaxed margin once the lane ramp is open: restoration
+                // serves an input method and does not compete for the
+                // error-budget margin. At/below the neutral prior the
+                // ordinary margin applies — nothing changes there.
+                let requiredMargin =
+                    best.cost.isRestorationOnly
+                        && restorationProfileWeight(
+                            typed: typed, candidate: best.word, pricing: pricing) > 0
+                    ? config.restorationAutoApplyMargin
+                    : config.autocorrectMargin
+                autocorrect = margin >= requiredMargin
                     && typicality >= minZ
+            } else if best.cost.isRestorationOnly, !best.word.contains(" "),
+                deliberate.isEmpty
+            {
+                // Skeleton collision (PLAN.md "The hard part"): the typed
+                // token is itself a valid word ("for", "vist", "dont"), so
+                // the sacred valid-word rule applies — restoration may
+                // auto-apply PAST it only through the triple gate
+                // (dominance × context × no deliberateness signal), plus
+                // the sletta guard and the relaxed margin.
+                autocorrect =
+                    margin >= config.restorationAutoApplyMargin
+                    && passesRestorationTripleGate(
+                        typed: typed,
+                        candidate: best.word,
+                        previousWord: previousWord,
+                        pIcelandic: pIcelandic
+                    )
             }
         }
 
@@ -416,10 +483,133 @@ public struct Corrector {
             Suggestion(
                 text: entry.word,
                 isAutocorrect: index == 0 && autocorrect,
-                confidence: z > 0 ? exp(entry.score - maxScore) / z : 0
+                confidence: z > 0 ? exp(entry.score - maxScore) / z : 0,
+                isRestoration: entry.cost.isRestorationOnly
             )
         }
         return CorrectionResult(suggestions: Array(suggestions), typedWordIsValid: typedIsValid)
+    }
+
+    // MARK: - Lane relaxation (restoration auto-apply machinery)
+
+    /// Which profile's lane ramp governs a restoration-only candidate:
+    /// apostrophe ADDITIONS are the English profile, everything else (acute
+    /// folds, directional confusions) the Icelandic one.
+    private func restorationProfileWeight(
+        typed: String, candidate: String, pricing: FoldPricing
+    ) -> Double {
+        let typedApostrophes = typed.filter { Self.apostrophes.contains($0) }.count
+        let candidateApostrophes = candidate.filter { Self.apostrophes.contains($0) }.count
+        return candidateApostrophes > typedApostrophes ? pricing.weightEN : pricing.weightIS
+    }
+
+    /// A candidate may never auto-apply if it drops a character the user
+    /// entered via long-press/callout (deliberateness hierarchy, strongest
+    /// signal): multiset containment on the long-pressed characters — a
+    /// long-pressed accent is never folded away, a long-pressed letter
+    /// never rewritten away. Bar suggestions are unaffected.
+    static func preservesDeliberateCharacters(
+        _ deliberate: [Character], of typed: [Character], in candidate: String
+    ) -> Bool {
+        guard !deliberate.isEmpty else { return true }
+        let candidateChars = Array(candidate)
+        for char in Set(deliberate) {
+            let required = min(
+                deliberate.filter { $0 == char }.count,
+                typed.filter { $0 == char }.count
+            )
+            guard candidateChars.filter({ $0 == char }).count >= required else { return false }
+        }
+        return true
+    }
+
+    /// Skeleton-collision triple gate (PLAN.md "Lane relaxation profiles",
+    /// "The hard part"): the typed skeleton is itself a valid word, and the
+    /// restoration-only candidate may auto-apply past the sacred valid-word
+    /// rule only when ALL gates pass. Fail any → offer-only (both readings
+    /// stay visible in the bar).
+    private func passesRestorationTripleGate(
+        typed: String,
+        candidate: String,
+        previousWord: String?,
+        pIcelandic: Double
+    ) -> Bool {
+        // Deliberateness, part (c): the user previously learned or
+        // verbatim-tapped the skeleton (personal dict outranks restoration),
+        // or tombstoned it (deletion means "stop suggesting", never "start
+        // correcting what I type"). Tombstoned candidates never got here —
+        // admit() excludes them.
+        guard !model.isPersonalValid(typed), !model.isPersonalTombstoned(typed) else {
+            return false
+        }
+
+        // Profile from the restoration direction: apostrophe additions are
+        // the English profile, acute folds the Icelandic one.
+        let addsApostrophes =
+            candidate.filter { Self.apostrophes.contains($0) }.count
+            > typed.filter { Self.apostrophes.contains($0) }.count
+        let lane: Language = addsApostrophes ? .english : .icelandic
+        let other: Language = addsApostrophes ? .icelandic : .english
+        let pLane = addsApostrophes ? 1 - pIcelandic : pIcelandic
+
+        // Lane gate: the general rule inherits the shipped single-letter
+        // path's auto-apply posterior (that path is the special case of
+        // this rule) — never past the valid-word rule from a neutral or
+        // off-lane posterior.
+        guard pLane >= config.accentAutoApplyMinPosterior else { return false }
+
+        // Gate 1 — frequency dominance in the lane lexicon (the is.lex
+        // accent-dominance ratio machinery): the restored form must be
+        // ≥ restorationDominanceRatio× the skeleton. fór (369k) over an
+        // is.lex-absent "for" passes trivially; víst (+0.78, below
+        // restorationDominanceMinZ) over BÍN-valid "vist" does not.
+        guard let candidateFrequency = model.lexicon(for: lane).frequency(of: candidate) else {
+            return false
+        }
+        if let skeletonFrequency = model.lexicon(for: lane).frequency(of: typed) {
+            guard
+                Double(candidateFrequency)
+                    >= config.restorationDominanceRatio * Double(skeletonFrequency)
+            else { return false }
+        } else if lane == .icelandic, model.morphology?.isKnown(typed) == true {
+            // BÍN-valid skeleton of unknown frequency: the ratio machinery
+            // has no denominator, so only headline-frequency restored forms
+            // may claim dominance over a real-but-unmeasured word.
+            guard
+                model.calibratedUnigramScore(of: candidate, language: lane)
+                    >= config.restorationDominanceMinZ
+            else { return false }
+        }
+        // (Skeleton valid only in the OTHER language — e.g. "bud" via
+        // en.lex: no own-lane collision; gate 3 prices the cross-language
+        // reading.)
+
+        // Gate 2 — context support: bigram/context evidence must favor the
+        // restored reading in the lane language ("ég for heim" → fór
+        // overwhelmingly; a bigram-supported skeleton like "í vist" fails).
+        let candidateContext = model.calibratedScore(
+            of: candidate, previous: previousWord, language: lane)
+        let skeletonContext = model.calibratedScore(
+            of: typed, previous: previousWord, language: lane)
+        guard candidateContext - skeletonContext >= config.restorationContextMinAdvantage else {
+            return false
+        }
+
+        // Sletta guard: the restored lane reading must dominate the OTHER
+        // language's reading of the skeleton under the current blend — the
+        // lane model absorbs slettur, restoration must not undo that
+        // ("for" as English inside a merely-leaning IS lane keeps its
+        // English reading; only a saturated lane overwhelms it).
+        if model.lexicon(for: other).frequency(of: typed) != nil {
+            let otherScore = model.calibratedScore(
+                of: typed, previous: previousWord, language: other)
+            let clamped = min(max(pLane, 1e-6), 1 - 1e-6)
+            let advantage =
+                log(clamped / (1 - clamped))
+                + config.calibrationTemperature * (candidateContext - otherScore)
+            guard advantage >= config.slettaGuardBlendThreshold else { return false }
+        }
+        return true
     }
 
     // MARK: - Space-miss splits
@@ -636,58 +826,121 @@ public struct Corrector {
         return singleLetterAccentPairs[letter] != nil
     }
 
-    /// Targeted single-letter path (dogfood "giskar a allt" → "giskar á"):
-    /// offer the accented twin when it is a genuinely frequent Icelandic
-    /// word, lane-gated. Auto-apply — the one sanctioned exception to both
-    /// `minAutocorrectLength` and the valid-typed-word rule — only when the
-    /// lane is confidently Icelandic AND the bare letter is not itself
-    /// Icelandic vocabulary (is.lex-genuine, personal, or tombstoned; BÍN
-    /// deliberately excluded, as everywhere junk-collides). In an English
-    /// lane "a"/"i" are never touched and nothing is even offered.
+    /// Targeted single-letter path — the shipped SPECIAL CASE of the lane
+    /// relaxation rule (PLAN.md "Lane relaxation profiles"), one per
+    /// profile:
+    ///
+    ///  * IS (dogfood "giskar a allt" → "giskar á"): offer the accented
+    ///    twin when it is a genuinely frequent Icelandic word, lane-gated.
+    ///    Auto-apply — the sanctioned exception to both
+    ///    `minAutocorrectLength` and the valid-typed-word rule — only when
+    ///    the lane is confidently Icelandic AND the bare letter is not
+    ///    itself Icelandic vocabulary (is.lex-genuine, personal, or
+    ///    tombstoned; BÍN deliberately excluded, as everywhere
+    ///    junk-collides).
+    ///  * EN mirror: lone i → I capitalization ("i think" → "I think"),
+    ///    same gates on P(EN). Both twins may be OFFERED around the neutral
+    ///    prior; the auto-apply posteriors are mutually exclusive.
+    ///
+    /// A long-pressed letter (deliberateness veto) never reaches this path
+    /// with relaxation on — but a lone long-pressed letter is the accent
+    /// itself ("á"), which has no fold pair anyway.
     private func singleLetterCorrection(
         letter: Character,
         previousWord: String?,
         pIcelandic: Double,
         typedIsValid: Bool
     ) -> CorrectionResult {
-        func empty() -> CorrectionResult {
-            CorrectionResult(suggestions: [], typedWordIsValid: typedIsValid)
+        var suggestions: [Suggestion] = []
+
+        // --- IS profile: bare vowel → long-press accent twin.
+        if config.foldProfileISEnabled,
+            let accented = Self.singleLetterAccentPairs[letter],
+            pIcelandic >= config.accentOfferMinPosterior
+        {
+            let variant = String(accented)
+            // The accented twin must be genuinely frequent Icelandic ("á"
+            // +3.3, "í" +3.4 clear the bar; "é"/"ý" are corpus noise and
+            // never show), and never tombstoned.
+            if !model.isPersonalTombstoned(variant),
+                model.icelandic.frequency(of: variant) != nil,
+                model.calibratedUnigramScore(of: variant, language: .icelandic)
+                    >= config.accentRestoreMinZ
+            {
+                let bare = String(letter)
+                let bareIsIcelandicWord =
+                    model.isPersonalValid(bare)
+                    || model.isPersonalTombstoned(bare)
+                    || (model.icelandic.frequency(of: bare) != nil
+                        && model.calibratedUnigramScore(of: bare, language: .icelandic)
+                            >= config.splitSingleCharHalfMinZ)
+                let autocorrect =
+                    pIcelandic >= config.accentAutoApplyMinPosterior && !bareIsIcelandicWord
+
+                // Confidence: two-way softmax between the accented reading
+                // and the typed letter's own blended score.
+                let sVariant = model.blendedScore(
+                    of: variant, previous: previousWord, pIcelandic: pIcelandic)
+                let sBare = model.blendedScore(
+                    of: bare, previous: previousWord, pIcelandic: pIcelandic)
+                let m = max(sVariant, sBare)
+                let confidence = exp(sVariant - m) / (exp(sVariant - m) + exp(sBare - m))
+                suggestions.append(
+                    Suggestion(
+                        text: variant,
+                        isAutocorrect: autocorrect,
+                        confidence: confidence,
+                        isRestoration: true
+                    )
+                )
+            }
         }
-        guard let accented = Self.singleLetterAccentPairs[letter] else { return empty() }
-        let variant = String(accented)
-        guard !model.isPersonalTombstoned(variant) else { return empty() }
-        // The accented twin must be genuinely frequent Icelandic ("á" +3.3,
-        // "í" +3.4 clear the bar; "é"/"ý" are corpus noise and never show).
-        guard model.icelandic.frequency(of: variant) != nil,
-            model.calibratedUnigramScore(of: variant, language: .icelandic)
+
+        // --- EN profile mirror: lone i → I, gated on P(EN) exactly like
+        // the accent path is gated on P(IS). "i" must be the genuine
+        // extreme-frequency English pronoun in en.lex, never personal/
+        // tombstoned vocabulary of its own.
+        let pEnglish = 1 - pIcelandic
+        if config.foldProfileENEnabled,
+            letter == "i",
+            pEnglish >= config.accentOfferMinPosterior,
+            !model.isPersonalTombstoned("i"),
+            model.english.frequency(of: "i") != nil,
+            model.calibratedUnigramScore(of: "i", language: .english)
                 >= config.accentRestoreMinZ
-        else { return empty() }
-        // Lane offer gate: in a strongly English lane the variant is noise.
-        guard pIcelandic >= config.accentOfferMinPosterior else { return empty() }
+        {
+            let autocorrect =
+                pEnglish >= config.accentAutoApplyMinPosterior
+                && !model.isPersonalValid("i")
+            // Capitalization restoration has no competing reading — the
+            // squashed lane posterior stands in as display confidence.
+            suggestions.append(
+                Suggestion(
+                    text: "I",
+                    isAutocorrect: autocorrect,
+                    confidence: min(max(pEnglish, 0), 1),
+                    isRestoration: true
+                )
+            )
+        }
 
-        let bare = String(letter)
-        let bareIsIcelandicWord =
-            model.isPersonalValid(bare)
-            || model.isPersonalTombstoned(bare)
-            || (model.icelandic.frequency(of: bare) != nil
-                && model.calibratedUnigramScore(of: bare, language: .icelandic)
-                    >= config.splitSingleCharHalfMinZ)
-        let autocorrect =
-            pIcelandic >= config.accentAutoApplyMinPosterior && !bareIsIcelandicWord
-
-        // Confidence: two-way softmax between the accented reading and the
-        // typed letter's own blended score.
-        let sVariant = model.blendedScore(
-            of: variant, previous: previousWord, pIcelandic: pIcelandic)
-        let sBare = model.blendedScore(of: bare, previous: previousWord, pIcelandic: pIcelandic)
-        let m = max(sVariant, sBare)
-        let confidence = exp(sVariant - m) / (exp(sVariant - m) + exp(sBare - m))
-        return CorrectionResult(
-            suggestions: [
-                Suggestion(text: variant, isAutocorrect: autocorrect, confidence: confidence)
-            ],
-            typedWordIsValid: typedIsValid
-        )
+        // At most one auto-apply (the gates are posterior-exclusive, but
+        // keep the invariant structural), autocorrect leads the bar.
+        if suggestions.count > 1 {
+            suggestions.sort {
+                ($0.isAutocorrect ? 1 : 0, $0.confidence) > ($1.isAutocorrect ? 1 : 0, $1.confidence)
+            }
+            if suggestions[0].isAutocorrect {
+                suggestions = suggestions.enumerated().map { index, s in
+                    index == 0
+                        ? s
+                        : Suggestion(
+                            text: s.text, isAutocorrect: false, confidence: s.confidence,
+                            isRestoration: s.isRestoration)
+                }
+            }
+        }
+        return CorrectionResult(suggestions: suggestions, typedWordIsValid: typedIsValid)
     }
 
     // MARK: - Dotted-token space-miss escape
@@ -808,10 +1061,10 @@ public struct Corrector {
     /// Cheapest attested-or-personal candidate cost in a generation pool
     /// (the gate currency for passes that BÍN-floored junk must not
     /// suppress — see step 4b).
-    private func bestAttestedCost(in candidates: [String: Double]) -> Double {
+    private func bestAttestedCost(in candidates: [String: ChannelCost]) -> Double {
         var best = Double.infinity
-        for (word, cost) in candidates where cost < best && isAttestedOrPersonal(word) {
-            best = cost
+        for (word, cost) in candidates where cost.total < best && isAttestedOrPersonal(word) {
+            best = cost.total
         }
         return best
     }
@@ -862,21 +1115,23 @@ public struct Corrector {
     }
 
     /// Restricted Damerau-Levenshtein REWRITE distance: unit costs, except
-    /// restoration substitutions (see `isRestorationPair`) are free. The
-    /// intervention-size measure for the far-repair auto-apply rule — the
-    /// spatial DP can't play this role (one omitted letter costs 4.0 nats
-    /// while three adjacent-key substitutions cost ~3, yet the latter is
-    /// the bigger, mash-shaped rewrite), and raw unit distance would count
-    /// accent restorations ("godann" → "góðan") as if they were rewrites.
+    /// restoration substitutions (see `isRestorationPair`) and apostrophe
+    /// insertions (the EN fold class: dont → don't restores, it does not
+    /// rewrite) are free. The intervention-size measure for the far-repair
+    /// auto-apply rule — the spatial DP can't play this role (one omitted
+    /// letter costs 4.0 nats while three adjacent-key substitutions cost
+    /// ~3, yet the latter is the bigger, mash-shaped rewrite), and raw unit
+    /// distance would count accent restorations ("godann" → "góðan") as if
+    /// they were rewrites.
     static func rewriteDistance(_ a: [Character], _ b: [Character]) -> Int {
         let n = a.count
         let m = b.count
-        if n == 0 { return m }
+        if n == 0 { return b.filter { !apostrophes.contains($0) }.count }
         if m == 0 { return n }
         let width = m + 1
         var dp = [Int](repeating: 0, count: (n + 1) * width)
         for i in 0...n { dp[i * width] = i }
-        for j in 0...m { dp[j] = j }
+        for j in 1...m { dp[j] = dp[j - 1] + (apostrophes.contains(b[j - 1]) ? 0 : 1) }
         for i in 1...n {
             for j in 1...m {
                 let subCost: Int
@@ -885,8 +1140,10 @@ public struct Corrector {
                 } else {
                     subCost = 1
                 }
+                let insertCost = apostrophes.contains(b[j - 1]) ? 0 : 1
                 let sub = dp[(i - 1) * width + (j - 1)] + subCost
-                var best = min(sub, dp[(i - 1) * width + j] + 1, dp[i * width + (j - 1)] + 1)
+                var best = min(
+                    sub, dp[(i - 1) * width + j] + 1, dp[i * width + (j - 1)] + insertCost)
                 if i >= 2, j >= 2, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1], a[i - 1] != a[i - 2] {
                     best = min(best, dp[(i - 2) * width + (j - 2)] + 1)
                 }
@@ -904,6 +1161,26 @@ public struct Corrector {
         if candidateChars.count > typedChars.count, candidateChars.starts(with: typedChars) {
             let extra = Double(candidateChars.count - typedChars.count)
             cost = min(cost, extra * config.completionCharCost)
+        }
+        return cost
+    }
+
+    /// Lane-priced channel cost of a candidate with the restoration/error
+    /// decomposition (see `ChannelCost`); same strict-prefix completion
+    /// shortcut as `spatialCost` — completion characters are error-class
+    /// (a completion is never "restoration-only").
+    func channelCost(
+        typedChars: [Character], candidate: String, pricing: FoldPricing
+    ) -> ChannelCost {
+        let candidateChars = Array(candidate)
+        var cost = spatial.channelCost(
+            typed: typedChars, intended: candidateChars, pricing: pricing)
+        if candidateChars.count > typedChars.count, candidateChars.starts(with: typedChars) {
+            let extra = candidateChars.count - typedChars.count
+            let completion = Double(extra) * config.completionCharCost
+            if completion < cost.total {
+                cost = ChannelCost(total: completion, errorOps: extra, restorationOps: 0)
+            }
         }
         return cost
     }

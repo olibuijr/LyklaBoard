@@ -95,3 +95,87 @@ enum EvalWordlists {
         "fara heim": 30, "koma heim": 22,
     ]
 }
+
+/// Lane-relaxation eval pack (categories accentlazy / accentguard / apos /
+/// aposguard). Seeds a SECOND engine so the original categories stay
+/// byte-identical (adding vocabulary changes the calibration sample).
+///
+/// The Icelandic additions are GENERATED from data/eval/sentences.is.txt —
+/// held-out-style: sentences from line 6000 on, first word per sentence
+/// with ≥1 long-press acute (á é í ó ú ý), skeleton length ≥ 4, corpus
+/// count ≥ 8; unigram counts are the corpus counts /8, (context, word)
+/// bigrams get corpus count /40. Generator documented in the fixture
+/// header (scripts live with the eval studio; rerun to regenerate).
+/// The collision/guard entries (vist/víst, ver/vér, van/ván, fór) and the
+/// English contraction pack are hand-authored with realistic RELATIVE
+/// counts — notably don't ≫ cant ≈ can't, unlike en.lex v2's
+/// apostrophe-stripped corpus noise.
+enum AccentWordlists {
+
+    static let icelandic: [String: UInt32] = [
+        // generated from sentences.is.txt (see enum doc)
+        "af": 116, "aldrei": 4, "bandarísk": 2, "bond": 3,
+        "bróðir": 2, "bóka": 2, "bókin": 3, "bókinni": 2,
+        "bókum": 2, "connery": 2, "engin": 2, "ensku": 7,
+        "er": 243, "frá": 93, "fulltrúi": 2, "fyrsta": 16,
+        "fékk": 10, "hafði": 23, "hann": 119, "hans": 33,
+        "helsti": 2, "hún": 45, "júní": 20, "kaliforníu": 2,
+        "latínu": 2, "mánuði": 2, "móti": 3, "móðir": 3,
+        "nóvember": 6, "og": 589, "persónu": 2, "ráða": 2,
+        "ráðgjafi": 2, "sem": 274, "sína": 8, "sínar": 2,
+        "síðan": 15, "síðar": 13, "sótti": 2, "til": 177,
+        "tvisvar": 2, "var": 217, "varð": 32, "yngri": 3,
+        "á": 329, "ágúst": 6, "ákvað": 2, "áratug": 2,
+        "árið": 86, "ársins": 5, "árunum": 3, "ástralíu": 2,
+        "átti": 8, "áður": 21, "í": 520, "ólst": 2,
+        "útgáfu": 7, "útskrifaðist": 2, "ýmsum": 3, "þrjár": 2,
+        "þrátt": 4, "þótt": 3, "þýðir": 2,
+        // hand-authored skeleton collisions (triple-gate + sletta guards):
+        // víst/vist at ratio 7.6 (< 10 — dominance fails, offer-only),
+        // ver ≫ vér (never restored the wrong way), ván rare vs English
+        // "van" (sletta guard), fór (restores past EN-valid "for").
+        "vist": 5, "víst": 38, "ver": 30, "vér": 3, "ván": 3, "fór": 380,
+    ]
+
+    static let icelandicBigrams: [String: UInt32] = [
+        // generated (see enum doc)
+        "af bókinni": 2, "aldrei ráða": 2, "bond nóvember": 2,
+        "connery ákvað": 2, "engin bóka": 2, "ensku útgáfu": 2,
+        "er bandarísk": 2, "frá ágúst": 2, "frá árunum": 2,
+        "frá ástralíu": 2, "fyrsta bókin": 2, "hafði þótt": 2,
+        "hann sótti": 2, "hans árið": 17, "helsti ráðgjafi": 2,
+        "hún útskrifaðist": 2, "nóvember júní": 4, "og fékk": 2,
+        "og móðir": 2, "og ýmsum": 2, "sem átti": 2, "sem þýðir": 2,
+        "til ársins": 2, "tvisvar áður": 4, "var síðar": 2,
+        "varð fulltrúi": 2, "yngri bróðir": 2, "á latínu": 2,
+        "á móti": 2, "á áratug": 2, "í bókum": 2, "í kaliforníu": 2,
+        // hand-authored guards: bigram support for the SKELETON reading
+        // ("í vist") must hold restoration back (context gate).
+        "í vist": 4, "ég fór": 12,
+    ]
+
+    static let english: [String: UInt32] = [
+        // contraction pack (realistic relative counts — see enum doc)
+        "don't": 380, "i'm": 260, "can't": 150, "won't": 90,
+        "didn't": 80, "isn't": 70, "you're": 90, "i've": 60,
+        "that's": 150, "he's": 80, "we'll": 40, "i'll": 55,
+        // attested skeletons (dominance-ratio guards) + error-class rival
+        "cant": 140, "ill": 90, "font": 300,
+        // contexts / cross-language collision halves / the bare pronoun
+        // (base list lacks "i" — needed by the lone i→I mirror)
+        "why": 300, "said": 200, "van": 900, "i": 2400,
+    ]
+
+    static let englishBigrams: [String: UInt32] = [
+        "why don't": 25, "said i'm": 8, "i can't": 12, "you didn't": 6,
+        "he isn't": 4, "and you're": 5, "i won't": 6, "we didn't": 4,
+    ]
+
+    /// Merge the base wordlists with the pack, keeping the LARGER count on
+    /// conflicts: the base list's function-word magnitudes (í 4400, og
+    /// 5800 …) must survive the pack's corpus-scaled counts or the
+    /// single-letter frequency bars stop clearing.
+    static func merged(_ base: [String: UInt32], _ pack: [String: UInt32]) -> [String: UInt32] {
+        base.merging(pack) { old, new in max(old, new) }
+    }
+}

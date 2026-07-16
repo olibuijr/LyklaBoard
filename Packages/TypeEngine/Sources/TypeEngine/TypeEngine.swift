@@ -104,7 +104,16 @@ public final class TypeEngine {
     ///   - currentWord: the word being typed; empty string means "predict the
     ///     next word"
     ///   - limit: maximum suggestions returned
-    public func suggestions(context: String, currentWord: String, limit: Int = 3) -> [Suggestion] {
+    ///   - deliberateCharacters: characters of the current word that were
+    ///     entered via long-press/callout (the strongest deliberateness
+    ///     signal — vetoes lane-relaxation folding for this word; see
+    ///     `Corrector.correct` and `TypingSession.noteLongPressInsertion`)
+    public func suggestions(
+        context: String,
+        currentWord: String,
+        limit: Int = 3,
+        deliberateCharacters: [Character] = []
+    ) -> [Suggestion] {
         let previous = Self.lastWord(in: context)
         let trimmed = currentWord.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -122,21 +131,32 @@ public final class TypeEngine {
             typed: trimmed,
             previousWord: previous,
             pIcelandic: probabilityIcelandic,
-            limit: limit
+            limit: limit,
+            deliberateCharacters: deliberateCharacters
         )
-        let suggestions = restorePersonalSurfaces(result.suggestions)
+        var suggestions = restorePersonalSurfaces(result.suggestions)
 
         // Preserve the user's leading capitalization.
         if let first = trimmed.first, first.isUppercase {
-            return suggestions.map {
+            suggestions = suggestions.map {
                 Suggestion(
                     text: $0.text.prefix(1).uppercased() + $0.text.dropFirst(),
                     isAutocorrect: $0.isAutocorrect,
-                    confidence: $0.confidence
+                    confidence: $0.confidence,
+                    isRestoration: $0.isRestoration
                 )
             }
         }
-        return suggestions
+        // An "autocorrect" into the byte-identical typed text is a no-op
+        // and must not be flagged (surfaces via the case-insensitive
+        // pipeline: typed "I" → the lone-i capitalization suggestion "I").
+        return suggestions.map {
+            $0.isAutocorrect && $0.text == trimmed
+                ? Suggestion(
+                    text: $0.text, isAutocorrect: false, confidence: $0.confidence,
+                    isRestoration: $0.isRestoration)
+                : $0
+        }
     }
 
     /// Dotted-token space-miss escape (PLAN.md "Space-miss correction" +
@@ -177,7 +197,8 @@ public final class TypeEngine {
             return Suggestion(
                 text: surface,
                 isAutocorrect: suggestion.isAutocorrect,
-                confidence: suggestion.confidence
+                confidence: suggestion.confidence,
+                isRestoration: suggestion.isRestoration
             )
         }
     }
@@ -223,10 +244,14 @@ public final class TypeEngine {
     }
 
     /// Lane-model diagnostics for a word (REPL `:word` command): per-lexicon
-    /// attestation + calibrated z-scores and the resulting emission evidence
-    /// log(e_IS/e_EN) in nats (0 = uniform, does not move the lane).
+    /// attestation + calibrated z-scores, BÍN morphology validity, and the
+    /// resulting emission evidence log(e_IS/e_EN) in nats (0 = uniform,
+    /// does not move the lane).
     public func laneDiagnostics(for word: String)
-        -> (frequencyIS: UInt32?, frequencyEN: UInt32?, zIS: Double, zEN: Double, evidence: Double)
+        -> (
+            frequencyIS: UInt32?, frequencyEN: UInt32?, zIS: Double, zEN: Double,
+            binKnown: Bool, evidence: Double
+        )
     {
         let w = word.lowercased()
         return (
@@ -234,6 +259,7 @@ public final class TypeEngine {
             frequencyEN: model.english.frequency(of: w),
             zIS: model.calibratedUnigramScore(of: w, language: .icelandic),
             zEN: model.calibratedUnigramScore(of: w, language: .english),
+            binKnown: model.morphology?.isKnown(w) == true,
             evidence: model.laneEvidence(of: w)
         )
     }

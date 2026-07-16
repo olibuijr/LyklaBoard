@@ -151,11 +151,18 @@ final class BeamDecoder {
     /// `beamMaxCandidates` (word, accumulated channel cost) pairs, cheapest
     /// first. The caller re-scores with the exact DP (`Corrector
     /// .spatialCost`) — the beam cost is a search/pruning currency only.
+    /// `pricing` is the lane-relaxation layer (PLAN.md "Lane relaxation
+    /// profiles"): fold-pair substitutions and apostrophe insertions are
+    /// priced min(provider, lane fold cost), composing ON TOP of the
+    /// per-position provider seam — the future per-tap provider swap and
+    /// the lane layer stay orthogonal (per-tap confidence will multiply
+    /// into fold pricing, not replace it; see `FoldPricing`).
     func decode(
         typed: [Character],
         lexicon: PrefixSearchableLexicon,
         lexiconIndex: Int,
         costs positionCosts: PositionCostProvider,
+        pricing: FoldPricing,
         maxEdits: Int
     ) -> [(word: String, cost: Double)] {
         let n = typed.count
@@ -166,6 +173,18 @@ final class BeamDecoder {
         let deletionCost = config.spatialCosts.insertion  // extra typed char
         let transpositionCost = config.spatialCosts.transposition
         let typedBytes: [[UInt8]] = typed.map { Array(String($0).utf8) }
+
+        /// Provider cost with the lane-relaxation layer on top (see the
+        /// `pricing` parameter doc).
+        func substitutionPrice(position: Int, typedChar: Character, intended: Character) -> Double {
+            let base = positionCosts.substitutionCost(
+                position: position, typed: typedChar, intended: intended)
+            guard
+                let lane = pricing.substitutionPrice(
+                    typed: typedChar, intended: intended, confusionBase: base)
+            else { return base }
+            return min(lane, base)
+        }
 
         /// Descend with the shallow-level memo (see `shallowCache`).
         func descend(
@@ -301,8 +320,8 @@ final class BeamDecoder {
                         for (char, next) in childMap where char != typedChar {
                             let cost =
                                 state.cost
-                                + positionCosts.substitutionCost(
-                                    position: state.consumed, typed: typedChar, intended: char)
+                                + substitutionPrice(
+                                    position: state.consumed, typedChar: typedChar, intended: char)
                             guard cost <= subCap else { continue }
                             push(
                                 State(
@@ -321,8 +340,9 @@ final class BeamDecoder {
                         for entry in candidates where entry.char != typedChar {
                             let cost =
                                 state.cost
-                                + positionCosts.substitutionCost(
-                                    position: state.consumed, typed: typedChar, intended: entry.char)
+                                + substitutionPrice(
+                                    position: state.consumed, typedChar: typedChar,
+                                    intended: entry.char)
                             guard cost <= subCap else { continue }
                             push(
                                 State(
@@ -374,25 +394,34 @@ final class BeamDecoder {
             // any point INCLUDING after the last typed char (trailing
             // omissions; the DP re-score prices strict-prefix completions
             // down to completionCharCost, mirroring the old edits1).
-            if editsLeft, state.cost + insertionCost <= costCap {
+            // Omitted APOSTROPHES fold under the EN lane profile (dont →
+            // don't at ~ε), so their price flows through the lane pricing.
+            if editsLeft {
                 if let childMap {
-                    for (_, next) in childMap {
+                    for (char, next) in childMap {
+                        let cost =
+                            state.cost + pricing.omissionPrice(of: char, base: insertionCost)
+                        guard cost <= costCap else { continue }
                         push(
                             State(
                                 cursor: next,
                                 consumed: state.consumed,
-                                cost: state.cost + insertionCost,
+                                cost: cost,
                                 edits: state.edits + 1
                             )
                         )
                     }
                 } else {
                     for entry in alphabet {
+                        let cost =
+                            state.cost
+                            + pricing.omissionPrice(of: entry.char, base: insertionCost)
+                        guard cost <= costCap else { continue }
                         push(
                             State(
                                 cursor: descend(state.cursor, char: entry.char, bytes: entry.bytes),
                                 consumed: state.consumed,
-                                cost: state.cost + insertionCost,
+                                cost: cost,
                                 edits: state.edits + 1
                             )
                         )

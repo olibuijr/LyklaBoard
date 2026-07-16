@@ -9,6 +9,8 @@ import TypeEngine
 ///   SCENARIO <name>          start a scenario (fresh proxy, session, posterior)
 ///   LIMIT <n>                suggestion bar size for following scenarios (default 5)
 ///   T <text>                 type text char-by-char; quote to keep spaces: T "hestur "
+///   LONGPRESS <text>         type text as long-press CALLOUT selections
+///                            (deliberateness veto on lane-relaxation folding)
 ///   BACKSPACE [n]            press backspace n times (default 1)
 ///   CURSOR_MOVE <pos>        move caret: +n / -n relative, n absolute, start, end
 ///   CURSOR_MOVE_SILENT <pos> same, WITHOUT noteExternalTextChange (tests the
@@ -135,6 +137,12 @@ struct ScenarioRunner {
 
             case "T":
                 typist.type(Self.unquote(argument))
+
+            case "LONGPRESS":
+                // Type the characters as long-press callout selections
+                // (deliberateness signal: lane-relaxation folding vetoed
+                // for the pending word).
+                typist.longPress(Self.unquote(argument))
 
             case "BACKSPACE":
                 typist.pressBackspace(Int(argument) ?? 1)

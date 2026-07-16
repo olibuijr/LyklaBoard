@@ -279,6 +279,83 @@ public struct EngineConfig: Sendable {
     /// Icelandic vocabulary. Never fires in an English or uncertain lane.
     public var accentAutoApplyMinPosterior: Double = 0.65
 
+    // --- Lane relaxation profiles (PLAN.md "Lane relaxation profiles" —
+    // "diacritics are an input method, not an error"). Inside a confident
+    // Icelandic lane a missing acute accent is not a typo: the long-press
+    // costs ~400 ms, tapping the base letter ~80 ms, so the engine restores
+    // what the fast typist rationally skipped. Restoration-class edits are
+    // therefore priced and margined SEPARATELY from error-class edits:
+    //   foldCost = max(foldEpsilon, foldBaseCost · (1 − laneWeight(P_lane)))
+    // with laneWeight a smoothstep ramp over the lane posterior. The fold
+    // set is exactly the six long-press-gated acute vowels (á é í ó ú ý) —
+    // ð þ æ ö have dedicated keys and NEVER fold (d→ð etc. stay in the
+    // error-class confusion table, merely lane-discounted). The English
+    // mirror folds apostrophes (dont→don't) and capitalizes lone i.
+
+    /// Base price of an acute-vowel fold at a NEUTRAL lane, in nats. Equal
+    /// to `SpatialModel.Costs.minSubstitution` on purpose: at P(lane) at or
+    /// below `laneWeightRampLo` the relaxation is a no-op and today's
+    /// accent-twin floor applies unchanged.
+    public var foldBaseCost: Double = 0.35
+    /// Fold price floor at a fully saturated lane, in nats. Strictly > 0 so
+    /// exact input always wins by ε: a deliberately typed accent is never
+    /// tied by its folded reading, and restoration candidates never price
+    /// below the exact word.
+    public var foldEpsilon: Double = 0.02
+    /// Lane posterior at which the fold ramp starts (laneWeight = 0 — the
+    /// neutral prior and everything below it get no relaxation at all).
+    public var laneWeightRampLo: Double = 0.5
+    /// Lane posterior at which the fold ramp saturates (laneWeight = 1 —
+    /// folds cost `foldEpsilon`).
+    public var laneWeightRampHi: Double = 0.85
+    /// Per-profile toggles (eval A/B): the Icelandic acute-vowel profile and
+    /// the English apostrophe/lone-i profile.
+    public var foldProfileISEnabled = true
+    public var foldProfileENEnabled = true
+    /// Lane discount applied to the orthographic-confusion constants (d→ð,
+    /// t→þ, o→ö, ð↔þ) inside a confident Icelandic lane: cost is scaled by
+    /// (1 − laneWeight·discount). Error-class — discounted, never ~free
+    /// (these letters have dedicated keys; typing d for ð is a real slip,
+    /// just a lane-common one).
+    public var confusionLaneDiscount: Double = 0.5
+    /// Lane discount for gemination-shaped indels (dropping one of a
+    /// doubled letter / omitting a doubling: ll nn tt kk …) inside a
+    /// confident Icelandic lane, same (1 − laneWeight·discount) scaling.
+    /// Gemination is phonemic — a real error, but the classic lane-common
+    /// one, so it is discounted rather than freed.
+    public var geminationLaneDiscount: Double = 0.35
+    /// Auto-apply margin for RESTORATION-ONLY candidates (every edit is
+    /// restoration-class: acute folds / orthographic confusions /
+    /// apostrophe insertions) once the lane ramp is open (laneWeight > 0).
+    /// Lower than `autocorrectMargin`: restoration serves an input method
+    /// and must not compete for the error budget. At/below the neutral
+    /// prior the ordinary margin applies unchanged.
+    public var restorationAutoApplyMargin: Double = 0.5
+    /// Skeleton-collision dominance gate (triple gate, part 1): when the
+    /// typed skeleton is itself a valid word, the accented form may only
+    /// auto-apply past the valid-word rule when it is at least this many
+    /// times more frequent than the skeleton in the lane lexicon (fór ≫ for
+    /// passes; víst vs vist does not — offer-only).
+    public var restorationDominanceRatio: Double = 10
+    /// Dominance fallback when the skeleton is BÍN-valid but absent from
+    /// the lane frequency table (real word of UNKNOWN frequency — the ratio
+    /// machinery has no denominator): only accented forms attested at or
+    /// above this calibrated z may claim dominance. fór (+1.77 on the real
+    /// artifacts) clears it; víst (+0.78) does not.
+    public var restorationDominanceMinZ: Double = 1.0
+    /// Context gate (triple gate, part 2): the accented reading's
+    /// calibrated contextual score must beat the skeleton's by at least
+    /// this many σ in the lane language ("ég for heim" → fór overwhelmingly).
+    public var restorationContextMinAdvantage: Double = 0.0
+    /// Sletta guard: auto-restoration additionally requires the lane-blend
+    /// log-odds advantage of the accented lane reading over the OTHER
+    /// language's reading of the skeleton,
+    ///   log(P_lane/(1−P_lane)) + τ·(z_lane(accented) − z_other(skeleton)),
+    /// to be at least this many nats. An EN-attested word inside an IS lane
+    /// ("for", "van") never gets decorative accents unless the lane is
+    /// saturated enough to overwhelm its English typicality.
+    public var slettaGuardBlendThreshold: Double = 0.5
+
     // --- Diacritic-restored prefix completions (dogfood "faralega"):
     // an unknown token may combine missing accents in its PREFIX with an
     // ordinary omission/typo in its tail ("faralega" = "fáránlega" minus
