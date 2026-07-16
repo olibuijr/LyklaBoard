@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lyklaborð — App Store screenshot preview</title>
+<style>
+  :root{--bg:#faf9f6;--raised:#f1efe9;--ink:#1c1b1a;--soft:#55524d;--rule:#e3e0d8}
+  @media(prefers-color-scheme:dark){:root{--bg:#1c1b1a;--raised:#242220;--ink:#e8e5e0;--soft:#a5a19a;--rule:#33302c}}
+  *{margin:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding:48px;line-height:1.5}
+  h1{font-size:2rem;font-weight:650;letter-spacing:-.02em}
+  p.sub{color:var(--soft);margin:.4rem 0 2.5rem}
+  h2{font-size:1.1rem;margin:2.5rem 0 1rem;border-top:1px solid var(--rule);padding-top:1.5rem}
+  .row{display:flex;gap:20px;overflow-x:auto;padding-bottom:12px}
+  figure{flex:0 0 auto;margin:0;text-align:center}
+  img{width:280px;height:auto;border-radius:22px;border:1px solid var(--rule);
+    box-shadow:0 12px 34px rgba(0,0,0,.12);background:#fff}
+  figcaption{font-size:.8rem;color:var(--soft);margin-top:.5rem}
+</style>
+</head>
+<body>
+  <h1>Lyklaborð — App Store screenshots</h1>
+  <p class="sub">iPhone 6.9" · 1260 &times; 2736 · 6 screenshots &times; 2 locales. Scroll each row.</p>
+
+  <h2>is-IS</h2>
+  <div class="row" id="is"></div>
+
+  <h2>en-US</h2>
+  <div class="row" id="en"></div>
+
+  <script>
+    const shots = [
+      ["01_hero","Hero — keycap + wordmark"],
+      ["02_accents","Accent restoration"],
+      ["03_blend","IS/EN two-lane blend"],
+      ["04_bin","BÍN case-aware suggestions"],
+      ["05_dictionary","Orðasafn + SwiftKey import"],
+      ["06_privacy","Zero networking code"],
+    ];
+    for (const [loc, el] of [["is-IS","is"],["en-US","en"]]) {
+      const c = document.getElementById(el);
+      for (const [name, cap] of shots) {
+        const fig = document.createElement("figure");
+        fig.innerHTML = `<img src="../export/${loc}/${name}.png" alt="${cap}">`
+          + `<figcaption>${name} — ${cap}</figcaption>`;
+        c.appendChild(fig);
+      }
+    }
+  </script>
+</body>
+</html>
