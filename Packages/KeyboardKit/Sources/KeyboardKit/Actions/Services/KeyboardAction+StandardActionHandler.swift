@@ -218,11 +218,41 @@ extension KeyboardAction {
             on action: KeyboardAction,
             replaced: Bool
         ) {
+            // better-keyboard fork: consume the one-keystroke "a suggestion
+            // tap just auto-inserted a trailing space" arm. It lives for
+            // exactly one gesture, so read-and-clear it up front; the space
+            // collapse below is the only thing that acts on it.
+            let armedSuggestionSpaceCollapse = didAutoInsertSpaceAfterSuggestion
+            didAutoInsertSpaceAfterSuggestion = false
+
             if !replaced && tryHandleReplacementAction(before: gesture, on: action) { return }
             let gestureAction = self.action(for: gesture, on: action)
             tryTriggerFeedback(for: gesture, on: action)
             tryUpdateSpaceDragState(for: gesture, on: action)
             guard let gestureAction else { return }
+
+            // better-keyboard fork (double-space bug, KeyboardKit issue #978):
+            // when the user taps a bar suggestion, KeyboardKit auto-inserts a
+            // trailing space and marks the proxy `.autoInserted`. If the very
+            // next keystroke is the user's own spacebar tap, stock KeyboardKit
+            // inserts a SECOND literal space — leaving a raw "  " (the reported
+            // occasional double space) or, worse, letting the double-space
+            // sentence-ender fire and eat a character. Collapse that second tap
+            // into the space the suggestion already added: exactly one space,
+            // never a period here, never a deleted character. Double-gated on
+            // the one-keystroke arm AND the live proxy still showing the
+            // auto-inserted space, so a genuine double-tap (no preceding
+            // suggestion) still ends the sentence, and a stale process-wide
+            // `ProxyState` can never trigger it on its own.
+            if armedSuggestionSpaceCollapse,
+               gesture == .release,
+               action == .space,
+               keyboardContext.textDocumentProxy.hasAutocompleteInsertedSpace {
+                keyboardContext.tryReinsertAutocompleteRemovedSpace() // .autoInserted -> .none, inserts nothing
+                tryPerformAutocomplete(after: gesture, on: action)
+                return
+            }
+
             tryRemoveAutocompleteInsertedSpace(before: gesture, on: action)
             tryAutocompleteIgnoreCurrentWord(before: gesture, on: action)
             tryApplyAutocorrectSuggestion(before: gesture, on: action)
@@ -242,6 +272,13 @@ extension KeyboardAction {
             tryAutolearnSuggestion(suggestion)
             keyboardContext.insertAutocompleteSuggestion(suggestion)
             handle(.release, on: .character(""))
+            // better-keyboard fork: arm the one-keystroke "auto-inserted a
+            // space" collapse (see `handle(_:on:replaced:)`). Set AFTER the
+            // `.character("")` release above, which itself clears the arm.
+            // Whether a space was actually inserted is re-checked at the next
+            // keystroke via `hasAutocompleteInsertedSpace`, so arming
+            // unconditionally here is safe.
+            didAutoInsertSpaceAfterSuggestion = true
         }
 
         /// Handle a certain keyboard action drag gesture.
@@ -461,6 +498,12 @@ extension KeyboardAction {
 
         /// Temporary state used to auto-ignore when correcting an autocompleted word.
         private var lastAutocorrectedWord: String?
+
+        /// better-keyboard fork: one-keystroke arm set right after a suggestion
+        /// tap auto-inserts a trailing space, so the user's immediately
+        /// following spacebar tap collapses into that space instead of adding a
+        /// second one (see `handle(_:on:replaced:)`).
+        private var didAutoInsertSpaceAfterSuggestion = false
 
         /// Try to apply autocorrect before a certain gesture action.
         open func tryApplyAutocorrectSuggestion(

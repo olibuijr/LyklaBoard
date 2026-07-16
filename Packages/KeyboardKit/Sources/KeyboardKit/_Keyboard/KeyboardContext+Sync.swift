@@ -50,6 +50,10 @@ public extension KeyboardContext {
     /// Sync the ``originalTextDocumentProxy``.
     func syncTextDocumentProxy(with controller: KeyboardInputViewController) {
         if originalTextDocumentProxy === controller.originalTextDocumentProxy { return }
+        // better-keyboard fork: the document proxy just changed (new text
+        // field), so drop any stale autocomplete space state carried over from
+        // the previous field before it can affect space handling here.
+        resetAutocompleteSpaceState()
         DispatchQueue.main.async {
             self.originalTextDocumentProxy = controller.originalTextDocumentProxy
         }

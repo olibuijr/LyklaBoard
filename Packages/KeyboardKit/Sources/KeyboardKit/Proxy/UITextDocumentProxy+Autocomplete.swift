@@ -92,6 +92,20 @@ private final class ProxyState {
     static var spaceState = ProxyAutocompleteSpaceState.none
 }
 
+public extension KeyboardContext {
+
+    /// better-keyboard fork: clear the process-wide autocomplete space state.
+    ///
+    /// `ProxyState.spaceState` is a single static that KeyboardKit never
+    /// resets on a field/context change, so a stale `.autoInserted` left by
+    /// one text field can corrupt space handling in the next (it can make
+    /// `hasAutocompleteInsertedSpace` report a space the current field never
+    /// got). Call this when the focused document changes.
+    func resetAutocompleteSpaceState() {
+        ProxyState.spaceState = .none
+    }
+}
+
 enum ProxyAutocompleteSpaceState {
     
     /// The proxy is not in any certain state.
