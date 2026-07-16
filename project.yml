@@ -85,6 +85,16 @@ targets:
         buildPhase: resources
       - path: data/is/is.lex
         buildPhase: resources
+      # Inflection intelligence Stage-B artifacts (PLAN.md "Inflection
+      # intelligence"). paradigms.bin is mmap-ed (file-backed, ~0 dirty);
+      # governors.json.gz is gunzipped+parsed once at load into a compact
+      # (~1-2MB dirty) table. Both are loaded off the first-keystroke path
+      # in BetterKeyboardAutocompleteService and are fully optional — a
+      # missing resource leaves inflection disabled, never crashes.
+      - path: data/is/paradigms.bin
+        buildPhase: resources
+      - path: data/is/governors.json.gz
+        buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
       properties:

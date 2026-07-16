@@ -404,6 +404,11 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 english.unigramCount,
                 morphology == nil ? "off" : "on"
             )
+            // Inflection intelligence (Stage B): load the paradigms/governors
+            // artifacts AFTER the session is published so the engine is
+            // typable immediately; the ~40-150ms governors parse runs off the
+            // engine queue and never sits in front of a first keystroke.
+            scheduleInflectionLoad()
         } catch {
             bootstrapFailed = true
             NSLog("[better-keyboard] autocomplete bootstrap FAILED: %@", String(describing: error))
@@ -487,6 +492,86 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 events.count, String(describing: error)
             )
         }
+    }
+
+    // MARK: - Inflection intelligence (off `queue`, then a follow-on on `queue`)
+
+    /// Load the Stage-B inflection artifacts and inject them into the engine.
+    ///
+    /// Sequencing (PLAN.md "Inflection intelligence" + the launch-flicker
+    /// discipline): `paradigms.bin` is a cheap mmap open (file-backed pages,
+    /// ~0 dirty), but `governors.json.gz` costs a one-time gunzip + byte-scan
+    /// parse (~40-150ms). BOTH run here on a background utility queue — NOT
+    /// the serial engine `queue` — precisely so that parse can never sit in
+    /// front of a first keystroke (keystrokes are served on `queue`). Only the
+    /// ~instant `setInflection` mutation hops back onto `queue`, honoring the
+    /// engine's single-queue confinement contract (`setInflection` mutates the
+    /// shared InflectionStore, same rule as every other engine call).
+    ///
+    /// Fully graceful: a missing OR corrupt artifact simply leaves inflection
+    /// nil — every scoring seam is inert and the engine is byte-identical to
+    /// the pre-inflection build (see `InflectionModel` doc). Never crashes.
+    ///
+    /// Memory QA: logs `phys_footprint` before the load and after
+    /// `setInflection`, so on-device runs can confirm the documented budget
+    /// (paradigms mmap ≈ 0 dirty + governors table ≈ 1-2MB; PLAN.md's ~4MB
+    /// dirty ceiling includes the transient decompression buffer, which
+    /// `withGunzipped` munmaps before this delta is measured).
+    private func scheduleInflectionLoad() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let bundle = Bundle(for: Self.self)
+            guard let paradigmsURL = bundle.url(forResource: "paradigms", withExtension: "bin") else {
+                NSLog("[better-keyboard] paradigms.bin missing from extension bundle; inflection stays off")
+                return
+            }
+            guard
+                let governorsURL = bundle.url(forResource: "governors.json", withExtension: "gz")
+            else {
+                NSLog("[better-keyboard] governors.json.gz missing from extension bundle; inflection stays off")
+                return
+            }
+            let before = Self.memoryFootprintMB()
+            let start = CFAbsoluteTimeGetCurrent()
+            let model: InflectionModel
+            do {
+                // mmap reader (cheap); then the gunzip+scan (the real cost).
+                let paradigms = try ParadigmsReader(contentsOf: paradigmsURL)
+                let governors = try GovernorsModel(gzippedJSONContentsOf: governorsURL)
+                model = InflectionModel(paradigms: paradigms, governors: governors)
+            } catch {
+                NSLog(
+                    "[better-keyboard] inflection load FAILED (%@); inflection stays off",
+                    String(describing: error))
+                return
+            }
+            let loadMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            self.queue.async { [weak self] in
+                guard let self, let engine = self.engine else { return }
+                engine.setInflection(model)
+                let after = Self.memoryFootprintMB()
+                NSLog(
+                    "[better-keyboard] inflection ready in %.1f ms (%d governors; phys_footprint %.1f→%.1f MB, Δ%.1f MB)",
+                    loadMs, model.governors.governorCount, before, after, after - before
+                )
+            }
+        }
+    }
+
+    /// Process-wide resident footprint in MB (`task_vm_info`.phys_footprint —
+    /// the same metric the jetsam cap watches and the TypeEngine governors
+    /// regression test asserts against). QA-only; no typed content involved.
+    private static func memoryFootprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        return Double(info.phys_footprint) / 1024 / 1024
     }
 
     // MARK: - Autocomplete (on `queue`)
