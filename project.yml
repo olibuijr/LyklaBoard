@@ -10,6 +10,12 @@ settings:
     SWIFT_VERSION: "5.9"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Sosialistaflokkur Islands (paid org team): provisions the App Group
+    # (group.is.lyklabord — shared learning store) and, once activated,
+    # the iCloud.is.lyklabord CloudKit container. Team IDs ship inside
+    # every app binary; not a secret.
+    DEVELOPMENT_TEAM: B4724Z74TM
+    CODE_SIGN_STYLE: Automatic
 
 packages:
   Learning:
@@ -56,7 +62,7 @@ targets:
           - group.is.lyklabord
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.app
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios
         PRODUCT_NAME: BetterKeyboard
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -116,7 +122,7 @@ targets:
           - group.is.lyklabord
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.app.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios.keyboard
         PRODUCT_NAME: BetterKeyboardExt
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
