@@ -52,6 +52,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Lyklaborð
+        # Standard-crypto-only (CryptoKit AES-GCM for user-data protection):
+        # mass-market exemption; satisfies the export-compliance question.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -60,6 +63,12 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.is.lyklabord
+        # CloudKit: APP ONLY — the keyboard extension must never gain
+        # network-capable entitlements (PLAN architecture invariant).
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.is.lyklabord
+        com.apple.developer.icloud-services:
+          - CloudKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios
