@@ -1,24 +1,12 @@
 ---
 // Lyklaborð — landing page. Static, Icelandic-first, one JS island (the hero).
+import Base from "../layouts/Base.astro";
 const title = "Lyklaborð — íslenskt lyklaborð sem kann íslensku";
 const description =
   "Lyklaborð er opið og ókeypis iOS-lyklaborð fyrir íslensku og ensku í senn: leiðréttingar sem skilja beygingar (byggðar á BÍN), broddar settir sjálfkrafa, ekkert netsamband. Væntanlegt í App Store.";
 ---
 
-<!doctype html>
-<html lang="is">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content="Lyklaborð" />
-    <meta property="og:description" content={description} />
-    <meta property="og:image" content="/keycap-fallback.png" />
-    <meta name="color-scheme" content="light dark" />
-    <link rel="icon" href="/favicon.png" type="image/png" />
-  </head>
-  <body>
+<Base title={title} description={description}>
     <main>
       <!-- ================================================== Hero -->
       <section class="hero">
@@ -134,13 +122,6 @@ const description =
       </section>
     </main>
 
-    <footer>
-      <p>
-        MIT-leyfi · BÍN © Stofnun Árna Magnússonar í íslenskum fræðum · Smíðað á
-        Íslandi
-      </p>
-    </footer>
-
     <script>
       import { initHero } from "../scripts/hero.js";
 
@@ -167,57 +148,6 @@ const description =
     </script>
 
     <style is:global>
-      :root {
-        --plastic: #d7d2c8;
-        --bg: #faf9f6;
-        --bg-raised: #f1efe9;
-        --ink: #1c1b1a;
-        --ink-soft: #55524d;
-        --rule: #e3e0d8;
-        color-scheme: light dark;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #1c1b1a;
-          --bg-raised: #242220;
-          --ink: #e8e5e0;
-          --ink-soft: #a5a19a;
-          --rule: #33302c;
-        }
-      }
-      :root[data-theme="light"] {
-        --bg: #faf9f6;
-        --bg-raised: #f1efe9;
-        --ink: #1c1b1a;
-        --ink-soft: #55524d;
-        --rule: #e3e0d8;
-      }
-      :root[data-theme="dark"] {
-        --bg: #1c1b1a;
-        --bg-raised: #242220;
-        --ink: #e8e5e0;
-        --ink-soft: #a5a19a;
-        --rule: #33302c;
-      }
-
-      * {
-        margin: 0;
-        box-sizing: border-box;
-      }
-      html {
-        background: var(--bg);
-        color: var(--ink);
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
-        font-size: 17px;
-        line-height: 1.6;
-        -webkit-text-size-adjust: 100%;
-      }
-      body {
-        min-height: 100dvh;
-        display: flex;
-        flex-direction: column;
-      }
       main {
         width: min(68rem, 100%);
         margin: 0 auto;
@@ -225,9 +155,6 @@ const description =
         flex: 1;
       }
       a {
-        color: inherit;
-        text-decoration-thickness: 1px;
-        text-underline-offset: 0.18em;
         text-decoration-color: var(--ink-soft);
       }
       a:hover {
@@ -359,20 +286,5 @@ const description =
       }
 
       /* ------------------------------------------------ footer */
-      footer {
-        margin-top: clamp(4rem, 10vh, 7rem);
-        border-top: 1px solid var(--rule);
-        padding: 1.6rem 1.5rem 2.2rem;
-        text-align: center;
-        font-size: 0.8rem;
-        color: var(--ink-soft);
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        html {
-          scroll-behavior: auto;
-        }
-      }
     </style>
-  </body>
-</html>
+</Base>
