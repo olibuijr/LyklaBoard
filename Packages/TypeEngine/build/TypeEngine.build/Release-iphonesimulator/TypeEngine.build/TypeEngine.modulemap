@@ -1,4 +1,0 @@
-module TypeEngine {
-header "TypeEngine-Swift.h"
-export *
-}
