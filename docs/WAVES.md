@@ -114,23 +114,32 @@ architecture in `docs/adr/`. Newest first.
   dominance protection, nu fires only through the triple gate.
 - **Personal-data hygiene** (waves 23/27 precedent, kb.jsonl-verified):
   corrected Eg|ég → Eg|Ég (capitalization transfer — the engine's answer
-  for typed "Eg" IS "Ég"; the analyzer had lowercased the intent) and
-  lg|log → lg|og ("log" was itself abandoned mid-repair; the final text
-  says og); DROPPED five in-flight fragment rows backspaced before any
-  commit (ciyu|ciyt, log|og, su|stundum, æyla|tæ, tæ|að — replaying them
-  with a delimiter manufactures false-acs the sessions never had, the
-  wave-23 "a|Arnj" class). Registered Eg→Ég and lg→og in
-  confirmed-intents.
+  for typed "Eg" IS "Ég"; the analyzer had lowercased the intent;
+  key-preserving in-place edit, durable across aggregate re-runs) and
+  registered Eg→Ég + lg→og in confirmed-intents. Five further rows are
+  IN-FLIGHT FRAGMENTS backspaced before any commit (ciyu|ciyt, log|og,
+  su|stundum, æyla|tæ, tæ|að — kb.jsonl shows every one dissolved by
+  backspaces mid-word; replaying them with a delimiter manufactures
+  false-acs the sessions never had, the wave-23 "a|Arnj" class). The
+  first drop attempt did NOT stick: `aggregate.py` re-adds any
+  CORRECTOR_CLASSES event whose (typo,intended) key is absent, and an
+  aggregate re-ran mid-wave — so the four manufactured false-ac rows are
+  instead baked into the baseline as KNOWN artifacts (non-gating for
+  future waves). **Flag for the analyzer owner** (tools/ is outside this
+  wave's scope): MISS_ABSENT/MISS_OFFERED events should check kb.jsonl
+  for an actual delimiter commit of the typo token before promotion —
+  the never-committed-fragment rule wave 23 applied by hand.
 - **Gates**: dev 2339 top-1 / 121 false-ac — byte-identical to wave 23
   (A/B toggle on-vs-off: ±0.00 everywhere); heldout (once) 2287/162 —
   byte-identical; scorecard PASS (micro 166/167, false-ac 0, valid-word
-  safety green); personal gate 48 rows top1 26 falseAc 5 — ZERO
-  regressions, 6 improvements including eg|ég newly passing top-1,
-  baseline updated; scenarios 220/220 ×3 (14 new wave-32 contracts incl.
-  mikid→mikið locking the d↔ð analog); swift test 416 green (7 new
-  ArchaicTwinTests); bench worst ~14.5 ms cold blip / p99 3.4 ms
-  (gate 30). New knobs `archaicTwinRestorationEnabled` /
-  `archaicTwinShortMinZ` in the A/B allowlist.
+  safety green); personal gate 54 rows top1 26 falseAc 9 (4 of the 9 =
+  the manufactured fragment rows above) — ZERO regressions, improvements
+  include eg|ég newly passing top-1, baseline updated; scenarios 220/220
+  ×3 (14 new wave-32 contracts incl. mikid→mikið locking the d↔ð
+  analog); swift test 416 green (7 new ArchaicTwinTests); bench worst
+  5.9 ms scorecard run (gate 30). New knobs
+  `archaicTwinRestorationEnabled` / `archaicTwinShortMinZ` in the A/B
+  allowlist.
 
 ## 2026-07-17 — Wave 23: case-aware long-word completions (split-case governors)
 
