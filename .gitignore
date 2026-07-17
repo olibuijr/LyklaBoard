@@ -40,3 +40,9 @@ scores/personal-baseline.json
 
 # Xcode/SwiftPM build products anywhere in the tree
 build/
+
+# asccli project context (app id — tooling-local, not a secret but no need to track)
+.asc/
+
+# ReplayRig test-build derived data (any suffix)
+ReplayRig/.derived*/
