@@ -715,7 +715,9 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         // DEV-MODE recorder: one flag check; writes a JSONL line ONLY when a
         // session is armed and the field is standard. Off by default, and
         // entirely independent of the learning event log below.
-        recorder.recordPass(window: text, fieldKind: fieldKind, suggestions: suggestions)
+        recorder.recordPass(
+            window: text, fieldKind: fieldKind, suggestions: suggestions,
+            pIcelandic: session.probabilityIcelandic)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
         setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
         // Word-commit boundary flush: the pass that detected a commit (or a

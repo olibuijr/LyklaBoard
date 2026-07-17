@@ -17,6 +17,14 @@ import TypeEngine
 //                                     --note <text> annotates the history line.
 //   type-eval ab --config <over.json> baseline vs EngineConfig-override diff on
 //                                     corpus dev + micro-eval
+//   type-eval personal [--update-baseline] [--corpus p] [--baseline p]
+//                                     [--confirmed-intents p]
+//                                     hard wave gate over the LOCAL personal
+//                                     corpus (tools/session-analyzer/
+//                                     personal-eval.jsonl, gitignored — a
+//                                     fresh checkout / CI is a clean no-op)
+//                                     + the confirmed-intentional (slangur)
+//                                     no-force-autocorrect check
 //
 // The micro-eval uses DictLexicon doubles (curated fixture vocabulary); the
 // corpus / scorecard / A/B corpus runs use the real data/ artifacts. See
@@ -33,6 +41,9 @@ case "scorecard":
 
 case "ab":
     runABCommand(Array(arguments.dropFirst()))
+
+case "personal":
+    runPersonalCommand(Array(arguments.dropFirst()))
 
 default:
     // Legacy micro-eval: no subcommand, optional fixture-path override and

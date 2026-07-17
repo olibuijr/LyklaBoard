@@ -138,7 +138,15 @@ final class SessionRecorder {
     /// flag check), and — only when armed, in a standard field — appends one
     /// JSONL line to `<id>-kb.jsonl`. Buffers are always cleared so stale taps
     /// never leak across field/session boundaries.
-    func recordPass(window: String, fieldKind: FieldKind, suggestions: [Suggestion]) {
+    /// - Parameter pIcelandic: the engine's current Icelandic-lane posterior
+    ///   (`TypingSession.probabilityIcelandic`, the same value `type-repl`
+    ///   prints as `P(IS)`) for this pass, when the caller has a live
+    ///   session. Recorded rounded to 3 decimals as `pIS`; omitted entirely
+    ///   (not written as `null`) when nil — e.g. no session yet bootstrapped.
+    func recordPass(
+        window: String, fieldKind: FieldKind, suggestions: [Suggestion],
+        pIcelandic: Double? = nil
+    ) {
         refreshArmState()
         guard isArmed, fieldKind == .standard, let kbLogURL, let sid = currentSessionId else {
             clearBuffers()
@@ -159,7 +167,8 @@ final class SessionRecorder {
             },
             applied: KBRecord.Applied(pendingApplied),
             taps: pendingTaps.map { KBRecord.Tap(c: String($0.char), dx: $0.dx, dy: $0.dy) },
-            backspaces: pendingBackspaces)
+            backspaces: pendingBackspaces,
+            pIS: pIcelandic.map { (($0 * 1000).rounded()) / 1000 })
         clearBuffers()
         append(record, to: kbLogURL)
     }
@@ -228,6 +237,14 @@ private struct KBRecord: Encodable {
     let applied: Applied
     let taps: [Tap]
     let backspaces: Int
+    /// Engine's Icelandic-lane posterior at this pass, 3 decimals — see
+    /// `SessionRecorder.recordPass(pIcelandic:)`. Omitted (not `null`) when
+    /// unavailable: `analyze.py`'s `KBRecord` construction reads fields via
+    /// `dict.get(...)` one at a time (no `**r` splat), so an absent OR an
+    /// unrecognized extra key is silently ignored — additive by
+    /// construction, verified by reading `analyze.py` (read-only, not
+    /// touched by this change).
+    let pIS: Double?
 
     struct Bar: Encodable {
         let text: String

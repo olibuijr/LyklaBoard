@@ -27,3 +27,7 @@ tools/session-analyzer/sessions/
 tools/session-analyzer/personal-eval.jsonl
 # User-confirmed typo intents — derived from personal typing, same rule.
 tools/session-analyzer/confirmed-intents.jsonl
+# Personal-eval baseline — derived from personal-eval.jsonl's real typed
+# text (typo|intended row keys), so it is gitignored just like the corpus it
+# summarizes. Local-only; `type-eval personal --update-baseline` rewrites it.
+scores/personal-baseline.json

@@ -25,9 +25,58 @@ architecture in `docs/adr/`. Newest first.
   heldout run once per wave and never tuned against; personal-eval.jsonl
   (real confirmed typing) must never regress. False-autocorrect is the metric
   we guard most jealously — uncorrected dogfood under-reports it, so dogfood
-  recordings are made WITH manual corrections.
+  recordings are made WITH manual corrections. Gate command (local only, real
+  typing data is gitignored): `type-eval personal` against
+  `scores/personal-baseline.json`; `--update-baseline` accepts an accepted
+  wave's result as the new floor (scores/README.md "Personal-eval gate").
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
+
+## 2026-07-17 — Wave 29 phase 2: personal gate, slangur registry, pIS recording
+
+- **Trigger**: wave 29's phase-2 queue — personal-eval as a hard wave gate
+  (wave 26's learning self-poisoning was byte-identical on the synthetic dev
+  corpus; only a personal snapshot reproduced it), a registry check for
+  confirmed-intentional slangur (kozy-class), and recording the engine's own
+  lane posterior alongside real typing sessions.
+- **Decided**: `type-eval personal` (EvalKit `PersonalEval.swift` +
+  type-eval `Personal.swift`) replays `tools/session-analyzer/
+  personal-eval.jsonl` (gitignored, real confirmed typing) keyed per-row by
+  `typo|intended` (lowercased) against `scores/personal-baseline.json`
+  (also gitignored — derived from personal text). Gate: (a) a baseline
+  top-1 pass that fails now is a REGRESSION; (b) any NEW false-autocorrect —
+  including on a brand-new row — is a REGRESSION (false-ac stays the most-
+  guarded metric, held even for rows with no baseline history); (c) new or
+  newly-passing rows are improvements, listed but non-gating.
+  `--update-baseline` rewrites the baseline after a wave is accepted. A
+  missing personal-eval.jsonl (fresh checkout, CI) is a clean no-op, exit 0
+  — the gate is only as available as the local personal data, by design.
+  Same command additionally loads `confirmed-intents.jsonl`'s
+  `intentional: true` rows and replays each at a NEUTRAL lane posterior (no
+  priming context — the most permissive the engine ever runs a keystroke
+  in), asserting no forced auto-apply; a failure is its own regression
+  (false-positive class), independent of the baseline.
+- **pIS recording**: `SessionRecorder.recordPass` gained an optional
+  `pIcelandic` parameter; `BetterKeyboardAutocompleteService` threads
+  `session.probabilityIcelandic` (the same accessor `type-repl`'s `P(IS)`
+  prints) through on every pass. Encoded as `pIS` (3 decimals) in
+  `kb.jsonl`, omitted (not `null`) when absent — Swift's synthesized
+  `Encodable` calls `encodeIfPresent` for `Optional` properties, verified
+  with a throwaway encode. `analyze.py`'s `KBRecord` construction reads
+  fields via `dict.get(...)` one at a time (no `**r` splat) — confirmed by
+  reading it (read-only; the analyzer itself is another agent's scope this
+  wave) — so the new key is additive and silently ignored until the
+  analyzer opts in.
+- **Gates**: established the initial baseline against commit `24d7ec0e`:
+  25 personal rows, top-1 13/25, autocorrected 14, falseAc 4 — matches the
+  discipline note above (these rows are drawn FROM real corrector misses,
+  so a lower top-1 rate than the synthetic corpus is expected, not a
+  regression). Slangur check 1/1 (kozy survives unforced). 13 new unit
+  tests (EvalKitTests/PersonalEvalTests.swift) against a fixture baseline
+  and a DictLexicon fixture engine — never the real personal file. Dev
+  corpus byte-identical to wave 22 (no Corrector/LanguageModel touched);
+  192/192 scenarios; swift test green (402 tests); simulator build green
+  (xcodegen + Debug/iOS-Simulator).
 
 ## 2026-07-17 — Wave 29: eval-studio v2 (tooling, in flight)
 

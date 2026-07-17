@@ -54,7 +54,47 @@ swift run -c release --package-path Packages/TypeEngine type-eval ab --config ov
 
 # Legacy micro-eval (DictLexicon fixture doubles, no corpus).
 swift run -c release --package-path Packages/TypeEngine type-eval
+
+# Personal-eval hard gate (LOCAL ONLY — real confirmed typing, gitignored;
+# a fresh checkout / CI has no personal-eval.jsonl and this is a clean no-op,
+# exit 0). Compares against scores/personal-baseline.json (also gitignored)
+# and asserts every tools/session-analyzer/confirmed-intents.jsonl
+# `intentional: true` word (slangur, e.g. "kozy") does not force-autocorrect.
+swift run -c release --package-path Packages/TypeEngine type-eval personal
+# Accept the current run as the new floor (run once a wave is accepted):
+swift run -c release --package-path Packages/TypeEngine type-eval personal --update-baseline
 ```
+
+### Personal-eval gate (eval-studio v2 phase 2)
+
+`type-eval personal` is the hard-gate twin of `corpus`/`scorecard`, but over
+`tools/session-analyzer/personal-eval.jsonl` — real confirmed typo→intended
+pairs from the developer's own device recordings (see that tool's README).
+It is **not** part of the committed `scorecard` JSON (the input is gitignored
+personal data, so the line would not be reproducible for anyone else), and it
+is not run in CI — it is a **local pre-commit discipline**: run it before
+accepting a wave, exactly like a manual heldout check.
+
+- Each row is tracked by a stable key, `typo|intended` (lowercased), against
+  `scores/personal-baseline.json` (gitignored — derived from personal text).
+- **Regression** (nonzero exit, named explicitly): (a) a row that passed
+  top-1 in the baseline and fails now, or (b) any row with a NEW
+  false-autocorrect, including brand-new rows — false-autocorrect is the
+  metric guarded most jealously, so even a first-time row is held to it.
+- **Improvement** (listed, non-gating): a brand-new row, or a row that now
+  passes top-1 when the baseline didn't.
+- **Slangur check** (Feature 2, the false-positive class): every
+  `confirmed-intents.jsonl` word marked `"intentional": true` is replayed at
+  a neutral lane posterior (`resetLanguagePosterior()`, no priming context —
+  the most permissive the engine ever runs) and must not auto-apply a
+  different word. A failure here is its own regression, independent of the
+  baseline.
+- `--update-baseline` rewrites `scores/personal-baseline.json` with the
+  current run — do this once a wave's personal-gate result is accepted, so
+  the next wave compares against it.
+- Missing `personal-eval.jsonl` (fresh checkout, CI, no local recordings
+  yet): prints a note and exits 0 — the gate is only as available as the
+  local personal data, by design.
 
 The **micro-eval** uses small curated `DictLexicon` doubles (the
 `eval-fixture.tsv` + hand-assembled wordlists) — a fast conservatism control.
