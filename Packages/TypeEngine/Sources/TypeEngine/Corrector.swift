@@ -1095,6 +1095,33 @@ public struct Corrector {
             let deliberateOK = Self.preservesDeliberateCharacters(
                 deliberate, of: typedChars, in: best.word)
             let preconditionsOK = lengthOK && costOK && apostrophesOK && deliberateOK
+            // Linking-letter yield (wave 31, the framhaldskóla class): the
+            // typed word is protected ONLY by an accidental compound
+            // reading (framhald+skóla), while the winner is an is.lex-
+            // ATTESTED whole word exactly one genitive linking letter
+            // (bandstafur) away at the decomposition boundary
+            // (framhaldsskóla). A hypothesized decomposition must not
+            // shield the corpus's most common real compound error from the
+            // ordinary margin/typicality gates — attested whole-word
+            // evidence outranks the hypothesis, mirroring Miðeind's
+            // whole-word-lookup-first order. Splits and restoration-only
+            // winners are untouched; lexicon-valid typed words never reach
+            // this (typedIsValid short-circuits the compound analysis).
+            let linkingYield =
+                config.compoundLinkingRepairYieldEnabled
+                && !typedIsValid
+                && !best.word.contains(" ")
+                && typedCompoundSplit.map {
+                    model.icelandic.frequency(of: best.word) != nil
+                        && Self.isLinkingLetterRepair(
+                            typedChars: typedChars, candidate: best.word, split: $0)
+                } ?? false
+            let effectiveProtected = typedIsProtected && !linkingYield
+            if linkingYield {
+                trace?.note(
+                    "compound protection YIELDS: winner \"\(best.word)\" is an attested"
+                        + " linking-letter repair at the decomposition boundary")
+            }
             let margin = scored.count > 1 ? best.score - scored[1].score : .infinity
             let tapMarginFactor = tapVetoFactor(
                 typedChars: typedChars,
@@ -1109,9 +1136,9 @@ public struct Corrector {
                 trace.margin = margin
                 trace.tapVetoFactor = tapMarginFactor
                 trace.rule =
-                    !typedIsProtected && best.word.contains(" ")
+                    !effectiveProtected && best.word.contains(" ")
                     ? "split"
-                    : !typedIsProtected
+                    : !effectiveProtected
                         ? "ordinary-unknown"
                         : best.cost.isRestorationOnly && !best.word.contains(" ")
                             && deliberate.isEmpty
@@ -1132,7 +1159,7 @@ public struct Corrector {
                 if !apostrophesOK { trace.gate("preservesApostrophes", "candidate drops a typed apostrophe", pass: false) }
                 if !deliberateOK { trace.gate("preservesDeliberateCharacters", "candidate drops a long-pressed character", pass: false) }
             }
-            if preconditionsOK, !typedIsProtected, best.word.contains(" ") {
+            if preconditionsOK, !effectiveProtected, best.word.contains(" ") {
                 // Split auto-apply (dogfood "fara lega" tightening): a split
                 // is a bigger intervention than a repair, so it must clear a
                 // RAISED margin AND the merged token must have no plausible
@@ -1160,7 +1187,7 @@ public struct Corrector {
                         pass: noSingleRepair)
                 }
                 autocorrect = marginOK && noSingleRepair
-            } else if preconditionsOK, !typedIsProtected {
+            } else if preconditionsOK, !effectiveProtected {
                 // Single-word auto-apply additionally requires the winner to
                 // be typical vocabulary (attested at z ≥ autocorrectMinZ;
                 // personal words are exempt): BÍN-floored junk like
@@ -1462,9 +1489,55 @@ public struct Corrector {
         let maxScore = confidencePool.first?.score ?? 0
         let z = confidencePool.reduce(0.0) { $0 + exp($1.score - maxScore) }
 
+        // Hyphen-join repair (wave 31, the iceErrorCorpus missing-hyphen
+        // class — 812/2020 harvested rows, the largest compound-adjacent
+        // error class): a proper-noun/foreign modifier joined to an
+        // Icelandic head takes a HYPHEN in standard orthography
+        // ("Guccibuxurnar" → "Gucci-buxurnar", ritreglur: Sahara-eyðimörkin,
+        // BYKO-reiturinn). The space-miss split machinery already finds the
+        // boundary and was auto-applying the two-word reading ("Gucci
+        // buxurnar"); when the typed token is capitalized MID-SENTENCE (the
+        // proper-noun signal — sentence-initial caps prove nothing), the
+        // first half is NOT BÍN-known (foreign, not ordinary Icelandic
+        // vocabulary — "Íslandsog" must keep splitting to "Íslands og") and
+        // the second half IS BÍN-known (a real Icelandic word carrying the
+        // inflection), the split's text is rendered with the hyphen instead
+        // of the space. Scoring, margins and the auto-apply decision are
+        // untouched — this is the same hypothesis in its standard spelling.
+        // The capitalization test is the raw typed token's leading capital
+        // (not `capitalizedMidSentence`): sentence-initially the autocap is
+        // ambiguous evidence, but the BÍN-membership tests on the two
+        // halves carry the discrimination — a lowercase merge simply keeps
+        // the plain split, conservatively. LANE-GATED to Icelandic (P(IS)
+        // at or above neutral): the hyphen is an ICELANDIC orthographic
+        // rule — English writes "Gucci trousers" as two words, and inside
+        // an English lane a BÍN-known second half is coincidence, not
+        // evidence (the wave-31 heldout probe: ungated, EN space-miss
+        // splits picked up wrong hyphens).
+        func hyphenJoinForm(of word: String) -> String? {
+            guard config.hyphenJoinRepairEnabled,
+                pIcelandic >= 0.5,
+                rawTyped.first?.isUppercase == true,
+                word.contains(" ")
+            else { return nil }
+            let parts = word.split(separator: " ")
+            guard parts.count == 2 else { return nil }
+            let first = String(parts[0])
+            let second = String(parts[1])
+            guard let morphology = model.morphology,
+                !morphology.isKnown(first),
+                // Hyphen compounds carry NOUN/ADJECTIVE heads
+                // (Gucci-buxurnar, Sahara-eyðimörkin); a merely BÍN-known
+                // second half (verb form, adverb, coincidental reading)
+                // is not evidence of a compound head.
+                !morphology.nounAdjectiveCases(of: second).isEmpty
+            else { return nil }
+            return first + "-" + second
+        }
+
         var suggestions = scored.prefix(limit).enumerated().map { index, entry in
             Suggestion(
-                text: entry.word,
+                text: hyphenJoinForm(of: entry.word) ?? entry.word,
                 isAutocorrect: index == 0 && autocorrect,
                 confidence: z > 0 ? exp(entry.score - maxScore) / z : 0,
                 isRestoration: entry.cost.isRestorationOnly
@@ -1542,6 +1615,30 @@ public struct Corrector {
                 at: min(slot, suggestions.count)
             )
             suggestions = Array(suggestions.prefix(limit))
+        }
+
+        // Wrongly-joined split offer (wave 31): the typed word is on the
+        // never-a-compound deny list (CompoundAnalyzer.neverCompounds —
+        // GreynirCorrect C002, "margskonar" class). BÍN's descriptive
+        // coverage attests most of these as whole surface forms, so the
+        // conservatism invariant rightly keeps them committed as typed —
+        // but the standard orthography is ALWAYS the two-word form, so
+        // the bar offers the canonical split (offer-only, wrong-form-
+        // offer semantics: one tap writes it, nothing auto-applies).
+        // Deny words BÍN does NOT attest (fjögurhundruð) reach here too,
+        // usually with the split already auto-applied by the space-miss
+        // machinery — the existing-index check leaves that winner alone.
+        if let splitOffer = CompoundAnalyzer.neverCompounds[typed],
+            !suggestions.contains(where: { $0.text == splitOffer })
+        {
+            let slot = suggestions.first?.isAutocorrect == true ? 1 : 0
+            suggestions.insert(
+                Suggestion(text: splitOffer, isAutocorrect: false, confidence: 0),
+                at: min(slot, suggestions.count)
+            )
+            suggestions = Array(suggestions.prefix(limit))
+            trace?.note(
+                "never-a-compound deny list: canonical split \"\(splitOffer)\" offered")
         }
 
         return CorrectionResult(suggestions: suggestions, typedWordIsValid: typedIsProtected)
@@ -2413,6 +2510,54 @@ public struct Corrector {
         let typedCount = typed.filter { apostrophes.contains($0) }.count
         guard typedCount > 0 else { return true }
         return candidate.filter { apostrophes.contains($0) }.count >= typedCount
+    }
+
+    /// The genitive linking letters ("bandstafir" — the -s-/-ar-/-a-/-u-
+    /// endings ARE genitives, see Compounds.swift): the only characters
+    /// whose insertion/removal at a compound boundary counts as a
+    /// linking-letter repair for the wave-31 protection yield.
+    static let linkingLetters: Set<Character> = ["s", "a", "r", "u"]
+
+    /// Whether `candidate` equals the typed word with exactly one linking
+    /// letter inserted at — or removed just before — a modifier boundary
+    /// of the typed word's compound decomposition. The two real-corpus
+    /// shapes (iceErrorCorpus compound-collocation):
+    ///   dropped bandstafur:  framhald|skóla  + s → framhaldsskóla
+    ///   doubled bandstafur:  samferðar|fólki − r → samferðafólki
+    /// Pure function of the decomposition — attestation and every margin/
+    /// typicality gate stay the caller's job.
+    static func isLinkingLetterRepair(
+        typedChars: [Character], candidate: String, split: CompoundSplit
+    ) -> Bool {
+        let candidateChars = Array(candidate)
+        var boundaries: [Int] = []
+        var position = 0
+        for modifier in split.modifiers {
+            position += modifier.count
+            boundaries.append(position)
+        }
+        if candidateChars.count == typedChars.count + 1 {
+            // Insertion INTO the candidate at a typed-word boundary.
+            for boundary in boundaries {
+                guard boundary < candidateChars.count,
+                    Self.linkingLetters.contains(candidateChars[boundary]),
+                    Array(candidateChars[..<boundary]) == Array(typedChars[..<boundary]),
+                    Array(candidateChars[(boundary + 1)...]) == Array(typedChars[boundary...])
+                else { continue }
+                return true
+            }
+        } else if candidateChars.count == typedChars.count - 1 {
+            // Removal of the typed word's boundary-final letter.
+            for boundary in boundaries {
+                guard boundary >= 1, boundary <= typedChars.count,
+                    Self.linkingLetters.contains(typedChars[boundary - 1]),
+                    Array(typedChars[..<(boundary - 1)]) == Array(candidateChars[..<(boundary - 1)]),
+                    Array(typedChars[boundary...]) == Array(candidateChars[(boundary - 1)...])
+                else { continue }
+                return true
+            }
+        }
+        return false
     }
 
     /// A token containing hyphens whose parts are each valid (lexicon or

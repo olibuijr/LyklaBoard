@@ -83,6 +83,25 @@ SymSpell combines these two sources by intersection to produce a high-quality fr
 
 ---
 
+## Evaluation Data: Icelandic Error Corpus (IceEC)
+
+### Credit
+
+The compound-error evaluation slice (`data/eval/compounds.jsonl`, wave 31) derives from the **Icelandic Error Corpus (IceEC)**:
+
+> Anton Karl Ingason, Lilja Björk Stefánsdóttir, Þórunn Arnardóttir, Xindan Xu. 2021. **The Icelandic Error Corpus (IceEC)**. Version 1.1.  
+> https://github.com/antonkarl/iceErrorCorpus
+
+### License
+
+IceEC is distributed under the **Creative Commons Attribution 4.0 International license (CC BY 4.0)** — https://creativecommons.org/licenses/by/4.0/. The derived rows in `data/eval/compounds.jsonl` (typo→correction pairs filtered to the compound error classes, selected and reshaped by `data/eval/generate-compounds-eval.py`) are redistributed under the same terms with this attribution. Changes made: filtering to compound-shaped error codes, dedup, shape normalization, and replay-form transformation — documented in the generator script and `data/eval/README.md`.
+
+A further 16 rows in the same file derive from **GreynirCorrect** test assertions (Miðeind ehf., MIT license — https://github.com/mideind/GreynirCorrect); each row's `source` field records its origin. The full harvest provenance is in `research/mideind-compound-cases.md`.
+
+Evaluation data only: these files feed `type-eval` and are not part of the shipped app bundle.
+
+---
+
 ## Summary for App Distribution
 
 ### What we ship

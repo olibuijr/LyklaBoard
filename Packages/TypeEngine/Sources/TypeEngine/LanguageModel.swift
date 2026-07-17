@@ -220,6 +220,42 @@ public struct EngineConfig: Sendable {
     /// Words longer than this skip compound analysis (pathological-input
     /// latency guard; the split scan is O(length) lookups).
     public var compoundMaxWordLength: Int = 32
+    /// Maximum modifier-chain depth of a legal decomposition (wave 22
+    /// shipped exactly 2; wave 31 generalized the scan behind this knob
+    /// and KEPT the default). Measured (wave 31): 15 of the 16 harvested
+    /// single-token real compounds — including the 4-part
+    /// gervigreindar+gagna+verin and morgunverðar+hlaðborð — already
+    /// resolve at ≤ 2 modifiers because BÍN attests the intermediate
+    /// compounds whole; relaxing to 3 gains exactly ONE word
+    /// (álfa+brunn+fugla+garðurinn, Miðeind's constructed tokenizer
+    /// stress pick) and is byte-identical on dev AND on the compounds
+    /// corpus. Zero measured gain does not justify widening the
+    /// accidental-decomposition surface wave 22 deliberately bounded, so
+    /// 2 stands; the knob exists for future evidence (A/B-able).
+    public var compoundMaxModifiers: Int = 2
+    /// Linking-letter yield (wave 31, the framhaldskóla class — the most
+    /// repeated real error in the iceErrorCorpus compound harvest):
+    /// compound PROTECTION (an OOV token that happens to decompose,
+    /// framhald+skóla) must not shield a dropped/doubled genitive linking
+    /// letter when the ATTESTED whole word sits one bandstafur edit away
+    /// at the exact decomposition boundary (framhaldsskóla). When the
+    /// winning candidate is is.lex-attested and equals the typed word
+    /// with one linking letter (s/a/r/u — the genitive endings) inserted
+    /// or removed at the compound boundary, the protection veto yields
+    /// and the ordinary margin/typicality gates decide. Genuine intended
+    /// compounds stay protected: a linking-letter sibling of a REAL
+    /// productive compound is essentially never attested vocabulary.
+    public var compoundLinkingRepairYieldEnabled = true
+    /// Hyphen-join repair (wave 31, the missing-hyphen class — the single
+    /// largest compound-adjacent error class in the iceErrorCorpus
+    /// harvest): a space-miss split whose first half is a capitalized-
+    /// mid-sentence NON-BÍN token (foreign brand / proper noun) and whose
+    /// second half is BÍN-known Icelandic renders with the standard
+    /// orthographic hyphen instead of the space ("Guccibuxurnar" →
+    /// "Gucci-buxurnar", not "Gucci buxurnar"). Text-render only: the
+    /// hypothesis, its score and the auto-apply decision are the split
+    /// machinery's, unchanged.
+    public var hyphenJoinRepairEnabled = true
     /// Compound-head repair pass (Corrector step 5b): when an unknown
     /// token has a legal modifier PREFIX but no legal head, hold the
     /// modifier fixed and admit single-edit repairs of the head that are

@@ -21,6 +21,8 @@ struct Repl {
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
               :bigram <p> <w>   per-lexicon bigram counts + contextual z(w|p)
+              :compound <w>     compound-analyzer verdict: validity, protection,
+                                decomposition, deny-list membership
               :why              decision trace of the LAST suggestions() pass:
                                 per-candidate cost/score, margin vs runner-up,
                                 which auto-apply rule ran, every gate's value
@@ -101,6 +103,16 @@ struct Repl {
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":compound":
+            guard !argument.isEmpty else {
+                print("usage: :compound <word>")
+                break
+            }
+            let d = engine.compoundDiagnostics(for: argument)
+            print(
+                "  valid=\(d.typedValid)  protected=\(d.protected)"
+                    + "  split=\(d.parts.map { $0.joined(separator: "+") } ?? "-")"
+                    + (d.deniedSplit.map { "  DENY -> \"\($0)\"" } ?? ""))
         case ":bigram":
             let parts = argument.split(separator: " ").map(String.init)
             guard parts.count == 2 else {

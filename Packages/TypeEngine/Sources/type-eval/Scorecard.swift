@@ -57,6 +57,14 @@ func runScorecardCommand(_ args: [String]) {
     engine.warmUp()
     let dev = CorpusEval.run(engine: engine, pairs: loadSplit("dev", repoRoot), split: "dev")
     printCorpusResult(dev)
+    // Compounds slice (wave 31): real iceErrorCorpus compound errors —
+    // tracked in the scorecard line (not a hard gate) so the structural
+    // gaps (missing-hyphen, cross-token joins) stay visible per commit.
+    stderr("running corpus compounds…")
+    let compounds = CorpusEval.run(
+        engine: engine, pairs: loadSplit("compounds", repoRoot), split: "compounds")
+    print("")
+    printCorpusResult(compounds, label: "corpus compounds")
     var heldout: CorpusResult?
     if includeHeldout {
         stderr("running corpus heldout (REPORT-ONLY)…")
@@ -111,6 +119,7 @@ func runScorecardCommand(_ args: [String]) {
         "commit": commit,
         "timestamp": timestamp,
         "corpus": corpusJSON(dev),
+        "compounds": corpusJSON(compounds),
         "microEval": [
             "n": micro.overall.total,
             "top1": micro.overall.top1,

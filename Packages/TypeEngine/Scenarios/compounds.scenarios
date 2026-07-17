@@ -144,3 +144,132 @@ T "og gret Er eotthbap"
 EXPECT_AUTOCORRECT eitthvað
 T " "
 EXPECT_LAST_COMMIT eitthvað
+
+# ============================================================
+# 6. Wave 31 — never-a-compound deny set (GreynirCorrect C002)
+# ============================================================
+
+SCENARIO margskonar offers the canonical split but commits as typed
+# BÍN's descriptive coverage attests "margskonar" as a whole surface
+# form (full indeclinable-adjective paradigm), so the conservatism
+# invariant keeps it committed as typed — but standard orthography is
+# ALWAYS "margs konar", so the deny-list offer puts the split in the
+# bar (one tap fixes it). Never auto-applied.
+T "það er margskonar"
+EXPECT_CONTAINS margs konar
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT margskonar
+
+SCENARIO annarstaðar offers annars staðar without auto-applying
+T "hann býr annarstaðar"
+EXPECT_CONTAINS annars staðar
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT annarstaðar
+
+SCENARIO fjögurhundruð auto-splits via the ordinary space-miss machinery
+# The deny words BÍN does NOT attest are plain OOV tokens: the split
+# pass reaches "fjögur hundruð" on its own (margin inf, both halves
+# headline vocabulary) — the deny list only needs to keep the compound
+# analyzer from ever protecting the join.
+T "keyptum við fjögurhundruð"
+EXPECT_AUTOCORRECT fjögur hundruð
+T " "
+# Two-word commit: the runner reports the trailing token.
+EXPECT_LAST_COMMIT hundruð
+
+# ============================================================
+# 7. Wave 31 — linking-letter yield (the framhaldskóla class)
+# ============================================================
+
+SCENARIO framhaldskóla yields protection and repairs to framhaldsskóla
+# The most repeated real error in the iceErrorCorpus compound harvest:
+# the typo accidentally decomposes (framhald+skóla, a legal reading)
+# and wave 22's protection silenced the repair. The attested whole word
+# "framhaldsskóla" is one genitive linking letter (-s-) away at the
+# exact decomposition boundary, so protection yields and the ordinary
+# margin/typicality gates fire the repair.
+T "fór í framhaldskóla"
+EXPECT_AUTOCORRECT framhaldsskóla
+T " "
+EXPECT_LAST_COMMIT framhaldsskóla
+
+SCENARIO samferðarfólki drops the superfluous linking letter
+# The deletion direction of the same class: samferðar+fólki decomposes,
+# and the attested "samferðafólki" is the boundary linking letter -r-
+# removed. Junk-tier margin scaling (×3) still applies — the fire
+# clears it on an unopposed margin.
+T "með samferðarfólki"
+EXPECT_AUTOCORRECT samferðafólki
+T " "
+EXPECT_LAST_COMMIT samferðafólki
+
+SCENARIO eldneyti still repairs through the ordinary insert pass
+# Real-corpus twin of the wave-22 gate example (eldsnyti): "eldneyti"
+# does NOT decompose (eld- is under the 4-char modifier floor), so no
+# protection interferes and the honest single-insert repair fires.
+T "bílinn vantar eldneyti"
+EXPECT_AUTOCORRECT eldsneyti
+T " "
+EXPECT_LAST_COMMIT eldsneyti
+
+SCENARIO kaffispjalið stays offer-only (yield is boundary-strict)
+# Counter-contract: the honest repair kaffispjallið inserts -l- at
+# position 10, NOT at the accidental decomposition boundary (kaffis|
+# pjalið, position 6) — the linking-letter yield must not widen into a
+# general protection bypass, so wave 22's offer-only verdict stands.
+T "kaffispjalið"
+EXPECT_CONTAINS kaffispjallið
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT kaffispjalið
+
+# ============================================================
+# 8. Wave 31 — 4-part compounds and the 2-modifier ceiling
+# ============================================================
+
+SCENARIO gervigreindargagnaverin is protected through BÍN collapse
+# A real 4-part modern compound (gervi+greindar+gagna+verin). The
+# 2-modifier cap still protects it because BÍN attests the
+# intermediate compounds whole (gervigreindar as ONE genitive
+# modifier, gagnaverin as ONE head) — the measured reason wave 31
+# KEPT the cap at 2: 15 of the 16 harvested single-token valid
+# compounds resolve at ≤2 modifiers.
+T "gervigreindargagnaverin"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT gervigreindargagnaverin
+
+# ============================================================
+# 9. Wave 31 — missing-hyphen class (iceErrorCorpus, 812 rows)
+# ============================================================
+
+SCENARIO Guccibuxurnar auto-applies the hyphen join Gucci-buxurnar
+# Foreign proper-noun modifier + Icelandic head takes a HYPHEN in
+# standard orthography. The space-miss split finds the boundary and
+# clears its own auto-apply rules; the hyphen-join render replaces the
+# space when the first half is capitalized non-BÍN and the second half
+# BÍN-known — the commit is the single hyphenated token.
+T "keypti Guccibuxurnar"
+EXPECT_AUTOCORRECT Gucci-buxurnar
+T " "
+EXPECT_LAST_COMMIT Gucci-buxurnar
+
+SCENARIO Íslandsog keeps its plain splits unhyphenated
+# Negative control for the hyphen join: a BÍN-known first half
+# ("ísland") is ordinary Icelandic vocabulary, so its split readings
+# keep the space — the hyphen is only for the foreign-modifier class.
+T "sá Íslandsog"
+EXPECT_NOT_CONTAINS Ísland-sog
+T " "
+
+SCENARIO typed Porsche-bílunum is never mangled
+# Correctly-hyphenated compound protection: a hyphenated token with an
+# OOV foreign part generates no candidates at all (non-letter gate on
+# every generation pass) — the bar keeps only the verbatim escape and
+# the token commits exactly as typed.
+T "keypti Porsche-bílunum"
+EXPECT_ONLY_VERBATIM Porsche-bílunum
+T " "
+EXPECT_LAST_COMMIT Porsche-bílunum

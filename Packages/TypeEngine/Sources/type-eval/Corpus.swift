@@ -6,15 +6,21 @@ func stderr(_ message: String) {
     FileHandle.standardError.write(Data("[type-eval] \(message)\n".utf8))
 }
 
-/// `type-eval corpus <dev|heldout>` — replay a corpus split through the real
-/// artifacts and print the per-category / per-language / overall table.
+/// `type-eval corpus <dev|heldout|compounds>` — replay a corpus split
+/// through the real artifacts and print the per-category / per-language /
+/// overall table. `compounds` is the wave-31 iceErrorCorpus compound slice
+/// (data/eval/compounds.jsonl — real error→correction pairs; several of its
+/// categories track structural gaps and protection assertions, see
+/// data/eval/README.md).
 ///
 /// Debug flags (dev-iteration tooling, no effect on the table):
 ///   --dump <failures|false-ac>   per-pair dump instead of the table
 ///   --category <name>            restrict the dump to one category
 func runCorpusCommand(_ args: [String]) {
-    guard let split = args.first, split == "dev" || split == "heldout" else {
-        stderr("usage: type-eval corpus <dev|heldout> [--dump failures|false-ac] [--category c]")
+    guard let split = args.first, ["dev", "heldout", "compounds"].contains(split) else {
+        stderr(
+            "usage: type-eval corpus <dev|heldout|compounds> [--dump failures|false-ac] [--category c]"
+        )
         exit(2)
     }
     var dumpMode: String?

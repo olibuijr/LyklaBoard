@@ -32,9 +32,12 @@ import LemmaCore
 //    and whose lemma-frequency floor (≥ 10) mirrors the effect of
 //    Miðeind's curation (proper-name stems and rare junk drop out).
 //  * Multi-part compounds: every non-final part must be a legal modifier
-//    (their DAWG combination rule). We support one extra part
-//    (modifier+modifier+head, e.g. skaða+bóta+reglan) — deeper nesting is
-//    out of scope for this wave.
+//    (their DAWG combination rule). The modifier-chain depth is
+//    `config.compoundMaxModifiers` (default 2, e.g. skaða+bóta+reglan —
+//    wave 22's deliberate ceiling, kept after the wave-31 measurement:
+//    real 4-part compounds exist (gervigreindar+gagna+verin,
+//    álfa+brunn+fugla+garðurinn) but see the wave-31 WAVES.md entry for
+//    the numbers behind keeping the default at 2).
 //  * Ranking: longest head first, then fewest parts — Miðeind's
 //    "longest last part, fewest total parts" sort, expressed by scanning
 //    split points left to right and preferring the 1-modifier reading.
@@ -116,36 +119,62 @@ final class CompoundAnalyzer {
         guard n >= minModifier + minHead, n <= config.compoundMaxWordLength,
             chars.allSatisfy(\.isLetter)
         else { return nil }
+        // Never-a-compound deny set (wave 31 — Miðeind's negative
+        // curation): a morphologically-legal-looking join that standard
+        // orthography ALWAYS writes as separate words gains no compound
+        // reading, whatever the modifier/head rules say.
+        if Self.neverCompounds[word] != nil { return nil }
         if let cached = splitCache[word] { return cached }
         var result: CompoundSplit?
         // Longest head first (split point left to right); at each point
-        // prefer the single-modifier reading over modifier+modifier
-        // (Miðeind's "longest last part, fewest total parts" order).
+        // prefer the fewest-modifier reading (Miðeind's "longest last
+        // part, fewest total parts" order). Modifier-chain depth is
+        // config.compoundMaxModifiers (wave 22 shipped exactly 2; wave 31
+        // generalized the scan behind the knob, default unchanged).
         outer: for i in minModifier...(n - minHead) {
             let head = String(chars[i...])
             guard isHead(head, morphology: morphology, minLength: minHead) else { continue }
-            let modifier = String(chars[..<i])
-            if isModifier(modifier, paradigms: paradigms, minLength: minModifier) {
-                result = CompoundSplit(modifiers: [modifier], head: head)
-                break
-            }
-            // Two-modifier reading: every non-final part a legal modifier.
-            if i >= 2 * minModifier {
-                for j in minModifier...(i - minModifier) {
-                    let first = String(chars[..<j])
-                    let second = String(chars[j..<i])
-                    if isModifier(first, paradigms: paradigms, minLength: minModifier),
-                        isModifier(second, paradigms: paradigms, minLength: minModifier)
-                    {
-                        result = CompoundSplit(modifiers: [first, second], head: head)
-                        break outer
-                    }
+            let maxParts = max(1, config.compoundMaxModifiers)
+            for parts in 1...maxParts where i >= parts * minModifier {
+                if let modifiers = segmentModifiers(
+                    chars[..<i], into: parts, paradigms: paradigms, minLength: minModifier)
+                {
+                    result = CompoundSplit(modifiers: modifiers, head: head)
+                    break outer
                 }
             }
         }
         bound(&splitCache)
         splitCache[word] = result
         return result
+    }
+
+    /// Segment `region` into exactly `parts` legal modifiers (each ≥
+    /// `minLength`), scanning earlier split points first — for parts == 2
+    /// this reproduces wave 22's shortest-first-part order byte for byte.
+    /// Returns the parts in order, or nil when no legal segmentation
+    /// exists.
+    private func segmentModifiers(
+        _ region: ArraySlice<Character>, into parts: Int,
+        paradigms: ParadigmsProviding, minLength: Int
+    ) -> [String]? {
+        if parts == 1 {
+            let word = String(region)
+            return isModifier(word, paradigms: paradigms, minLength: minLength) ? [word] : nil
+        }
+        let lower = region.startIndex + minLength
+        let upper = region.endIndex - (parts - 1) * minLength
+        guard lower <= upper else { return nil }
+        for j in lower...upper {
+            let first = String(region[..<j])
+            guard isModifier(first, paradigms: paradigms, minLength: minLength) else { continue }
+            if let rest = segmentModifiers(
+                region[j...], into: parts - 1, paradigms: paradigms, minLength: minLength)
+            {
+                return [first] + rest
+            }
+        }
+        return nil
     }
 
     /// Legal compound HEAD: an open-class (noun/verb/adjective) BÍN form,
@@ -204,6 +233,45 @@ final class CompoundAnalyzer {
         modifierCache[part] = legal
         return legal
     }
+
+    // MARK: - Never-a-compound deny set (wave 31)
+
+    /// Wrongly-JOINED pseudo-compounds → their canonical split form.
+    /// Miðeind curates against these beyond pure morphological legality:
+    /// each LOOKS like a legal genitive-modifier+head join (margs+konar,
+    /// mikils+háttar) — the exact shape `isModifier`/`isHead` accept —
+    /// but standard Icelandic orthography always writes them as separate
+    /// words (GreynirCorrect error class C002, `test_wrong_compounds`;
+    /// harvested in research/mideind-compound-cases.jsonl, MIT).
+    ///
+    /// Two duties:
+    ///  * `split(of:)` refuses them — they must never earn compound
+    ///    validity protection. (Mostly a structural guard today: BÍN's
+    ///    descriptive coverage actually ATTESTS 8 of the 10 as whole
+    ///    surface forms — margskonar carries a full indeclinable-
+    ///    adjective paradigm — so lexicon validity, not compound
+    ///    analysis, is what protects them from auto-replace. The
+    ///    conservatism invariant stands; the deny set keeps the compound
+    ///    layer from ever ADDING protection, e.g. for inflected or
+    ///    future variants BÍN does not carry.)
+    ///  * The corrector OFFERS the canonical split form in the bar
+    ///    (offer-only, wrong-form-offer semantics): one tap writes the
+    ///    standard orthography. The two forms BÍN does NOT attest
+    ///    (fjögurhundruð, níuhundruð) already auto-split via the
+    ///    ordinary space-miss machinery — the offer path only ever runs
+    ///    for words the validity veto silences.
+    static let neverCompounds: [String: String] = [
+        "margskonar": "margs konar",
+        "afturábak": "aftur á bak",
+        "afþvíað": "af því að",
+        "annarstaðar": "annars staðar",
+        "fjögurhundruð": "fjögur hundruð",
+        "mikilsháttar": "mikils háttar",
+        "niðrá": "niður á",
+        "níuhundruð": "níu hundruð",
+        "samskonar": "sams konar",
+        "seinnihluta": "seinni hluta",
+    ]
 
     // MARK: - Bound suffix forms (BÍN ord.suffix.csv via BinPackage)
 

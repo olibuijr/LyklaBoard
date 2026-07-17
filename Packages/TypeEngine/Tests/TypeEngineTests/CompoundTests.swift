@@ -181,6 +181,132 @@ final class CompoundTests: XCTestCase {
         XCTAssertFalse(corrector.correct(typed: "vinnufundinum").typedWordIsValid)
     }
 
+    // MARK: Wave 31 — never-a-compound deny set
+
+    func testDenySetWordNeverDecomposes() {
+        // Fixture makes margs+konar a perfectly legal join (genitive
+        // modifier + open-class head) — the deny set must refuse it
+        // anyway, while the same modifier keeps linking elsewhere.
+        let paradigms = makeParadigms()
+        paradigms.addNoun(
+            lemma: "margur", genderCode: 0, forms: [("margs", 3, false, false)])
+        let morphology = FakeMorphology(["konar", "skúrinn"])
+        let inflection = InflectionStore()
+        inflection.setModel(
+            InflectionModel(paradigms: paradigms, governors: GovernorsModel(table: [:])))
+        let model = BlendedLanguageModel(
+            icelandic: Fixtures.icelandic, english: Fixtures.english,
+            morphology: morphology, config: EngineConfig(), inflection: inflection)
+        let corrector = Corrector(model: model, config: EngineConfig())
+        XCTAssertTrue(
+            corrector.correct(typed: "margsskúrinn").typedWordIsValid,
+            "control: margs- links as an ordinary genitive modifier")
+        XCTAssertFalse(
+            corrector.correct(typed: "margskonar").typedWordIsValid,
+            "deny-set word must never earn compound protection")
+    }
+
+    func testDenySetOffersCanonicalSplit() {
+        let corrector = makeCorrector(
+            morphology: FakeMorphology([]), paradigms: makeParadigms())
+        let result = corrector.correct(typed: "margskonar")
+        let offer = result.suggestions.first { $0.text == "margs konar" }
+        XCTAssertNotNil(offer, "deny-set words offer their canonical split")
+        XCTAssertFalse(offer?.isAutocorrect ?? true, "offer-only, never auto-applied")
+    }
+
+    func testDenyMapCoversTheHarvestedC002Set() {
+        XCTAssertEqual(CompoundAnalyzer.neverCompounds.count, 10)
+        XCTAssertEqual(CompoundAnalyzer.neverCompounds["margskonar"], "margs konar")
+        XCTAssertEqual(CompoundAnalyzer.neverCompounds["annarstaðar"], "annars staðar")
+        XCTAssertEqual(CompoundAnalyzer.neverCompounds["niðrá"], "niður á")
+    }
+
+    // MARK: Wave 31 — modifier-chain depth knob
+
+    func testThreeModifierChainNeedsTheRelaxedKnob() {
+        // vinnu+vinnu+vinnu+fundinum: three modifiers — refused at the
+        // shipped cap of 2, accepted at 3.
+        let word = "vinnuvinnuvinnufundinum"
+        let morphology = FakeMorphology(["fundinum"])
+        XCTAssertFalse(
+            makeCorrector(morphology: morphology, paradigms: makeParadigms())
+                .correct(typed: word).typedWordIsValid,
+            "default compoundMaxModifiers == 2 refuses a 3-modifier chain")
+        var config = EngineConfig()
+        config.compoundMaxModifiers = 3
+        XCTAssertTrue(
+            makeCorrector(morphology: morphology, paradigms: makeParadigms(), config: config)
+                .correct(typed: word).typedWordIsValid,
+            "compoundMaxModifiers = 3 accepts the 3-modifier chain")
+    }
+
+    // MARK: Wave 31 — linking-letter yield
+
+    func testLinkingLetterRepairShapes() {
+        // Insertion at the boundary (framhald|skóla + s).
+        XCTAssertTrue(
+            Corrector.isLinkingLetterRepair(
+                typedChars: Array("framhaldskóla"), candidate: "framhaldsskóla",
+                split: CompoundSplit(modifiers: ["framhald"], head: "skóla")))
+        // Removal of the boundary-final letter (samferðar|fólki − r).
+        XCTAssertTrue(
+            Corrector.isLinkingLetterRepair(
+                typedChars: Array("samferðarfólki"), candidate: "samferðafólki",
+                split: CompoundSplit(modifiers: ["samferðar"], head: "fólki")))
+        // Boundary-strict: kaffispjallið inserts -l- at position 10, not
+        // at the accidental decomposition boundary (kaffis|pjalið).
+        XCTAssertFalse(
+            Corrector.isLinkingLetterRepair(
+                typedChars: Array("kaffispjalið"), candidate: "kaffispjallið",
+                split: CompoundSplit(modifiers: ["kaffis"], head: "pjalið")))
+        // Letter-strict: only the bandstafir count.
+        XCTAssertFalse(
+            Corrector.isLinkingLetterRepair(
+                typedChars: Array("framhaldskóla"), candidate: "framhaldxskóla",
+                split: CompoundSplit(modifiers: ["framhald"], head: "skóla")))
+    }
+
+    func testLinkingYieldLetsTheAttestedRepairFire() {
+        // framhald(neuter stem)+skóla decomposes -> protected; the is.lex-
+        // attested "framhaldsskóla" is one boundary -s- away. With the
+        // yield the ordinary rules fire; without it wave 22's protection
+        // keeps the repair offer-only.
+        func build(_ yieldEnabled: Bool) -> Corrector {
+            var config = EngineConfig()
+            config.compoundLinkingRepairYieldEnabled = yieldEnabled
+            let paradigms = FakeParadigms()
+            paradigms.addNoun(
+                lemma: "framhald", genderCode: 2,
+                forms: [("framhald", 0, false, false), ("framhald", 1, false, false)])
+            let icelandic = DictLexicon(
+                unigrams: [
+                    "og": 2000, "að": 1800, "er": 1500,
+                    "framhaldsskóla": 500,
+                ])
+            let inflection = InflectionStore()
+            inflection.setModel(
+                InflectionModel(paradigms: paradigms, governors: GovernorsModel(table: [:])))
+            let model = BlendedLanguageModel(
+                icelandic: icelandic, english: Fixtures.english,
+                morphology: FakeMorphology(["skóla"]), config: config,
+                inflection: inflection)
+            return Corrector(model: model, config: config)
+        }
+        let yielded = build(true).correct(typed: "framhaldskóla", pIcelandic: 0.9)
+        XCTAssertTrue(
+            yielded.suggestions.first?.text == "framhaldsskóla"
+                && yielded.suggestions.first?.isAutocorrect == true,
+            "yield fires the attested boundary repair, got \(yielded.suggestions)")
+        let protected_ = build(false).correct(typed: "framhaldskóla", pIcelandic: 0.9)
+        XCTAssertTrue(
+            protected_.suggestions.contains { $0.text == "framhaldsskóla" },
+            "repair stays offered with the yield off")
+        XCTAssertFalse(
+            protected_.suggestions.contains(where: \.isAutocorrect),
+            "wave-22 protection stands with the yield off")
+    }
+
     // MARK: Compound-head repair (Corrector step 5b)
 
     func testHeadRepairOffersTheCompound() {

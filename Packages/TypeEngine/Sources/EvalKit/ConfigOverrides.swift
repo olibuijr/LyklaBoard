@@ -126,6 +126,7 @@ public enum ConfigOverrides {
         "compoundRepairMinLength": { $0.compoundRepairMinLength = $1 },
         "compoundRepairMaxModifiers": { $0.compoundRepairMaxModifiers = $1 },
         "compoundRepairMaxLookups": { $0.compoundRepairMaxLookups = $1 },
+        "compoundMaxModifiers": { $0.compoundMaxModifiers = $1 },
         "compoundFloorFrequency": { $0.compoundFloorFrequency = UInt32(max(0, $1)) },
         // Case-aware completions (wave 23)
         "caseCompletionMaxTrim": { $0.caseCompletionMaxTrim = $1 },
@@ -142,6 +143,9 @@ public enum ConfigOverrides {
         "compoundValidityEnabled": { $0.compoundValidityEnabled = $1 },
         "compoundRepairEnabled": { $0.compoundRepairEnabled = $1 },
         "compoundCompletionEnabled": { $0.compoundCompletionEnabled = $1 },
+        // Compound guard hardening (wave 31)
+        "compoundLinkingRepairYieldEnabled": { $0.compoundLinkingRepairYieldEnabled = $1 },
+        "hyphenJoinRepairEnabled": { $0.hyphenJoinRepairEnabled = $1 },
         // Context ranking (wave 27)
         "bigramContextFoldBackoffEnabled": { $0.bigramContextFoldBackoffEnabled = $1 },
         "contextContinuationEnabled": { $0.contextContinuationEnabled = $1 },

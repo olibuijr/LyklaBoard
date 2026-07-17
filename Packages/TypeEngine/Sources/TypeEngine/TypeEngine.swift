@@ -453,6 +453,26 @@ public final class TypeEngine {
         )
     }
 
+    /// Compound-analyzer diagnostics for a word (REPL `:compound` command,
+    /// wave 31): lexicon/BÍN validity, the auto-apply protection verdict,
+    /// the decomposition the analyzer finds (nil = none), and whether the
+    /// word sits on the never-a-compound deny list (with its canonical
+    /// split form when it does).
+    public func compoundDiagnostics(for word: String)
+        -> (
+            typedValid: Bool, protected: Bool, parts: [String]?,
+            deniedSplit: String?
+        )
+    {
+        let w = word.lowercased()
+        return (
+            typedValid: model.isValidTypedWord(w),
+            protected: model.isProtectedTypedWord(w),
+            parts: model.compoundSplit(of: w).map { $0.modifiers + [$0.head] },
+            deniedSplit: CompoundAnalyzer.neverCompounds[w]
+        )
+    }
+
     /// Touch representative pages of the mmap-ed artifacts (spread unigram,
     /// bigram and morphology lookups) so first keystrokes don't pay page
     /// faults. Call once after load, on the same queue that owns the engine.

@@ -14,6 +14,8 @@ stack — the data half of the eval studio (PLAN.md testing pyramid tier 1,
 | `sources.en.jsonl` | same, for English |
 | `dev.jsonl` | 3,000 typo pairs (1,500 IS + 1,500 EN) — **tuning allowed** |
 | `heldout.jsonl` | 3,000 typo pairs (1,500 IS + 1,500 EN) — **never tune against, only report** |
+| `compounds.jsonl` | 666 real compound-error pairs (wave 31, iceErrorCorpus + GreynirCorrect) — see "Compounds slice" below |
+| `generate-compounds-eval.py` | deterministic generator for `compounds.jsonl` (reads `research/mideind-compound-cases.jsonl`, probes validity through `type-repl`) |
 
 ## THE RULE: heldout.jsonl is report-only
 
@@ -29,6 +31,39 @@ The splits are safe by construction: sentences are shuffled and split into
 two disjoint pools **before** any pair generation (a sentence contributes
 pairs to dev or heldout, never both), so no heldout sentence's vocabulary,
 context, or typo slots were visible during dev generation.
+
+## Compounds slice (`compounds.jsonl`, wave 31)
+
+Real error→correction pairs from the **Icelandic Error Corpus** (IceEC, CC BY
+4.0 — attribution in `data/ATTRIBUTION.md`) plus 16 GreynirCorrect test
+assertions (MIT), filtered to the compound error classes and reshaped for the
+`type-eval corpus compounds` replay harness. Unlike dev/heldout these are not
+synthetic: they are the compound errors real writers actually make. Run by
+`type-eval scorecard` on every commit (its own JSON key, `compounds`) — NOT a
+hard gate, and NOT part of the dev/heldout tuning discipline (its history
+keeps comparability by never being folded into `dev.jsonl`).
+
+| category | n | replay shape | measures |
+|---|---|---|---|
+| `compound_collocation` | 250 | typo → intended, single token | linking-letter / spelling errors inside compounds (framhaldskóla→framhaldsskóla) — the corrector-target class |
+| `missing_hyphen` | 106 | joined typo → hyphenated intended | Porschebílunum→Porsche-bílunum; the wave-31 hyphen-join repair reaches the capitalized-foreign-modifier shape |
+| `missing_hyphen_spaced` | 100 | context=[A], typo=B, intended=A-B | cross-token hyphen join — **structural gap** (no join machinery), doubles as a protection assertion: any autocorrect fire on the valid token B is a false-ac |
+| `wrongly_joined` | 10 | joined typo → two-word intended | the never-a-compound deny set (margskonar→margs konar): split offer must top the bar |
+| `wrongly_split` | 200 | context=[A], typo=B, intended=AB | wrongly split compounds — **structural gap** (cross-token join), same protection-assertion property |
+
+Selection discipline (full detail in the generator's docstring): shape-pure
+rows only (exact join/hyphen shapes — TEI alignment noise dropped), deduped,
+typo-validity filtered through the real artifacts (a lexicon/BÍN-valid
+"typo" can never be a corrector target under the conservatism invariant —
+except the deny-listed `wrongly_joined` words, which measure the offer), and
+md5-stratified caps per category. Regeneration:
+
+```bash
+python3 data/eval/generate-compounds-eval.py   # deterministic
+```
+
+The `context` field of the transformed categories holds the real first token
+of the original two-token error; everything else replays context-free.
 
 ## Source provenance + licenses
 
