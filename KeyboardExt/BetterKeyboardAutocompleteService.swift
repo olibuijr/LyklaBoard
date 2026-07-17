@@ -25,9 +25,31 @@ import KeyboardKit
 import Learning
 import LemmaCore
 import Lexicon
+import os
 import TypeEngine
 
 final class BetterKeyboardAutocompleteService: AutocompleteService {
+
+    // MARK: - Cold-start observability
+
+    /// Privacy-safe, device-inspectable launch milestones. These events carry
+    /// no document-proxy text or suggestion content: they exist solely to
+    /// answer whether a cold extension launch reaches a usable engine before
+    /// the user begins typing. Inspect with Instruments' Points of Interest
+    /// or Console, filtered to this subsystem/category.
+    private static let coldStartSignposter = OSSignposter(
+        subsystem: "is.solberg.lyklabord",
+        category: "AutocompleteColdStart"
+    )
+    private static let coldStartLogger = Logger(
+        subsystem: "is.solberg.lyklabord",
+        category: "AutocompleteColdStart"
+    )
+
+    /// Captured before the bootstrap is enqueued. `init` is intentionally
+    /// tiny and runs from `viewDidLoad`; all subsequent expensive work is
+    /// measured from this point but remains on the engine queue.
+    private let serviceCreatedAt = CFAbsoluteTimeGetCurrent()
 
     // MARK: - Threading
 
@@ -36,19 +58,24 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// - `TypingSession`/`TypeEngine` are NOT thread-safe (running language
     ///   posterior + commit detection state), so every call — bootstrap,
     ///   suggestions, commit detection — happens on this one queue.
-    /// - Utility QoS keeps the mmap bootstrap and per-keystroke work off the
-    ///   main thread. This is the launch-flicker mitigation recorded in
-    ///   PLAN.md: `viewDidLoad` only enqueues the loader; no mmap open or
-    ///   file I/O ever runs on the main thread.
+    /// - User-initiated QoS keeps mmap bootstrap and, crucially, active
+    ///   keystrokes responsive under system contention. The queue is still
+    ///   fully off-main: `viewDidLoad` only enqueues the loader, so no mmap
+    ///   open or file I/O ever runs on the UI thread. `.utility` was a poor
+    ///   fit here because it also governed work the user is actively waiting
+    ///   to see in the suggestion bar.
     private let queue = DispatchQueue(
         label: "is.betterkeyboard.typeengine",
-        qos: .utility
+        qos: .userInitiated
     )
 
     // MARK: - Queue-confined state (touch ONLY on `queue`)
 
     private var session: TypingSession?
     private var bootstrapFailed = false
+    /// One-shot cold-start telemetry state, confined to `queue`.
+    private var hasRecordedFirstAutocompletePass = false
+    private var hasRecordedFirstNonEmptyResult = false
     /// Latest known field kind, kept even while the session is still
     /// bootstrapping so it can be applied the moment the session exists.
     private var fieldKind: FieldKind = .standard
@@ -184,6 +211,8 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         // Kick the bootstrap immediately (but asynchronously, off-main) so
         // the engine is usually ready by the first keystroke. Until it is,
         // `autocomplete(_:)` just returns empty suggestions.
+        Self.coldStartSignposter.emitEvent("Bootstrap queued")
+        Self.coldStartLogger.notice("Autocomplete bootstrap queued")
         queue.async { [weak self] in
             self?.bootstrapIfNeeded()
         }
@@ -464,6 +493,11 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         guard session == nil, !bootstrapFailed else { return }
         let bundle = Bundle(for: Self.self)
         let start = CFAbsoluteTimeGetCurrent()
+        let queueDelayMs = (start - serviceCreatedAt) * 1000
+        Self.coldStartSignposter.emitEvent("Bootstrap started")
+        Self.coldStartLogger.notice(
+            "Autocomplete bootstrap started \(queueDelayMs, format: .fixed(precision: 1)) ms after service creation"
+        )
         do {
             guard
                 let enURL = bundle.url(forResource: "en", withExtension: "lex"),
@@ -508,6 +542,11 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             newSession.fieldKind = fieldKind
             session = newSession
             let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            let totalMs = (CFAbsoluteTimeGetCurrent() - serviceCreatedAt) * 1000
+            Self.coldStartSignposter.emitEvent("Engine ready")
+            Self.coldStartLogger.notice(
+                "Autocomplete engine ready in \(ms, format: .fixed(precision: 1)) ms (\(totalMs, format: .fixed(precision: 1)) ms from service creation)"
+            )
             NSLog(
                 "[better-keyboard] TypeEngine ready in %.1f ms (is: %d unigrams, en: %d unigrams, morphology: %@)",
                 ms,
@@ -522,6 +561,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             scheduleInflectionLoad()
         } catch {
             bootstrapFailed = true
+            Self.coldStartSignposter.emitEvent("Bootstrap failed")
             NSLog("[better-keyboard] autocomplete bootstrap FAILED: %@", String(describing: error))
         }
     }
@@ -763,6 +803,21 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             return .init(inputText: text, suggestions: [])
         }
         let suggestions = session.suggestions(for: text, limit: 3)
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - serviceCreatedAt) * 1000
+        if !hasRecordedFirstAutocompletePass {
+            hasRecordedFirstAutocompletePass = true
+            Self.coldStartSignposter.emitEvent("First autocomplete pass")
+            Self.coldStartLogger.notice(
+                "First autocomplete pass completed \(elapsedMs, format: .fixed(precision: 1)) ms after service creation"
+            )
+        }
+        if !suggestions.isEmpty, !hasRecordedFirstNonEmptyResult {
+            hasRecordedFirstNonEmptyResult = true
+            Self.coldStartSignposter.emitEvent("First non-empty result")
+            Self.coldStartLogger.notice(
+                "First non-empty autocomplete result completed \(elapsedMs, format: .fixed(precision: 1)) ms after service creation"
+            )
+        }
         // DEV-MODE recorder: one flag check; writes a JSONL line ONLY when a
         // session is armed and the field is standard. Off by default, and
         // entirely independent of the learning event log below.

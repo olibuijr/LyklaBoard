@@ -32,6 +32,30 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Cold-start hardening (KeyboardExt)
+
+- **Trigger**: keyboard-extension cold launch is the moment a user judges the
+  product — if the engine isn't ready before the first keystroke, the bar is
+  empty and it feels broken. No instrumentation existed to measure it.
+- **Decided**: (1) the serial engine queue QoS goes `.utility` →
+  `.userInitiated` — still fully off-main (`viewDidLoad` only enqueues the
+  loader; no mmap open or file I/O on the UI thread), but `.utility` was
+  wrong for work the user is actively waiting to see in the suggestion bar,
+  especially under system contention at launch. (2) Privacy-safe OS
+  signposts + log milestones (subsystem `is.solberg.lyklabord`, category
+  `AutocompleteColdStart`): bootstrap queued/started, engine ready, first
+  autocomplete pass, first non-empty result. **No proxy text or suggestion
+  content is ever logged** — milestones only, upholding the zero-telemetry
+  doctrine (these are on-device os_log/signpost, not network).
+- **Gates**: sim build green; TypeEngine 435/435; release bench p50 1.30 ms /
+  p95 3.59 ms / max 6.10 ms (first-five max 1.69 ms) — the QoS change did not
+  regress per-keystroke latency. Package cache rebuilt after the repo move
+  (Code/better-keyboard → Code/LyklabordApp).
+- **Open**: real-device cold-launch measurement still owed — filter Console/
+  Instruments for `AutocompleteColdStart`, measure keyboard-presentation →
+  "Engine ready" → first non-empty result across several fresh extension
+  launches (signposts exist precisely to make this a Points-of-Interest read).
+
 ## 2026-07-17 — Wave 30: deep-decode mash recovery (the eotthbap→eitthvað class)
 
 - **Trigger**: fast-typing mashes with ≥2 adjacent-key substitutions the live
