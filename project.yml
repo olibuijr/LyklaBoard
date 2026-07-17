@@ -52,6 +52,10 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Lyklaborð
+        # xcodegen writes literal 1.0/1 defaults otherwise — these make the
+        # bundle version track the target settings (dead70b bump et seq).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Standard-crypto-only (CryptoKit AES-GCM for user-data protection):
         # mass-market exemption; satisfies the export-compliance question.
         ITSAppUsesNonExemptEncryption: false
@@ -169,6 +173,8 @@ targets:
     info:
       path: KeyboardExt/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Required for install (installd rejects keyboard appexes without a
         # display name); also the name shown in Settings > Keyboards.
         CFBundleDisplayName: Lyklaborð
