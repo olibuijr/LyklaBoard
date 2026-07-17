@@ -17,9 +17,9 @@
   <sub>The landing page's hero is a real-time 3D render of an Apple Extended Keyboard II Ð-keycap — tap it, it presses.</sub>
 </p>
 
-Lyklaborð is what SwiftKey should have been for Iceland: one Icelandic layout that fluently blends Icelandic and English as you type, morphology-aware autocorrect built on [BÍN](https://bin.arnastofnun.is) (3 million word forms — the first keyboard on any platform that actually understands Icelandic inflection), on-device learning with a personal dictionary you fully control, and a hard privacy guarantee: **the keyboard extension contains zero networking code.** Verify it — that's why the source is here.
+Lyklaborð is what SwiftKey should have been for Iceland: one Icelandic layout that fluently blends Icelandic and English as you type, morphology-aware autocorrect built on [BÍN](https://bin.arnastofnun.is) (3 million word forms — the first keyboard on any platform that actually understands Icelandic inflection), and a hard privacy guarantee: **the keyboard extension contains zero networking code.** Verify it — that's why the source is here. An optional subscription, Lyklaborð+, adds on-device learning with a personal dictionary you fully control.
 
-Free. Open source. No account. No telemetry. No AI bloat.
+Base keyboard free forever. Open source. No account for the free tier. No telemetry. No AI bloat. Personal-vocabulary learning is an optional subscription (Lyklaborð+) — see below.
 
 ## Why
 
@@ -31,7 +31,7 @@ Apple's Icelandic keyboard has no real autocorrect (common words get "corrected"
 - **Morphology-aware**: all 3.07M BÍN word forms are valid vocabulary via a memory-mapped binary (built with [lemma-is](https://github.com/jokull/lemma-is)); the ~91MB model costs <1MB of extension memory thanks to mmap.
 - **Under-corrects by design**: a word that's valid in either language is never auto-replaced; the literal token you typed always sits in the suggestion bar (quoted) as an escape hatch; URLs, emails, and dotted tokens are never mangled.
 - **Spacebar near-miss correction**: `smelirna` → `smellir á` (the spacebar's neighbors are hypotheses, not typos).
-- **Learning you own**: words are learned on-device (2 distinct days, or instantly when you tap the verbatim suggestion), individually deletable — deletions stick — and importable from a SwiftKey data export. Nothing you type in password, URL, or email fields is ever recorded.
+- **Learning you own (Lyklaborð+)**: words are learned on-device (2 distinct days, or instantly when you tap the verbatim suggestion), individually deletable — deletions stick — and importable from a SwiftKey data export. Nothing you type in password, URL, or email fields is ever recorded.
 - **SwiftKey muscle memory**: `.` key with long-press punctuation cluster right of space, spacebar cursor control, double-space period.
 
 ## Architecture
