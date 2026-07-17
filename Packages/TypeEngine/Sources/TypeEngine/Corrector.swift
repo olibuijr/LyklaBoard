@@ -233,6 +233,21 @@ public struct Corrector {
             config: config
         )
 
+        // Bigram CONTEXT word (wave 27): everywhere bigram evidence is
+        // consulted below — scoring, continuation proposals, lift-based
+        // margins — an unattested previous word falls back to its dominant
+        // acute-fold twin ("Eg gret": the lazy skeleton "eg" attests no
+        // bigrams, but the context IS ég, and "ég grét" is corpus-attested).
+        // Governor machinery keeps the raw previous word: governors are
+        // attested words by construction.
+        let contextPrev: String? =
+            config.bigramContextFoldBackoffEnabled
+            ? model.effectiveBigramContext(of: previousWord)
+            : previousWord
+        if let trace, let contextPrev, contextPrev != previousWord {
+            trace.note("bigram context folds \"\(previousWord ?? "")\" -> \"\(contextPrev)\"")
+        }
+
         // ---- Candidate generation ----------------------------------------
         // word -> lane-priced channel cost (total + restoration/error split)
         var candidates: [String: ChannelCost] = [:]
@@ -393,7 +408,7 @@ public struct Corrector {
                             // regressed the corpus.
                             let contextTypical =
                                 !typical
-                                && previousWord.map { prev in
+                                && contextPrev.map { prev in
                                     (model.icelandic.bigramFrequency(prev, word) != nil
                                         && model.calibratedUnigramScore(of: word, language: .icelandic)
                                             >= config.shortDoubleSubContextMinZ)
@@ -406,6 +421,66 @@ public struct Corrector {
                         variant[j] = typedChars[j]
                     }
                     variant[i] = typedChars[i]
+                }
+            }
+        }
+
+        // 2f. Bigram-continuation proposals (wave 27, the "en vli" → væri
+        // shape): the attested top FOLLOWERS of the (fold-backed) previous
+        // word are admitted when their exact channel cost clears the cap —
+        // context proposes, the typed keys verify. The only pass that can
+        // reach a word structurally outside every edit budget (væri is
+        // insert-r + l→æ from a 3-char token; the short beam gets 1 edit),
+        // because its search space is the bigram table, not the edit
+        // lattice. Candidates are bigram-attested with the context by
+        // construction and re-ranked by the normal pipeline; the cost cap
+        // keeps far followers out of the pool.
+        // Restricted to the SHORT class (3-4 chars, below the deep-beam
+        // unlock): those tokens get one beam edit and the same-length
+        // double-sub pass only, so a two-edit shape with a length change is
+        // structurally unreachable — exactly the gap this pass fills. Long
+        // tokens have the deep beam, splits and diacritic completions; on
+        // the dev corpus letting this pass run there COST top-1 (bigram-
+        // supported near-miss followers outranked honest repairs).
+        if config.contextContinuationEnabled, !typedIsValid, typedChars.count >= 3,
+            typedChars.count < config.beamLongMinLength,
+            let prev = contextPrev
+        {
+            // Cheap shape prefilter before the exact DP: same first letter
+            // (or its restoration twin — the typed key IS the intended key
+            // for those) and length within one indel of the typed token.
+            // First-letter errors are the ordinary passes' business; this
+            // pass exists for tail/interior shapes the edit budgets miss.
+            let first = typedChars[0]
+            let languages: [Language] = [.icelandic, .english]
+            for (slot, lexicon) in [model.icelandic, model.english].enumerated() {
+                for continuation in model.continuationProposals.continuations(
+                    of: prev, slot: slot,
+                    fetch: {
+                        lexicon.continuations(
+                            of: prev, limit: config.contextContinuationPoolLimit)
+                    })
+                {
+                    let word = continuation.word
+                    guard word != typed, word.count > 1, candidates[word] == nil else { continue }
+                    let wordChars = Array(word)
+                    guard abs(wordChars.count - typedChars.count) <= 1,
+                        wordChars[0] == first || Self.isRestorationPair(first, wordChars[0])
+                    else { continue }
+                    guard !model.isPersonalTombstoned(word) else { continue }
+                    // Same typicality tier as the context-vouched
+                    // double-sub admission: bigram attestation plus
+                    // genuine vocabulary (junk followers of a frequent
+                    // context are web noise, not proposals).
+                    guard
+                        model.calibratedUnigramScore(of: word, language: languages[slot])
+                            >= config.shortDoubleSubContextMinZ
+                    else { continue }
+                    let cost = channelCost(
+                        typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
+                    if cost.total <= config.contextContinuationMaxCost {
+                        candidates[word] = cost
+                    }
                 }
             }
         }
@@ -711,7 +786,7 @@ public struct Corrector {
         //
         var scored: [(word: String, cost: ChannelCost, score: Double)] = candidates.map {
             word, cost in
-            let s = model.blendedScore(of: word, previous: previousWord, pIcelandic: pIcelandic)
+            let s = model.blendedScore(of: word, previous: contextPrev, pIcelandic: pIcelandic)
             var score = -cost.total + config.languageWeight * s
             // The morph term applies to strict-prefix COMPLETIONS of the
             // typed word only (the Stage-B #1 shape: "typed frá hest| →
@@ -748,7 +823,7 @@ public struct Corrector {
             scored.append(
                 contentsOf: splitCandidates(
                     typedChars: typedChars,
-                    previousWord: previousWord,
+                    previousWord: contextPrev,
                     pIcelandic: pIcelandic,
                     taps: taps.count == typedChars.count ? taps : [],
                     rawChars: rawChars.count == typedChars.count ? rawChars : []
@@ -892,6 +967,36 @@ public struct Corrector {
                     ? max(config.autocorrectMinZ, config.autocorrectFarRepairMinZ)
                     : config.autocorrectMinZ
                 if short { minZ = max(minZ, config.autocorrectShortMinZ) }
+                // Contextual lift of winner and runner-up in the posterior-
+                // dominant lane (wave 27) — the bigram-evidence currency
+                // for the margin relief and the context-short floor below.
+                let marginLane: Language = pIcelandic >= 0.5 ? .icelandic : .english
+                let winnerLift = model.contextualLift(
+                    of: best.word, previous: contextPrev, language: marginLane)
+                let runnerUpLift =
+                    scored.count > 1
+                    ? model.contextualLift(
+                        of: scored[1].word, previous: contextPrev, language: marginLane)
+                    : nil
+                // Context-backed 3-letter discipline (dogfood "vli" → false
+                // "vil" fire): an error-class rewrite of a 3-letter token
+                // needs a headline-typicality winner unless the bigram with
+                // the previous word genuinely vouches for it (lift at/above
+                // the floor). Only when a previous word EXISTS — the rule
+                // is "the context was consulted and declined to vouch";
+                // with no context (sentence-initial) the pre-wave rules
+                // stand unchanged. Restoration-only winners keep their own
+                // gate stack.
+                let contextShort =
+                    !short && typedChars.count <= config.autocorrectContextLengthMax
+                    && !best.cost.isRestorationOnly
+                    && contextPrev != nil
+                let contextShortUnvouched =
+                    contextShort
+                    && (winnerLift ?? -.infinity) < config.autocorrectContextLiftFloor
+                if contextShortUnvouched {
+                    minZ = max(minZ, config.autocorrectContextShortMinZ)
+                }
                 // A short token never auto-EXPANDS into a strict-prefix
                 // completion ("fo" must not commit "for" uninvited — two
                 // keystrokes are evidence of a two-letter word, not of any
@@ -931,6 +1036,20 @@ public struct Corrector {
                     !restorationRelaxed && typicality < config.autocorrectJunkWinnerZ
                 if junkWinner {
                     requiredMargin *= config.autocorrectJunkWinnerMarginScale
+                }
+                // Bigram-dominance margin relief (wave 27, dogfood "son
+                // minn ég gret"): when the winner carries strong contextual
+                // lift and the runner-up carries none (bigram unattested or
+                // non-positive lift), direct corpus evidence of the typed
+                // pair separates the top two — the margin bar drops by
+                // `bigramMarginRelief`. Junk-tier winners never get relief
+                // (the junk margin scaling stays intact).
+                let bigramRelief =
+                    !junkWinner
+                    && (winnerLift ?? -.infinity) >= config.bigramMarginReliefMinLift
+                    && (runnerUpLift ?? -.infinity) <= 0
+                if bigramRelief {
+                    requiredMargin *= config.bigramMarginRelief
                 }
                 var marginOK = margin >= requiredMargin * tapMarginFactor
                 var typicalityOK = typicality >= minZ
@@ -1018,6 +1137,22 @@ public struct Corrector {
                             "junk-tier winner (z \(String(format: "%+.3f", typicality))"
                                 + " < \(String(format: "%+.2f", config.autocorrectJunkWinnerZ)))"
                                 + " -> margin x\(String(format: "%.1f", config.autocorrectJunkWinnerMarginScale))")
+                    }
+                    if bigramRelief {
+                        trace.note(
+                            "bigram-dominance relief: winner lift "
+                                + "\(String(format: "%+.2f", winnerLift ?? 0))"
+                                + " vs runner-up "
+                                + (runnerUpLift.map { String(format: "%+.2f", $0) } ?? "none")
+                                + " -> margin x\(String(format: "%.2f", config.bigramMarginRelief))")
+                    }
+                    if contextShortUnvouched {
+                        trace.note(
+                            "context-short token (len \(typedChars.count)) without bigram vouch"
+                                + " (winner lift "
+                                + (winnerLift.map { String(format: "%+.2f", $0) } ?? "none")
+                                + ") -> minZ raised to "
+                                + String(format: "%+.2f", config.autocorrectContextShortMinZ))
                     }
                     trace.gate(
                         "margin",

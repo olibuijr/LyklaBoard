@@ -20,6 +20,7 @@ struct Repl {
               :reset            fresh field (document, session, posterior)
               :posterior        print P(Icelandic)
               :word <w>         per-lexicon attestation, calibrated z, lane evidence
+              :bigram <p> <w>   per-lexicon bigram counts + contextual z(w|p)
               :why              decision trace of the LAST suggestions() pass:
                                 per-candidate cost/score, margin vs runner-up,
                                 which auto-apply rule ran, every gate's value
@@ -100,6 +101,19 @@ struct Repl {
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")
             )
+        case ":bigram":
+            let parts = argument.split(separator: " ").map(String.init)
+            guard parts.count == 2 else {
+                print("usage: :bigram <previous> <word>")
+                break
+            }
+            let d = engine.bigramDiagnostics(previous: parts[0], word: parts[1])
+            let bIS = d.bigramIS.map(String.init) ?? "-"
+            let bEN = d.bigramEN.map(String.init) ?? "-"
+            let pIS = d.previousIS.map(String.init) ?? "-"
+            let pEN = d.previousEN.map(String.init) ?? "-"
+            print("  is.lex  bigram=\(bIS)  f(prev)=\(pIS)  z(w|prev)=\(String(format: "%+.2f", d.zIS))")
+            print("  en.lex  bigram=\(bEN)  f(prev)=\(pEN)  z(w|prev)=\(String(format: "%+.2f", d.zEN))")
         case ":why":
             if let trace = typist.lastTrace {
                 print(trace.report)

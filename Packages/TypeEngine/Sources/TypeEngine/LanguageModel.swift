@@ -248,6 +248,88 @@ public struct EngineConfig: Sendable {
     /// safe, suggesting junk is not.
     public var compoundHeadMinZ: Double = -1.6
 
+    // MARK: - Context ranking (wave 27 — bigram evidence at ranking/margin
+    // time). Four seams, all driven by the same currency: the CONTEXTUAL
+    // LIFT of a candidate, z(w | prev) − z(w) in the lane language — how
+    // many calibrated σ the attested bigram with the previous word moves
+    // the candidate above its own unigram typicality. Positive lift ≈
+    // positive pointwise mutual information: the context genuinely SELECTS
+    // this word ("ég grét" +1.26σ), while a merely-frequent word after a
+    // frequent context sits at ~0 or below ("en vil" −0.18σ — "en" does
+    // not select "vil", vil is just common). Unattested bigrams have NO
+    // lift (nil), never a penalty — unseen pairs are not evidence against.
+
+    /// Fold-twin bigram context backoff (the "Eg gret" cold-start shape):
+    /// when the previous word is attested in NEITHER frequency lexicon,
+    /// bigram evidence is read through its dominant acute-fold twin
+    /// (`acuteFoldShadowTwin`: eg → ég) instead of dying on the lazy
+    /// skeleton — the twin machinery's own three gates (10× is.lex
+    /// dominance, twin above the noise tier, twin beats the skeleton's
+    /// English reading) keep this to exactly the skeletons that ARE lazy
+    /// spellings of their twin. Doctrine: diacritics are an input method —
+    /// that holds for the context word too.
+    public var bigramContextFoldBackoffEnabled = true
+
+    /// Bigram-dominance margin relief: when the auto-apply WINNER carries
+    /// contextual lift at/above `bigramMarginReliefMinLift` in the
+    /// posterior-dominant lane and the RUNNER-UP carries none (bigram
+    /// unattested, or lift ≤ 0), the two are separated by direct corpus
+    /// evidence of the pair the user just typed — the required margin is
+    /// scaled by this factor (< 1). Dogfood "son minn ég gret": grét
+    /// (lift +1.26, bigram "ég grét" 222) vs the morph-boosted completion
+    /// "greta" (no bigram) sat at margin 0.469 against the 0.5 restoration
+    /// margin. Junk-tier winners (`autocorrectJunkWinnerZ`) never get
+    /// relief — the junk margin scaling stays intact.
+    public var bigramMarginRelief: Double = 0.7
+    /// Minimum winner contextual lift (calibrated σ) for the relief above.
+    public var bigramMarginReliefMinLift: Double = 0.75
+
+    /// Context-backed short-token discipline (dogfood "vli" → false "vil"
+    /// fire, session 2026-07-17T10-12-46): a 3-letter token carries barely
+    /// more spatial evidence than the 2-letter class below
+    /// `autocorrectShortLengthMax`, so an ERROR-class rewrite of one must
+    /// be backed by more than raw frequency — the winner needs typicality
+    /// at/above `autocorrectContextShortMinZ` (eru +2.51, það +2.82, sama
+    /// +1.88 all clear it; vil +1.48 does not) UNLESS its contextual lift
+    /// clears `autocorrectContextLiftFloor` (the bigram vouches:
+    /// "krakkarnir eru" +1.16σ fires regardless of the floor). Restoration-
+    /// only winners are exempt — they carry their own gate stack (fra→frá
+    /// unaffected). Applies to lengths in
+    /// (autocorrectShortLengthMax, autocorrectContextLengthMax].
+    public var autocorrectContextLengthMax: Int = 3
+    /// The raised typicality floor for unvouched 3-letter error rewrites.
+    public var autocorrectContextShortMinZ: Double = 1.5
+    /// Contextual lift at/above this waives the raised floor (the context
+    /// genuinely selects the winner).
+    public var autocorrectContextLiftFloor: Double = 0.25
+
+    /// Bigram-continuation proposals (generation): for an unknown token,
+    /// the attested CONTINUATIONS of the (fold-backed) previous word are
+    /// admitted as candidates when their exact channel cost is at/under
+    /// `contextContinuationMaxCost` — context proposes, the typed keys
+    /// verify. This is the only pass that can reach a word the edit passes
+    /// structurally cannot ("en vli" → "væri": insert-r + l→æ is two edits
+    /// on a 3-char token, outside every short-token budget, but væri is a
+    /// top follower of "en"). Candidates are bigram-attested by
+    /// construction and re-scored by the normal pipeline; the cost cap
+    /// keeps far followers ("en það" from "vli") out of the pool.
+    public var contextContinuationEnabled = true
+    /// How many top bigram followers per lexicon are pooled. High-fan-out
+    /// contexts need depth: "en" has hundreds of followers above f≈1000,
+    /// and the wave's target ("en væri", f=858) sits between rank 300 and
+    /// 450 — 500 covers the honest tail. The scan+sort cost of the fan-out
+    /// is paid once per CONTEXT word (memoized in
+    /// `ContinuationProposalCache`), not per keystroke, and the shape
+    /// prefilter + typicality floor keep the DP work per keystroke to a
+    /// handful of candidates.
+    public var contextContinuationPoolLimit: Int = 500
+    /// Channel-cost admission cap for a proposed continuation. 5.5 admits
+    /// one omission (4.0) plus one adjacent-key/fold substitution, the
+    /// double-error shape the pass exists for, and stays a full nat under
+    /// `autocorrectMaxSpatialCost` + margin territory — these candidates
+    /// essentially never auto-apply, they surface in the bar.
+    public var contextContinuationMaxCost: Double = 5.5
+
     /// Proper-noun possessive guard (dev contraction_damage diagnosis,
     /// 2026-07-16): a capitalized MID-SENTENCE unknown token of shape
     /// Name+s whose stem is not English vocabulary is a possessive typed
@@ -973,6 +1055,41 @@ struct LexiconCalibration: Sendable {
     }
 }
 
+/// Per-context memo of the bigram-continuation proposal pool (wave 27,
+/// Corrector pass 2f). The follower scan of a high-fan-out context word
+/// ("en", "á", "i") walks and sorts thousands of bigram rows; the context
+/// word is FIXED for every keystroke of the pending word, so one entry per
+/// (lexicon slot, context) makes the steady-state cost a dictionary hit.
+/// Reference type shared like the other stores; engine-queue confined, the
+/// lock is cheap insurance for the eval harnesses.
+final class ContinuationProposalCache {
+    private var lock = NSLock()
+    private var key: String?
+    private var pools: [[(word: String, frequency: UInt32)]] = [[], []]
+
+    /// Followers of `previous` in the lexicon at `slot` (0 = IS, 1 = EN),
+    /// computed through `fetch` on a cache miss.
+    func continuations(
+        of previous: String, slot: Int,
+        fetch: () -> [(word: String, frequency: UInt32)]
+    ) -> [(word: String, frequency: UInt32)] {
+        lock.lock()
+        defer { lock.unlock() }
+        if key != previous {
+            key = previous
+            pools = [[], []]
+        }
+        if pools[slot].isEmpty {
+            pools[slot] = fetch()
+            // Distinguish "fetched, empty" from "not fetched" with a
+            // sentinel-free trick: an empty fetch stores a single empty
+            // marker via key reset avoidance — simplest correct form is to
+            // refetch empties; empty fan-outs are O(1) lookups anyway.
+        }
+        return pools[slot]
+    }
+}
+
 /// Shared bilingual probability model: smoothed unigram + interpolated bigram
 /// probabilities per language, calibrated per lexicon and blended by the
 /// running language posterior.
@@ -999,6 +1116,9 @@ struct BlendedLanguageModel {
     /// reference like the stores above. Inert unless both morphology and
     /// an inflection model (paradigms) are present.
     let compounds = CompoundAnalyzer()
+    /// Bigram-continuation proposal memo (wave 27, Corrector pass 2f),
+    /// shared by reference like the stores above.
+    let continuationProposals = ContinuationProposalCache()
 
     init(
         icelandic: Lexicon,
@@ -1369,6 +1489,37 @@ struct BlendedLanguageModel {
         guard graded > 0 else { return 0 }
         let nats = min(config.laneEmissionTemperature * graded, config.laneEmissionMaxLogRatio)
         return margin > 0 ? nats : -nats
+    }
+
+    /// Effective BIGRAM context word (wave 27 — see
+    /// `EngineConfig.bigramContextFoldBackoffEnabled`): the previous word
+    /// itself when attested in either frequency lexicon; otherwise its
+    /// dominant acute-fold twin when one exists (eg → ég — the lazy
+    /// skeleton is a spelling of the twin, so the twin IS the context);
+    /// otherwise the previous word unchanged (junk context stays junk —
+    /// bigram lookups simply miss). Computed once per correct() call, not
+    /// per candidate.
+    func effectiveBigramContext(of previous: String?) -> String? {
+        guard let previous else { return nil }
+        if icelandic.frequency(of: previous) != nil || english.frequency(of: previous) != nil {
+            return previous
+        }
+        return acuteFoldShadowTwin(of: previous) ?? previous
+    }
+
+    /// Contextual typicality LIFT of `word` after `previous` in language L:
+    /// z_L(word | previous) − z_L(word), in calibrated σ — positive iff the
+    /// attested bigram moves the word above its own unigram typicality
+    /// (≈ positive PMI: the context selects the word). nil when the
+    /// (previous, word) bigram is unattested in L — an unseen pair is NO
+    /// evidence, never negative evidence.
+    func contextualLift(of word: String, previous: String?, language: Language) -> Double? {
+        guard let previous,
+            lexicon(for: language).frequency(of: previous) != nil,
+            lexicon(for: language).bigramFrequency(previous, word) != nil
+        else { return nil }
+        return calibratedScore(of: word, previous: previous, language: language)
+            - calibratedUnigramScore(of: word, language: language)
     }
 
     /// Blended language score, in nats:

@@ -328,3 +328,77 @@ SCENARIO explicitly added þvi keeps full autocorrect veto (wave 26 guard)
 PERSONAL_EXPLICIT þvi 3
 T "Eg hef unun af þvi "
 EXPECT_LAST_COMMIT þvi
+
+# ============================================================================
+# Wave 27 — context-ranking: bigram evidence at ranking/margin time
+# ============================================================================
+# The class (session-analyzer top-gaps table): the intended word is generated
+# but outranked or under-margined in contexts where the previous word's
+# bigram should decide it. Mechanisms: (1) fold-twin bigram context backoff
+# (an unattested previous word reads bigrams through its dominant acute-fold
+# twin — "eg" contexts ARE "ég" contexts); (2) bigram-dominance margin
+# relief (winner with strong contextual lift over a lift-less runner-up
+# clears a reduced margin); (3) context-backed 3-char discipline (an
+# error-class rewrite of a 3-letter token needs a headline winner unless
+# the bigram with the previous word vouches for it); (4) bigram-continuation
+# proposals for 3-4 char tokens (context proposes followers, the typed keys
+# verify — the only path to a word outside every short edit budget).
+
+SCENARIO cold-start eg gret restores grét (2026-07-16T22-45-30, wave 27)
+# No personal seeds (wave 26 covered the seeded case): grét leads on the
+# "ég grét" bigram (222, lift +1.26σ) but sat 0.469 nats over the
+# morph-boosted completion "greta" against the 0.5 restoration margin.
+# Bigram-dominance relief (winner lift +1.26, runner-up bigram-less)
+# drops the bar to 0.35 — grét fires.
+T "son minn eg gret "
+EXPECT_LAST_COMMIT grét
+
+SCENARIO en vli never force-commits vil, væri surfaces (2026-07-17T10-12-46)
+# The wave's REQUIRED kill: the tapless replay fired vil (z +1.48, margin
+# 2.7 over junk) onto a 3-letter token whose winner "en" does not select
+# (lift -0.18). The context-backed floor (z >= 1.5 unless the bigram
+# vouches) blocks the fire; the continuation pass surfaces "væri"
+# (follower of "en", insert-r + l→æ at 5.02 nats — outside every short
+# edit budget) in the bar.
+T "við færum eitthvað en vli"
+EXPECT_NO_AUTOCORRECT
+EXPECT_CONTAINS væri
+T " "
+EXPECT_LAST_COMMIT vli
+
+SCENARIO séð habb still autocorrects hann (2026-07-16T14-59-28, wave 27 guard)
+# Wave 24's context-vouched double-sub fix, protected against the new
+# 3-char machinery (habb is 4 chars; hann z +2.69 clears every floor).
+T "kartöflunum hef séð habb "
+EXPECT_LAST_COMMIT hann
+
+SCENARIO mew commits as typed — valid EN word, never forced (2026-07-16T14-59-28)
+# "mew" is en.lex-attested (junk-tier z -1.21, but attested is attested):
+# the conservatism invariant holds, no auto-apply. HONEST MISS on the
+# offer: "með" is w→ð — 9 keys apart on the top row, spatial cost 8 —
+# no principled ranking bridges that from one observation; a w→ð
+# confusion pair would be a point fix (and the only session evidence is
+# this single token). Revisit if the class recurs.
+T "kartöflunum hef séð habb mew"
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT mew
+
+SCENARIO counter: 3-char mid-tier fix after en still fires (wave 27)
+# vel (z +1.97) clears the context-short floor on typicality alone — the
+# discipline only blocks sub-headline winners the context doesn't vouch
+# for, not honest adjacent-key repairs.
+T "við færum eitthvað en vrl "
+EXPECT_LAST_COMMIT vel
+
+SCENARIO counter: unigram-frequent gert wins after ég despite grét's bigram (wave 27)
+# Both gert (958) and grét (222) are bigram-attested after ég: no
+# bigram-dominance relief applies (the runner-up is not lift-less), and
+# the honest adjacent-key repair wins on cost + frequency exactly as
+# before the wave.
+T "hvað hef ég gwrt "
+EXPECT_LAST_COMMIT gert
+
+SCENARIO counter: greta typed verbatim is never touched (wave 27)
+T "hún heitir greta "
+EXPECT_LAST_COMMIT greta

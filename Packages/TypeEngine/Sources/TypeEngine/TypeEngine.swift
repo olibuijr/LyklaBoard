@@ -430,6 +430,29 @@ public final class TypeEngine {
         )
     }
 
+    /// Bigram diagnostics for a (previous, word) pair (REPL `:bigram`
+    /// command): per-lexicon bigram counts, the previous word's unigram
+    /// frequencies (the MLE denominators), and the contextual calibrated
+    /// scores z(word | previous) per language.
+    public func bigramDiagnostics(previous: String, word: String)
+        -> (
+            bigramIS: UInt32?, bigramEN: UInt32?,
+            previousIS: UInt32?, previousEN: UInt32?,
+            zIS: Double, zEN: Double
+        )
+    {
+        let p = previous.lowercased()
+        let w = word.lowercased()
+        return (
+            bigramIS: model.icelandic.bigramFrequency(p, w),
+            bigramEN: model.english.bigramFrequency(p, w),
+            previousIS: model.icelandic.frequency(of: p),
+            previousEN: model.english.frequency(of: p),
+            zIS: model.calibratedScore(of: w, previous: p, language: .icelandic),
+            zEN: model.calibratedScore(of: w, previous: p, language: .english)
+        )
+    }
+
     /// Touch representative pages of the mmap-ed artifacts (spread unigram,
     /// bigram and morphology lookups) so first keystrokes don't pay page
     /// faults. Call once after load, on the same queue that owns the engine.

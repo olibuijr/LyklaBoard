@@ -92,6 +92,12 @@ public enum ConfigOverrides {
         // Compound acceptance (wave 22)
         "compoundRepairGate": { $0.compoundRepairGate = $1 },
         "compoundHeadMinZ": { $0.compoundHeadMinZ = $1 },
+        // Context ranking (wave 27)
+        "bigramMarginRelief": { $0.bigramMarginRelief = $1 },
+        "bigramMarginReliefMinLift": { $0.bigramMarginReliefMinLift = $1 },
+        "autocorrectContextShortMinZ": { $0.autocorrectContextShortMinZ = $1 },
+        "autocorrectContextLiftFloor": { $0.autocorrectContextLiftFloor = $1 },
+        "contextContinuationMaxCost": { $0.contextContinuationMaxCost = $1 },
     ]
 
     /// Int-valued tunables.
@@ -104,6 +110,9 @@ public enum ConfigOverrides {
         "beamLongMinLength": { $0.beamLongMinLength = $1 },
         "splitMinLength": { $0.splitMinLength = $1 },
         "completionPoolLimit": { $0.completionPoolLimit = $1 },
+        // Context ranking (wave 27)
+        "autocorrectContextLengthMax": { $0.autocorrectContextLengthMax = $1 },
+        "contextContinuationPoolLimit": { $0.contextContinuationPoolLimit = $1 },
         "morphCompletionPoolLimit": { $0.morphCompletionPoolLimit = $1 },
         // Compound acceptance (wave 22)
         "compoundMinModifierLength": { $0.compoundMinModifierLength = $1 },
@@ -124,6 +133,9 @@ public enum ConfigOverrides {
         "compoundValidityEnabled": { $0.compoundValidityEnabled = $1 },
         "compoundRepairEnabled": { $0.compoundRepairEnabled = $1 },
         "compoundCompletionEnabled": { $0.compoundCompletionEnabled = $1 },
+        // Context ranking (wave 27)
+        "bigramContextFoldBackoffEnabled": { $0.bigramContextFoldBackoffEnabled = $1 },
+        "contextContinuationEnabled": { $0.contextContinuationEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

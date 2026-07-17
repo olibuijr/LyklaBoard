@@ -32,6 +32,73 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 27: context-ranking (bigram evidence at ranking/margin time)
+
+- **Trigger**: the largest tracked class in the session-analyzer top-gaps
+  table (9 real findings): the intended word is GENERATED but outranked or
+  under-margined exactly where the previous word's bigram should decide.
+  Named targets: gret→grét ("son minn ég gret": grét led on the "ég grét"
+  bigram but sat 0.469 nats over the runner-up against the 0.5 restoration
+  margin — the blocker was the completion "greta", morph-BOOSTED +1.19 nats
+  because "ég" is a governor and greta fits nominative, while grét's EXACT
+  bigram evidence earned no extra weight); vli→false "vil" fire (z +1.48,
+  margin 2.7 over junk — but "en" does not select vil: contextual lift
+  −0.18σ); mew→með absent from the bar; habb→hann (wave 24's fix) to
+  protect.
+- **Decided — one currency, four seams**: contextual LIFT = z(w|prev) − z(w)
+  in the lane language (calibrated σ; sign ≈ PMI — "ég grét" +1.26σ, "en
+  vil" −0.18σ, unattested pairs are nil, never negative evidence).
+  (1) **Fold-twin bigram context backoff**: a previous word attested in
+  neither lexicon reads bigrams through its dominant acute-fold twin
+  (eg→ég via the wave-26 `acuteFoldShadowTwin` gates) — diacritics are an
+  input method, for the context word too. Dev-inert (synthetic contexts are
+  attested); it is what makes the raw-context personal replay of "Eg gret"
+  rank grét at all. (2) **Bigram-dominance margin relief**: winner lift ≥
+  0.75σ and a lift-less (unattested or ≤ 0) runner-up → required margin
+  ×0.7. Junk-tier winners excluded — the junk margin scaling stands.
+  Sweeps: minLift 0.5 leaked 2 false fires, relief at 0.7 adds 6 correct /
+  1 false on dev (~86%, the historical margin-band precision). (3)
+  **Context-backed 3-char discipline**: an error-class rewrite of a
+  3-letter token WITH a present previous word needs winner z ≥ 1.5 unless
+  lift ≥ 0.25 vouches (vil +1.48/−0.18 blocked; eru +2.51, það +2.82, vel
+  +1.97 fire; "krakkarnir eru" lift +1.16 would fire even sub-floor).
+  Floor-off leaked 3 false of 6 fires (50% — bad band); 1.75 removed 3
+  correct fires. No-context tokens (sentence-initial, fixtures) keep the
+  pre-wave rules — the rule is "the context was consulted and declined to
+  vouch". Restoration-only winners exempt (own gate stack). (4)
+  **Bigram-continuation proposals** (3-4 char unknown tokens only):
+  followers of the fold-backed previous word, shape-prefiltered (same
+  first letter or restoration twin, length ±1), z ≥ 1.0 (the double-sub
+  context tier), channel cost ≤ 5.5 — context proposes, the typed keys
+  verify. The only path to a word outside every short edit budget ("en
+  vli" → væri = insert-r + l→æ; væri sits rank 300–450 in "en"'s fan-out,
+  hence pool 500). Follower scan memoized per context word
+  (ContinuationProposalCache) — warm cost ~0, one cold 20k-row scan can
+  spike (measured 40 ms once; warmUp + scorecard cold-retry absorb it).
+  UNRESTRICTED the pass cost dev top-1 −0.17pp (bigram-supported
+  near-followers outranked honest repairs on long tokens) — short-only +
+  z floor brought the whole wave to −0.03pp.
+- **Honesty**: mew→með stays a bar miss — w→ð is 9 keys apart (spatial 8
+  nats); pricing a w→ð confusion from ONE observation is a point fix,
+  declined (and mew is en.lex-attested, so it commits as typed under the
+  invariant regardless). vli: the false fire is dead (the REQUIRED half),
+  væri surfaces in the bar. gret: fires in the typed line (lane 0.88);
+  the raw-context eval replay ranks grét top-1 unforced (lane barely
+  primed — offering, not forcing, is right there). Corrected the
+  pipeline's mis-guessed personal row gret|gert → gret|grét ("Eg gret og
+  gret." = grét, the next sentence's "get gert" had leaked into the
+  guess) and registered the confirmed intent.
+- **Gates**: dev 2340 top-1 / 122 false-ac vs 2341/123 (−0.03pp top-1,
+  within the 0.2pp gate; false-ac DOWN 1); heldout (once) 2288/162 vs
+  2289/162 (false-ac flat, top-3 +4); personal gate 29 rows top1 16
+  falseAc 4 (was 15/28, falseAc 5) — the vli row flipped falseAc→safe,
+  zero regressions, baseline updated; scenarios 199/199 ×3 (7 new dogfood:
+  both fixed targets, the habb guard, the mew honesty contract, and 3
+  counters — vrl→vel mid-tier 3-char still fires, gwrt→gert wins after ég
+  despite grét's bigram, greta verbatim untouched); swift test 402 green;
+  bench warm max ~3.5 ms (category worst ~4.5 ms, gate 30). Tooling: repl
+  `:bigram <prev> <w>` probe + `TypeEngine.bigramDiagnostics`.
+
 ## 2026-07-17 — Wave 29 phase 2: personal gate, slangur registry, pIS recording
 
 - **Trigger**: wave 29's phase-2 queue — personal-eval as a hard wave gate
