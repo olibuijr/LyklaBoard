@@ -24,8 +24,10 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sampleText: String = ""
     @State private var keycapPressed = false
+    @State private var heroLoadFailed = false
     @State private var keyboardEnabled = KeyboardStatus.isKeyboardEnabled
     @State private var showingStepsWhileEnabled = false
     @FocusState private var isTextFieldFocused: Bool
@@ -83,27 +85,55 @@ struct ContentView: View {
 
     // MARK: - Hero
 
-    // Branded hero: the Wave-6 keycap mark over the site's tagline. Tapping the
-    // keycap springs it down and back — a small delightful echo of the press
-    // interaction on lyklabord.solberg.is. Centered, restrained, Apple-like.
+    // Branded hero: the Wave-6 Ð keycap (our mark) as a real interactive 3D
+    // object — drag left/right to spin it on its Y axis, floating over a soft
+    // contact shadow so it reads as suspended in mid-air. Mirrors the press-
+    // and-spin brand interaction on lyklabord.solberg.is, natively in SceneKit.
+    // Falls back to the flat KeycapHero image if the model can't load. See
+    // KeycapHeroView for the model pipeline and render/battery notes.
+    //
+    // Interaction note: the old flat-image tap "spring press" is intentionally
+    // dropped — a spun turntable is the interaction now; a tap-press over the
+    // SCNView pan gesture added no clarity. keycapPressed remains only for the
+    // fallback image below.
     private var hero: some View {
         VStack(spacing: 16) {
-            Image("KeycapHero")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 152, height: 152)
-                .shadow(color: .black.opacity(0.12), radius: 14, x: 0, y: 8)
-                .scaleEffect(keycapPressed ? 0.93 : 1)
-                .offset(y: keycapPressed ? 4 : 0)
-                .animation(.spring(response: 0.3, dampingFraction: 0.5), value: keycapPressed)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    keycapPressed = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                        keycapPressed = false
-                    }
+            ZStack {
+                // Suspended-in-mid-air contact shadow, drawn in SwiftUI so it is
+                // theme-aware and always present regardless of the render loop.
+                Ellipse()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.black.opacity(0.28),
+                                Color.black.opacity(0.10),
+                                Color.clear,
+                            ],
+                            center: .center,
+                            startRadius: 2,
+                            endRadius: 62
+                        )
+                    )
+                    .frame(width: 132, height: 34)
+                    .blur(radius: 9)
+                    .offset(y: 74)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                if heroLoadFailed {
+                    fallbackHeroImage
+                } else {
+                    KeycapHeroView(
+                        reduceMotion: reduceMotion,
+                        isActive: scenePhase == .active,
+                        loadFailed: $heroLoadFailed
+                    )
+                    .frame(width: 220, height: 176)
                 }
-                .accessibilityLabel(Strings.Onboarding.heroAccessibilityLabel)
+            }
+            .frame(width: 220, height: 200)
+            .accessibilityElement()
+            .accessibilityLabel(Strings.Onboarding.heroAccessibilityLabel)
 
             Text(Strings.Onboarding.tagline)
                 .font(.title2.weight(.semibold))
@@ -113,6 +143,26 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+
+    /// Load/SceneKit-unavailable fallback: the original flat keycap image with
+    /// its tap spring-press echo. Never a blank hero.
+    private var fallbackHeroImage: some View {
+        Image("KeycapHero")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 152, height: 152)
+            .shadow(color: .black.opacity(0.12), radius: 14, x: 0, y: 8)
+            .scaleEffect(keycapPressed ? 0.93 : 1)
+            .offset(y: keycapPressed ? 4 : 0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: keycapPressed)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                keycapPressed = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    keycapPressed = false
+                }
+            }
     }
 
     // MARK: - Done-state (keyboard already enabled)
