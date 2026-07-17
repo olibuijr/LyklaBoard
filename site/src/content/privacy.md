@@ -74,7 +74,7 @@ Debug and developer-signed builds include a hidden "Þróunarhamur" (developer m
 
 ### Contact
 
-Questions or concerns: open an issue at https://github.com/jokull/LyklabordApp or email jokull@triptojapan.com.
+Questions or concerns: open an issue at https://github.com/jokull/LyklabordApp or email jokull@solberg.is.
 
 ---
 
@@ -138,4 +138,4 @@ neðan) virka alltaf, með eða án áskriftar.
 
 ### Hafa samband
 
-Spurningar eða ábendingar: skráðu mál á https://github.com/jokull/LyklabordApp eða sendu tölvupóst á jokull@triptojapan.com.
+Spurningar eða ábendingar: skráðu mál á https://github.com/jokull/LyklabordApp eða sendu tölvupóst á jokull@solberg.is.
