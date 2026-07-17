@@ -1491,3 +1491,102 @@ T ið
 EXPECT_TOP við
 EXPECT_NOT_CONTAINS iv
 EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# Backspace-revert: the reserved literal slot (wave 36)
+# ---------------------------------------------------------------------------
+
+# iOS convention: right after an autocorrect commits a word, the user's
+# instinct on a WRONG force-correction is to press backspace. At that moment
+# the bar's reserved LEFT slot must offer the byte-exact literal they typed,
+# one tap to swap the corrected word back. Mechanism (a) — the reserved slot:
+# the first backspace deletes the commit's trailing delimiter and REVEALS the
+# corrected word; the literal leads the bar (verbatim/`.unknown`); a tap runs
+# a proxy edit (delete corrected, insert literal). Trigger: dogfood session
+# 2026-07-17T21-49-40 ("cold" typed as „vold, c→v near-miss force-corrected to
+# „völd conf 1.0) — the „völd auto-apply needs a saturated IS lane the neutral
+# harness can't prime, so the reliable fyrit→fyrir stands in for the IS class;
+# the device revert of „völd→„vold is flagged for dogfood in WAVES.md.
+
+SCENARIO backspace after autocorrect reveals literal revert slot (EN)
+T "teh "
+EXPECT_BUFFER "the "
+EXPECT_LAST_COMMIT the
+# First backspace deletes the trailing space, revealing "the"…
+BACKSPACE
+EXPECT_CONTEXT the
+# …and the reserved left slot is the byte-exact literal "teh".
+EXPECT_VERBATIM teh
+# One tap swaps the corrected word back to exactly what was typed.
+TAP teh
+EXPECT_BUFFER "teh "
+EXPECT_LAST_COMMIT teh
+
+SCENARIO backspace after autocorrect reveals literal revert slot (IS)
+# Mirrors the „vold→„völd force-correction class: a real IS word produced by
+# a near-miss, reverted to the literal the user typed.
+T "fyrit "
+EXPECT_BUFFER "fyrir "
+BACKSPACE
+EXPECT_CONTEXT fyrir
+EXPECT_VERBATIM fyrit
+TAP fyrit
+EXPECT_BUFFER "fyrit "
+EXPECT_LAST_COMMIT fyrit
+
+SCENARIO reverted literal is not re-corrected in the same breath
+# The restored literal must not immediately arm a fresh autocorrect (the
+# revert is a self-edit, never an engine correction): after the swap the
+# committed token is the literal, and its own commit re-armed nothing.
+T "fyrit "
+BACKSPACE
+TAP fyrit
+EXPECT_BUFFER "fyrit "
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO no literal slot when backspace does not follow an autocorrect
+# A valid typed word never autocorrects, so backspacing after it reveals only
+# the ordinary verbatim escape hatch — never a phantom "revert" of a
+# correction that never happened.
+T "hestur "
+EXPECT_BUFFER "hestur "
+BACKSPACE
+EXPECT_CONTEXT hestur
+EXPECT_VERBATIM hestur
+EXPECT_NOT_CONTAINS hestu
+
+SCENARIO typing after the backspace drops the literal slot
+# The slot is offered ONLY while the cursor sits right after the corrected
+# word reached by deletion; any typed continuation retires it.
+T "fyrit "
+BACKSPACE
+EXPECT_VERBATIM fyrit
+T a
+EXPECT_NOT_CONTAINS fyrit
+
+SCENARIO a second backspace (deleting into the word) drops the literal slot
+T "fyrit "
+BACKSPACE
+EXPECT_VERBATIM fyrit
+BACKSPACE
+EXPECT_NOT_CONTAINS fyrit
+
+SCENARIO the reserved slot tracks the most recent autocorrect commit
+# Typing a second word overwrites the first word's revert memo: the iOS
+# one-shot window for "fyrir" has passed, and backspacing after the SECOND
+# commit offers that word's literal ("hus"), never the stale "fyrit".
+T "fyrit "
+T "hus "
+EXPECT_LAST_COMMIT hús
+BACKSPACE
+EXPECT_CONTEXT "fyrir hús"
+EXPECT_VERBATIM hus
+EXPECT_NOT_CONTAINS fyrit
+
+SCENARIO a cursor move clears the literal revert slot
+T "fyrit "
+BACKSPACE
+EXPECT_VERBATIM fyrit
+CURSOR_MOVE start
+CURSOR_MOVE end
+EXPECT_NOT_CONTAINS fyrit

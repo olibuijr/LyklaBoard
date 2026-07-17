@@ -747,14 +747,28 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
             if ledgerHandleDepth == 0 { recordPendingSelfEdit() }
         }
 
-        // 4. Verbatim tap: `.unknown` suggestions are only ever produced by
-        // our service's verbatim escape-hatch slot.
-        if suggestion.isUnknown {
-            betterAutocompleteService?.noteVerbatimChoice(suggestion.text)
+        // 4. Verbatim tap: `.unknown` suggestions are produced by our
+        // service's verbatim escape-hatch slot AND the wave-36 reserved
+        // literal-revert slot. A `.unknown` tap is first offered to the
+        // revert path: if it WAS the armed literal-revert slot, the session
+        // records the rejection (correctionReverted event, re-correction
+        // suppressed) and the recorder logs a distinct "literal-revert" kind;
+        // otherwise it is the ordinary verbatim escape hatch (learn + tap
+        // log). super.handle performs the proxy edit either way, wrapped by
+        // this call's ledger snapshot — so the revert is attributed as a
+        // self-edit, never as an engine correction.
+        if suggestion.isUnknown,
+            betterAutocompleteService?.noteLiteralRevertChoice(suggestion.text) == true
+        {
+            betterAutocompleteService?.noteRecordedLiteralRevert(suggestion.text)
+        } else {
+            if suggestion.isUnknown {
+                betterAutocompleteService?.noteVerbatimChoice(suggestion.text)
+            }
+            // DEV-MODE recorder: log the tapped candidate as the applied
+            // action of the next pass. No-op unless a session is armed.
+            betterAutocompleteService?.noteRecordedSuggestionTap(suggestion.text)
         }
-        // DEV-MODE recorder: log the tapped candidate as the applied action of
-        // the next pass. No-op unless a recording session is armed.
-        betterAutocompleteService?.noteRecordedSuggestionTap(suggestion.text)
         super.handle(suggestion)
     }
 

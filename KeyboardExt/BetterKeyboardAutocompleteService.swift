@@ -112,6 +112,12 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     private let revertMemoLock = NSLock()
     private var revertMemoArmed = false
     private var attachmentMemoArmed = false
+    /// Mirror of `session.hasArmedLiteralRevert` (wave 36): true while the
+    /// reserved literal-revert slot leads the bar, so the action handler can
+    /// route a tap on the `.unknown` slot to the revert path synchronously
+    /// without a queue round-trip on the vastly common case where no such
+    /// slot exists. Same lock as the revert/attachment memos.
+    private var literalRevertArmed = false
 
     /// Cached spacebar behavior mode (PLAN.md "Spacebar behavior — three
     /// user-selectable modes"). Written from the controller on the main
@@ -147,6 +153,18 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         revertMemoLock.lock()
         defer { revertMemoLock.unlock() }
         return attachmentMemoArmed
+    }
+
+    private func setLiteralRevertArmed(_ armed: Bool) {
+        revertMemoLock.lock()
+        literalRevertArmed = armed
+        revertMemoLock.unlock()
+    }
+
+    private var isLiteralRevertArmed: Bool {
+        revertMemoLock.lock()
+        defer { revertMemoLock.unlock() }
+        return literalRevertArmed
     }
 
     // MARK: - Request sequencing (lock-guarded, NOT queue-confined)
@@ -388,6 +406,17 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
+    /// DEV-MODE recorder: the user tapped the reserved literal-revert slot
+    /// (wave 36), swapping an autocorrected word back to the literal. Recorded
+    /// as its own applied kind so the analyzer can see reverts distinctly from
+    /// ordinary taps and count how often force-corrections get rejected. No-op
+    /// unless a session is armed.
+    func noteRecordedLiteralRevert(_ text: String) {
+        queue.async { [weak self] in
+            self?.recorder.captureApplied(.literalRevert(text))
+        }
+    }
+
     /// Callout-selected (long-press) character: the strongest
     /// deliberateness signal (lane-relaxation triple gate part 3a — the
     /// session vetoes accent folding for the pending word and never
@@ -408,6 +437,26 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     func noteVerbatimChoice(_ token: String) {
         queue.async { [weak self] in
             self?.session?.noteVerbatimChoice(token)
+        }
+    }
+
+    /// Literal-revert tap (wave 36, the iOS "revert autocorrect" escape
+    /// hatch): the user tapped the reserved left slot to swap an
+    /// autocorrected word back to the byte-exact literal they typed. Returns
+    /// true when this `.unknown` tap WAS the armed literal-revert slot (so the
+    /// action handler logs it distinctly and skips the verbatim-choice/learn
+    /// path); false for the ordinary verbatim escape-hatch slot, which the
+    /// caller then handles as before. Synchronous by necessity (the tap's
+    /// proxy edit is about to run), gated on the lock-guarded armed flag so
+    /// the vastly common tap never blocks on the engine queue. The proxy edit
+    /// (delete corrected, insert literal + space) is KeyboardKit's, wrapped by
+    /// the action handler's ledger snapshot — so the revert is attributed as a
+    /// self-edit, never misread as external or as an engine correction.
+    func noteLiteralRevertChoice(_ token: String) -> Bool {
+        guard isLiteralRevertArmed else { return false }
+        return queue.sync {
+            defer { setLiteralRevertArmed(session?.hasArmedLiteralRevert == true) }
+            return session?.revertToLiteral(matching: token) ?? false
         }
     }
 
@@ -826,6 +875,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             pIcelandic: session.probabilityIcelandic)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
         setAttachmentMemoArmed(session.hasPendingPunctuationAttachment)
+        setLiteralRevertArmed(session.hasArmedLiteralRevert)
         // Word-commit boundary flush: the pass that detected a commit (or a
         // tap/revert) is the pass whose drain carries those events.
         flushLearningEventsOnQueue()

@@ -165,6 +165,32 @@ public final class TypingSession {
     /// the token the user explicitly chose. Cleared on commit/external
     /// change/reset.
     private var verbatimChoice: String?
+    /// Backspace-revert memo (wave 36, the iOS "revert autocorrect" escape
+    /// hatch): armed the moment an autocorrect AUTO-APPLIES on a delimiter
+    /// commit. `literal` is the byte-exact pre-correction typed token (the
+    /// same string the proxy-edit ledger's before-window carries — never
+    /// re-derived from the correction), `corrected` is what the engine
+    /// committed. The user's instinct on a wrong force-correction is to press
+    /// backspace: the first backspace deletes the commit's trailing delimiter
+    /// and REVEALS the corrected word, and at THAT moment the bar's reserved
+    /// left slot offers `literal` (verbatim/`.unknown`), so one tap swaps the
+    /// corrected word back to exactly what was typed. See
+    /// `resolveBackspaceRevert`/`revertToLiteral` and the reserved-slot branch
+    /// of `buildSuggestions`. Cleared once consumed, on any typed
+    /// continuation / new word / cursor move / field change / external
+    /// change / reset — never a stale literal slot.
+    private var backspaceRevert: (literal: String, corrected: String)?
+    /// True only on the pass that armed `backspaceRevert` (the autocorrect
+    /// commit), so `resolveBackspaceRevert` evaluates the memo from the NEXT
+    /// pass onward — the reserved slot arms only when the backspace is the
+    /// very next action after the commit (iOS's tight one-shot window).
+    private var backspaceRevertJustArmed = false
+    /// Whether the last built bar led with the reserved literal-revert slot
+    /// (the memo was armed AND the cursor sat right after the corrected
+    /// word). Read by the embedder — via `hasArmedLiteralRevert` — to route a
+    /// tap on that slot to `revertToLiteral` rather than the ordinary
+    /// verbatim path.
+    private var literalSlotShowing = false
     /// Characters of the pending word entered via long-press/callout — the
     /// strongest deliberateness signal in the lane-relaxation hierarchy
     /// (PLAN.md "Lane relaxation profiles", triple gate part 3a). The
@@ -244,6 +270,12 @@ public final class TypingSession {
         // the tap queue below.
         let hadTrustedWindow = lastSeenWindow != nil
 
+        // Did the observed window shrink since the last pass? The reserved
+        // literal-revert slot arms only when the corrected word was reached
+        // BY DELETION (backspacing the commit's trailing delimiter), never by
+        // typing the same letters afresh — this is the discriminator.
+        let windowShrank = lastSeenWindow.map { textBeforeCursor.count < $0.count } ?? false
+
         switch classifyChange(to: textBeforeCursor) {
         case .evolution(let appendedAfterContext):
             noteDotReplacementIfAny(currentWord: currentWord)
@@ -264,6 +296,10 @@ public final class TypingSession {
         case .external:
             carriedContext = nil
             verbatimChoice = nil
+            // A cursor jump / host mutation / field switch dissolves the
+            // "right after the corrected word" adjacency the reserved slot
+            // depends on — never offer a stale literal after one.
+            backspaceRevert = nil
             // Expectations recorded against the pre-discontinuity world can
             // never confirm; the next observation starts from the adopted
             // window.
@@ -280,6 +316,16 @@ public final class TypingSession {
         if !context.isEmpty {
             // The new window has its own committed context; stop carrying.
             carriedContext = nil
+        }
+
+        // Backspace-revert lifecycle (wave 36). The arming pass (the
+        // autocorrect commit) is skipped so the memo is evaluated from the
+        // NEXT pass on; every later pass keeps it ONLY while the cursor still
+        // sits right after the corrected word, reached by deletion.
+        if backspaceRevertJustArmed {
+            backspaceRevertJustArmed = false
+        } else {
+            resolveBackspaceRevert(currentWord: currentWord, windowShrank: windowShrank)
         }
 
         // Align the touch record with the new pending word (AFTER commit
@@ -465,6 +511,64 @@ public final class TypingSession {
         return RevertInstruction(deleteCount: 2, text: ".")
     }
 
+    // MARK: - Backspace-revert (wave 36, the iOS "revert autocorrect" slot)
+
+    /// Whether the reserved literal-revert slot currently leads the bar (an
+    /// autocorrect committed and the first backspace revealed the corrected
+    /// word). The embedder mirrors this into a lock-guarded flag so a tap on
+    /// the `.unknown` slot can be routed to `revertToLiteral` synchronously,
+    /// exactly like `hasPendingContinuationRevert` gates the revert consult.
+    public var hasArmedLiteralRevert: Bool { literalSlotShowing }
+
+    /// Keep or drop the backspace-revert memo for THIS pass. The reserved
+    /// literal slot survives only while the cursor sits immediately after the
+    /// corrected word AND that word was reached by a deletion (the first
+    /// backspace after the commit). A typed continuation, a fresh word that
+    /// happens to equal the corrected form, or any other shape drops it — the
+    /// literal slot is never offered stale.
+    private func resolveBackspaceRevert(currentWord: String, windowShrank: Bool) {
+        guard let memo = backspaceRevert else { return }
+        if !(currentWord == memo.corrected && windowShrank) {
+            backspaceRevert = nil
+        }
+    }
+
+    /// Consume the reserved literal-revert slot: the user tapped it to swap
+    /// the corrected word back to the byte-exact token they typed. Returns
+    /// true (and applies the session-side bookkeeping) only when a memo is
+    /// armed whose literal equals `text`; any other `.unknown` tap (the
+    /// ordinary verbatim escape hatch) is a no-op returning false.
+    ///
+    /// The proxy edit itself (delete the corrected word, insert the literal)
+    /// is performed by the embedder's tap handling — this method only records
+    /// intent: it (a) suppresses re-correction of the restored literal by the
+    /// next delimiter (`verbatimChoice`), (b) buffers a `correctionReverted`
+    /// learning event — the SAME rejection signal as revert-on-continuation,
+    /// so the model counts the literal as a plain non-explicit commit, NOT a
+    /// strong "this is a real word" learn — and (c) primes `tapLearnedWord`
+    /// so the imminent commit pass does not ALSO buffer a wordCommitted for
+    /// the restored token. The user's revert is thus never misattributed as
+    /// an engine correction, and never arms a fresh autocorrect.
+    @discardableResult
+    public func revertToLiteral(matching text: String) -> Bool {
+        // Only while the reserved slot is actually being offered (the device
+        // embedder gates on `hasArmedLiteralRevert` too): a memo armed at the
+        // commit but not yet revealed by a backspace is not tappable.
+        guard literalSlotShowing, let memo = backspaceRevert, memo.literal == text
+        else { return false }
+        backspaceRevert = nil
+        verbatimChoice = memo.literal
+        if fieldKind.allowsLearning {
+            let original = Self.strippedEventToken(memo.literal)
+            let applied = Self.strippedEventToken(memo.corrected)
+            if original != applied, Self.isEventWord(original), Self.isEventWord(applied) {
+                pendingEvents.append(.correctionReverted(original: original, applied: applied))
+            }
+        }
+        tapLearnedWord = Self.strippedEventToken(memo.literal)
+        return true
+    }
+
     /// Tell the session about one self-caused proxy edit BEFORE its window
     /// observation arrives (the proxy-edit ledger; azooKey
     /// `ExpectedEditTracker` pattern, research/oss-harvest.md §2): `before`
@@ -510,6 +614,8 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        backspaceRevert = nil
+        backspaceRevertJustArmed = false
         longPressedCharacters = []
         pendingTapRecord = []
         incomingTaps = []
@@ -555,6 +661,9 @@ public final class TypingSession {
         carriedContext = nil
         dotReplacement = nil
         verbatimChoice = nil
+        backspaceRevert = nil
+        backspaceRevertJustArmed = false
+        literalSlotShowing = false
         longPressedCharacters = []
         pendingTapRecord = []
         incomingTaps = []
@@ -625,6 +734,9 @@ public final class TypingSession {
         limit: Int,
         trace: CorrectionTrace? = nil
     ) -> [Suggestion] {
+        // Reset the reserved-slot flag up front so every early return leaves
+        // it false; the reserved-slot branch below re-arms it when offered.
+        literalSlotShowing = false
         guard limit > 0 else { return [] }
 
         // Empty current word: next-word prediction (no verbatim slot).
@@ -761,10 +873,25 @@ public final class TypingSession {
             }
         }
 
+        // Reserved literal-revert slot (wave 36): right after an autocorrect
+        // commit, the first backspace reveals the corrected word — lead the
+        // bar with the byte-exact pre-correction literal (verbatim/`.unknown`)
+        // so one tap swaps the corrected word back to what was typed. The
+        // ordinary verbatim slot (which would show the corrected word itself,
+        // already in the document) yields the left slot to it here.
+        var bar: [Suggestion] = []
+        if let memo = backspaceRevert, memo.corrected == currentWord {
+            literalSlotShowing = true
+            bar.append(
+                Suggestion(text: memo.literal, isAutocorrect: false, confidence: 0, isVerbatim: true)
+            )
+            bar.append(contentsOf: engineSuggestions.filter { $0.text != memo.literal })
+            return Array(bar.prefix(limit))
+        }
+
         // Verbatim escape-hatch slot (layer 1): the literal typed token
         // always leads the bar — unless it IS the top engine suggestion
         // (no duplicate).
-        var bar: [Suggestion] = []
         if engineSuggestions.first?.text != currentWord {
             bar.append(
                 Suggestion(text: currentWord, isAutocorrect: false, confidence: 0, isVerbatim: true)
@@ -978,7 +1105,18 @@ public final class TypingSession {
         let accepted =
             committed != previousCurrentWord && committed != typedToken
             && lastEmittedSuggestionTexts.contains(committed)
-        confirm(committed, sentenceBoundary: boundary, acceptedFromTyped: accepted ? typedToken : nil)
+        // Arm the reserved literal-revert slot only when the committed form
+        // is exactly the AUTOCORRECT the previous bar armed (an engine
+        // force-correction the user may want to reject) — not a manual tap of
+        // an alternative, nor a verbatim tap. The literal is the raw typed
+        // token, byte-exact (quote/casing/accents preserved), taken from the
+        // session's own record of the pending word — never re-derived.
+        let revertLiteral =
+            accepted && committed == lastEmittedAutocorrect ? previousCurrentWord : nil
+        confirm(
+            committed, sentenceBoundary: boundary,
+            acceptedFromTyped: accepted ? typedToken : nil,
+            revertLiteral: revertLiteral)
     }
 
     /// The proxy's ". " sentence cut collapsed the window in the same
@@ -1008,7 +1146,13 @@ public final class TypingSession {
         // acceptance (same event mapping as the visible-window commit path).
         let typedStem = Self.strippedEventToken(previousCurrentWord)
         if words.count == 1, lastEmittedAutocorrect != nil, words[0] != typedStem {
-            confirm(words[0], sentenceBoundary: true, acceptedFromTyped: typedStem)
+            // Same autocorrect-commit arming as the visible-window path, for
+            // the deferred-dot ". "-collapse case. The reserved slot won't
+            // actually show here until the window re-expands past a
+            // backspace, but arming keeps the escape hatch available.
+            confirm(
+                words[0], sentenceBoundary: true, acceptedFromTyped: typedStem,
+                revertLiteral: previousCurrentWord)
         } else {
             for (index, word) in words.enumerated() {
                 confirm(word, sentenceBoundary: index == words.count - 1)
@@ -1037,13 +1181,23 @@ public final class TypingSession {
     private func confirm(
         _ committed: String,
         sentenceBoundary: Bool,
-        acceptedFromTyped: String? = nil
+        acceptedFromTyped: String? = nil,
+        revertLiteral: String? = nil
     ) {
         let before = engine.probabilityIcelandic
         engine.confirmWord(committed)
         committedWordCount += 1
         lastCommittedWord = committed
         verbatimChoice = nil
+        // Backspace-revert arming (wave 36): an autocorrect auto-applied on
+        // this delimiter commit. Remember the byte-exact literal so the next
+        // backspace can offer the one-tap revert; `backspaceRevertJustArmed`
+        // keeps the reserved slot off THIS pass (the slot only arms on the
+        // backspace that immediately follows the commit).
+        if let literal = revertLiteral, literal != committed {
+            backspaceRevert = (literal: literal, corrected: committed)
+            backspaceRevertJustArmed = true
+        }
         if engine.probabilityIcelandic != before {
             posteriorUpdateCount += 1
         }

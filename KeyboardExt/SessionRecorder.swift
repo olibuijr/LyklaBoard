@@ -70,6 +70,11 @@ final class SessionRecorder {
         /// (wave #28); the payload is the suggestion text that was NOT
         /// applied. Lets the analyzer count guard firings in the wild.
         case staleSkip(String)
+        /// The user tapped the reserved literal-revert slot (wave 36),
+        /// swapping an autocorrected word back to the byte-exact literal they
+        /// typed; the payload is that literal. Distinct from an ordinary tap
+        /// so the analyzer can count force-correction rejections.
+        case literalRevert(String)
     }
 
     // MARK: - Wiring
@@ -261,7 +266,7 @@ private struct KBRecord: Encodable {
     }
 
     struct Applied: Encodable {
-        let kind: String  // "none" | "autocorrect" | "tap" | "stale-skip"
+        let kind: String  // "none" | "autocorrect" | "tap" | "stale-skip" | "literal-revert"
         let text: String?
 
         init(_ action: SessionRecorder.AppliedAction?) {
@@ -269,6 +274,7 @@ private struct KBRecord: Encodable {
             case .autocorrect(let text): kind = "autocorrect"; self.text = text
             case .suggestionTap(let text): kind = "tap"; self.text = text
             case .staleSkip(let text): kind = "stale-skip"; self.text = text
+            case .literalRevert(let text): kind = "literal-revert"; self.text = text
             case nil: kind = "none"; self.text = nil
             }
         }

@@ -32,6 +32,97 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 36: backspace reverts autocorrect via a reserved literal slot
+
+- **Trigger**: dogfood session 2026-07-17T21-49-40 — the user typed the
+  English word "cold" inside Icelandic quotes, the c→v near-miss produced
+  „vold, and the engine force-corrected to „völd (a real IS word, conf 1.0).
+  There was no one-tap way back to the literal. The iOS-native reflex on a
+  wrong autocorrect is to press backspace; at that moment the bar's left slot
+  should offer the ORIGINAL literal so one tap swaps the corrected word back.
+  This wave ADDS that escape hatch — it changes no corrector/autocorrect
+  decision (the conservatism invariant and the „vold force-correction itself
+  are untouched; the personal gate below is byte-identical with the wave
+  on/off).
+- **Mechanism choice — (a) the reserved slot, backspace deletes normally**
+  (the two candidates the brief posed): (a) backspace behaves normally and the
+  literal is OFFERED in the reserved left slot for a one-tap full revert, vs
+  (b) the first backspace reverts the whole corrected word in one step. Chose
+  (a) — it is exactly iOS's behavior AND the cleanest to implement correctly on
+  the existing machinery: the autocorrect commit already leaves "word␣" in the
+  buffer, so the first backspace simply deletes that trailing delimiter and
+  REVEALS the corrected word (an ordinary deletion, no special backspace
+  handling), and the only addition is prepending the literal as the reserved
+  verbatim/`.unknown` slot when the cursor sits right after that word. (b)
+  would have meant a bespoke whole-word delete+reinsert on a keystroke KeyboardKit
+  already owns, with cursor-restoration to manage — more surface, no better UX.
+  No in-place-swap ambiguity arose, so the (b) fallback the brief allowed was
+  not needed.
+- **How the memo arms/clears** (mirrors the `pendingContinuationRevert` /
+  `setRevertMemoArmed` memo pattern; all in `TypingSession`, shared by device
+  and the `type-repl` harness): a one-shot `backspaceRevert = (literal,
+  corrected)` arms in `confirm(...)` exactly when the committed form equals the
+  AUTOCORRECT the previous bar armed (`committed == lastEmittedAutocorrect`) —
+  an engine force-correction, never a manual alternative tap or a verbatim tap.
+  The `literal` is the raw pending token (`previousCurrentWord`), byte-exact —
+  the same string the proxy-edit ledger's before-window carries, NEVER
+  re-derived from the correction (casing/„ quote/accents preserved; proven by
+  the Godan→Góðan casing test). `backspaceRevertJustArmed` keeps the slot off
+  the commit pass itself, so the reserved slot arms ONLY when the backspace is
+  the very next action after the commit (iOS's tight one-shot window). It then
+  survives ONLY while the cursor sits right after the corrected word reached BY
+  DELETION (`currentWord == corrected && windowShrank`) — a typed continuation,
+  a fresh word that happens to equal the corrected form, a second backspace
+  into the word, a new commit, a cursor move / field change / external change,
+  or consumption all drop it. The reserved slot is the leading verbatim
+  suggestion (text = literal) in `buildSuggestions`; `hasArmedLiteralRevert`
+  mirrors "the slot is showing" into a lock-guarded flag (`literalRevertArmed`,
+  same lock as the revert/attachment memos) so the device tap routes
+  synchronously without a queue round-trip.
+- **Ledger attribution / not a re-correction** (the brief's explicit
+  requirement): the revert is a USER edit, not an engine correction. The proxy
+  edit (delete corrected, insert literal) is KeyboardKit's, wrapped by the
+  action handler's existing `handle(_ suggestion:)` ledger snapshot, so it is
+  attributed as a self-edit — never misread as external, never as an engine
+  correction. `revertToLiteral(matching:)` (a) sets `verbatimChoice` to the
+  literal so the next delimiter cannot re-correct it (it never arms a fresh
+  autocorrect — the restored token being a valid-or-not literal is offered, not
+  forced), (b) buffers a `correctionReverted(original:applied:)` event — the
+  SAME rejection signal as revert-on-continuation, deliberately NOT a
+  wordCommitted/wordTapped hard-learn (a reverted typo is not whitelisted as a
+  real word forever — conservatism), and (c) primes `tapLearnedWord` so the
+  imminent commit pass doesn't also buffer a commit event. The recorder gets a
+  distinct applied kind `"literal-revert"` (SessionRecorder) so the analyzer
+  can count force-correction rejections separately from ordinary taps.
+- **Scope discipline**: the „vold→„völd AUTO-APPLY needs a saturated IS lane
+  the neutral headless harness can't prime (bare "vold" doesn't force-correct
+  off-device), so the reliable fyrit→fyrir / hestr→hestur stand in for the IS
+  class in the contracts; teh→the covers EN. The device revert of the actual
+  „völd→„vold is flagged for the owner's next dogfood (below).
+- **Gates**: TypeEngine `swift test` 446/446 (11 new `BackspaceRevertTests`
+  driving the memo state machine through a faithful proxy+ledger driver: arm on
+  autocorrect commit, slot after backspace, byte-exact restore incl. casing,
+  correctionReverted-not-wordCommitted, re-correction suppressed, and the five
+  clear paths — valid-word/typed-continuation/second-backspace/cursor-move/
+  next-word-overwrite). All scenario suites green: core 153/153 (8 new wave-36
+  contracts), dogfood 46/46, inflect 13/13, touch 11/11, compounds 22/22.
+  Simulator build green (xcodegen + Debug/iOS-Simulator; BuildInfo not
+  re-stamped by this wave). Personal gate: 61 rows top1 28 / falseAc 10 —
+  BYTE-IDENTICAL with the wave stashed vs applied (proven: `type-eval personal`
+  replays the corrector directly, bypassing `TypingSession` where all this
+  wave's code lives). The one gate REGRESSION — `„vold|„cold` new false-ac — is
+  the PRE-EXISTING force-correction on a newly-added dogfood row (the exact bug
+  this escape hatch serves), present with the wave off; it is a corrector
+  concern for a future wave, not this one, and this wave introduces zero
+  personal-eval movement. Baseline left unchanged.
+- **Open (device-only, flag for next dogfood)**: verify live that after „völd
+  auto-applies on device, the first backspace reveals „völd and the reserved
+  left slot offers the byte-exact „vold, and one tap restores it — the
+  auto-apply itself can't be reproduced headlessly, so the end-to-end revert of
+  the real trigger case is owed a device check. Also confirm the reserved slot
+  renders visually as the quoted `.unknown` type at the LEFT of the toolbar
+  (the mapping is `.unknown` → quoted title, same as the verbatim slot).
+
 ## 2026-07-17 — Cold-start hardening (KeyboardExt)
 
 - **Trigger**: keyboard-extension cold launch is the moment a user judges the

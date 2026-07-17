@@ -178,7 +178,13 @@ final class Typist {
         lastAppliedAutocorrect = nil
         lastRevert = nil
         if suggestion.isVerbatim {
-            session.noteVerbatimChoice(suggestion.text)
+            // A `.unknown` tap is either the reserved literal-revert slot
+            // (wave 36) or the ordinary verbatim escape hatch. Mirror the
+            // extension's action handler: try the revert first, fall back to
+            // the verbatim-choice memo.
+            if !session.revertToLiteral(matching: suggestion.text) {
+                session.noteVerbatimChoice(suggestion.text)
+            }
         }
         let ledgerBefore = proxy.trueContextBeforeInput
         let word = currentWord
