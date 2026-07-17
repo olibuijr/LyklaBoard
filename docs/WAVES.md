@@ -32,6 +32,120 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 31: compound guard hardening + Miðeind eval integration
+
+- **Trigger**: the mideind-compound-cases harvest (research/
+  mideind-compound-cases.{md,jsonl} — 2,052 curated rows: 18 valid
+  compounds, 14 rejected pseudo-compounds, 2,020 real error→correction
+  pairs from iceErrorCorpus CC BY 4.0 + GreynirCorrect MIT) exposed four
+  named gaps against wave 22's Compounds.swift: no negative curation
+  (margskonar class), a 2-modifier ceiling vs real 4-part compounds, zero
+  missing-hyphen coverage (812 rows, the largest class), and unverified
+  linking-letter repair reach.
+- **Eval integration** — `data/eval/compounds.jsonl` (666 rows, replayable
+  by `type-eval corpus compounds`, its own scorecard key — dev.jsonl keeps
+  historical comparability): 250 compound_collocation (corrector targets,
+  typo verified engine-INVALID through the real artifacts — doctrine:
+  valid words are never corrector targets), 106 missing_hyphen (pure
+  hyphen-insertion shapes), 10 wrongly_joined (the deny set), and two
+  STRUCTURAL-GAP trackers replayed as context=[A] typo=B (100
+  missing_hyphen_spaced, 200 wrongly_split) whose token B is verified
+  VALID — the engine has no cross-token join machinery, so top-1 is
+  honestly 0 and any fire is a false-ac: they double as protection
+  assertions (both sit at 0 falseAc). Deterministic generator
+  (`data/eval/generate-compounds-eval.py`) with shape-purity filters
+  (TEI alignment noise: corpus rows whose "correction" also changed
+  inflection or carried its own typo — Westminister-höll — are dropped).
+  IceEC attribution added to data/ATTRIBUTION.md. Baseline scorecard
+  line: 208/666 top-1, 19 false-ac (collocation 158/250 + 7fa,
+  missing_hyphen 40/106 + 12fa, wrongly_joined 10/10 + 0fa).
+- **Never-a-compound deny set** (Compounds.swift `neverCompounds`, the 10
+  harvested GreynirCorrect C002 joined→split forms): `split(of:)` refuses
+  them outright. KEY ARTIFACT FINDING: BÍN's descriptive coverage
+  actually ATTESTS 8 of the 10 as whole surface forms (margskonar
+  carries a full indeclinable-adjective paradigm; annarstaðar, niðrá,
+  afþvíað are BÍN adverb entries) — so lexicon validity, not compound
+  analysis, is what protects them, the conservatism invariant stands,
+  and the deny set is a structural guard (compound layer can never ADD
+  protection, e.g. for variants BÍN lacks). The user-visible half is a
+  wrong-form-offer-style bar entry: the canonical split ("margs konar")
+  is OFFERED, never auto-applied — one tap writes standard orthography.
+  The 2 non-attested deny words (fjögurhundruð, níuhundruð) already
+  auto-split via the ordinary space-miss machinery (margin inf), locked
+  by scenario. wrongly_joined eval category: 10/10 top-1, 0 false-ac.
+- **3-modifier decision — cap stays 2, measured**: the scan is
+  generalized behind `compoundMaxModifiers` (A/B-able knob, recursion
+  preserves wave 22's fewest-parts/shortest-first order byte-for-byte at
+  2). Of the 16 single-token harvested valid compounds, 15 already
+  resolve at ≤2 modifiers because BÍN attests intermediate compounds
+  whole (gervigreindar+gagnaverin — BOTH halves are single BÍN units;
+  gauks+staða+málið lands without tantum demotion; the feared 4-part
+  ceiling mostly dissolves). Cap 3 gains exactly ONE word —
+  álfa+brunn+fugla+garðurinn, Miðeind's constructed tokenizer stress
+  pick — and is byte-identical on dev AND the compounds corpus. Zero
+  measured gain doesn't justify widening the accidental-decomposition
+  surface wave 22 deliberately bounded. The remaining failure
+  (síamskattarkjólanna) is modifier-legality (lemma-freq floor), not
+  depth. Only real residue: protection scenario locks
+  gervigreindargagnaverin.
+- **Linking-letter yield** (the framhaldskóla class — the most repeated
+  real error in the harvest, and the honest answer to (e)): eldneyti→
+  eldsneyti already fired via the ordinary insert pass (verified,
+  scenario-locked), but framhaldskóla did NOT — the typo accidentally
+  decomposes (framhald+skóla is a legal reading) and wave 22's
+  protection silenced the attested repair. New rule: protection yields
+  when the winner is is.lex-attested and equals the typed word with one
+  bandstafur (s/a/r/u) inserted at — or removed just before — the
+  decomposition boundary (framhaldsskóla +s; samferðafólki −r), after
+  which every ordinary gate (margin, typicality, junk scaling) still
+  applies. Boundary-strict: kaffispjallið inserts -l- at position 10,
+  not at the kaffis|pjalið boundary — wave 22's offer-only verdict
+  stands there (counter-scenario). Dev: +2 ac-fired, both correct
+  (top-1/false-ac ±0.00).
+- **Missing-hyphen decision** (812 harvested rows): full cross-token
+  hyphen repair ("Silverstone brautinni", "fjármála og efnahags-
+  ráðherra" coordination) is a join-machinery wave of its own —
+  DEFERRED with the gap tracked at 0% in missing_hyphen_spaced. But the
+  joined single-token shape got a cheap high-precision repair: the
+  space-miss split already finds the boundary (and was auto-applying
+  the two-word reading "Gucci buxurnar" — 39.5% false-ac on the
+  category), so when the typed token leads with a capital, P(IS) ≥ 0.5,
+  the first half is NOT BÍN-known (foreign modifier — "Íslandsog" keeps
+  its plain split) and the second half has a BÍN noun/adjective reading,
+  the split renders with the standard orthographic hyphen
+  (Gucci-buxurnar, ritreglur foreign-modifier rule). Render-only: the
+  hypothesis, score and auto-apply decision are the split machinery's.
+  Category: 0% → 37.7% top-1, false-ac 39.5% → 11.3% (residue is
+  diacritic-mismatch halves like Barbari/Barbarí and lowercase-typed
+  rows the capital gate correctly skips). Typed "Porsche-bílunum" was
+  verified unmangleable (hyphenated tokens generate no candidates at
+  all) and is scenario-locked.
+- **Heldout honesty**: the first heldout run exposed an UNGATED hyphen
+  render regressing EN space-miss rows (en false-ac +3): the lane gate
+  (P(IS) ≥ 0.5) and the noun-head requirement came from that
+  mechanism-level finding — two further heldout consults verified the
+  fix at mechanism granularity (no row inspection; dev stayed
+  byte-identical throughout). Final heldout: 2285/163 vs 2287/162
+  (top-1 −2, false-ac +1, top-3 +3; en false-ac FLAT at 111) — the
+  residue is two genuine merged-token repairs now rendered with the
+  orthographic hyphen where the Wikipedia source wrote the pair
+  unhyphenated: a style-variant miss on a real typo fix, not a
+  valid-word destruction. Documented rather than tuned away.
+- **Gates**: dev 2339 top-1 / 121 false-ac — byte-identical to waves
+  23/32 (wave-off A/B: top-1/false-ac ±0.00, ac-fired +0.07pp = the 2
+  correct linking-yield fires); knobs-off equals the committed baseline
+  exactly (split() refactor proven inert); heldout above; compounds
+  baseline 208/666, history line noted "wave 31 compound hardening";
+  scorecard PASS (micro 166/167, false-ac 0, valid-word safety green,
+  scenarios 231/231); personal gate 54 rows top1 26 falseAc 9 — zero
+  regressions, baseline unchanged; suites ×3 green (11 new wave-31
+  contracts); swift test 422 TypeEngine + 20 LemmaCore green (6 new
+  CompoundTests); bench steady worst ~7.5 ms (gate 30; one cold-cache
+  54 ms spike absorbed by the scorecard retry, known pattern). New
+  knobs `compoundMaxModifiers`, `compoundLinkingRepairYieldEnabled`,
+  `hyphenJoinRepairEnabled` in the A/B allowlist; repl `:compound`
+  probe.
+
 ## 2026-07-17 — Wave 32: archaic-twin restoration (the eg/þu class)
 
 - **Trigger**: the single most recurring silent miss across all 13 dogfood
