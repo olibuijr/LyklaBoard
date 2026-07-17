@@ -530,7 +530,7 @@ def _top_gaps(sessions: list, tagged: list) -> dict:
 
     rows = []
     for cls, items in by_class.items():
-        if cls in taxonomy.DOCTRINE_NONFIRE_CLASSES:
+        if cls in taxonomy.DOCTRINE_NONFIRE_CLASSES or cls in taxonomy.CLEAN_CLASSES:
             continue
         status = items[0]["status"]
         total = len(items)

@@ -117,6 +117,15 @@ CLASSES = [
         status="accepted-gap",
         notes="lindgren/astrid class.",
     ),
+    dict(
+        id="clean-noop",
+        title="Clean / no-op (no signal)",
+        detect="typed token equals intended, or punctuation-only typo "
+               "(alignment artifact)",
+        status="accepted-gap",
+        notes="Excluded from reports and rollups entirely — carries no "
+              "signal. Ég→Ég tap, '.'→word alignment hiccups.",
+    ),
 ]
 
 NOVEL_ID = "NOVEL"
@@ -163,6 +172,9 @@ PRECEDENCE = [c["id"] for c in CLASSES]
 # Classes that are doctrine-correct non-fires, not gaps — excluded from the
 # top-gaps ranking (aggregate.py), shown separately instead.
 DOCTRINE_NONFIRE_CLASSES = {"slangur-intentional", "valid-word-overlap"}
+
+# No-signal findings: dropped from rollups AND the non-fire counts entirely.
+CLEAN_CLASSES = {"clean-noop"}
 
 
 def status_of(class_id: str) -> str:
@@ -274,6 +286,16 @@ def classify_finding(ctx: FindingContext) -> tuple:
     intended = _clean_token(ctx.intended)
     bar_lower = {b.lower() for b in ctx.bar_seen if b}
     intended_l = intended.lower()
+
+    # Clean/no-op findings: a tap or "miss" whose typed token already equals
+    # the intended word (TAP_USED on an already-correct word, alignment
+    # artifacts) carries no signal — never NOVEL, never a gap.
+    if typo and intended and typo == intended:
+        return "clean-noop", status_of("clean-noop")
+    # Alignment artifacts: a punctuation-only "typo" aligned against a word
+    # (e.g. "." → "Eg") is a diffing hiccup, not a finding.
+    if typo and intended and not any(c.isalpha() for c in typo):
+        return "clean-noop", status_of("clean-noop")
 
     if ctx.confirmed and ctx.confirmed.get("intentional"):
         return "slangur-intentional", status_of("slangur-intentional")
