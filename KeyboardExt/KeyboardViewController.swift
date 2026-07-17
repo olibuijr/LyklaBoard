@@ -680,21 +680,59 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         super.handle(suggestion)
     }
 
-    /// DEV-MODE recorder hook: `tryApplyAutocorrectSuggestion` is the exact
-    /// point KeyboardKit auto-applies the pending `.autocorrect` on a delimiter
-    /// (space-commit / our deferred-'.'). We note the applied text BEFORE super
-    /// mutates the document, so the following autocomplete pass attributes it.
-    /// No-op unless a recording session is armed. Behaviourally transparent —
-    /// it only observes, then defers to super unchanged.
+    /// Apply-time staleness guard (wave #28) + DEV-MODE recorder hook.
+    /// `tryApplyAutocorrectSuggestion` is the single choke point where
+    /// KeyboardKit auto-applies the pending `.autocorrect` on a delimiter —
+    /// both the plain space-commit and our deferred-'.' apply flow through
+    /// it (see the fork's `handle(_:on:replaced:)` sequence).
+    ///
+    /// The guard closes the real-device race from session
+    /// 2026-07-17T08-30-35: suggestion delivery from the async engine queue
+    /// to the main-actor `autocompleteContext` is not guaranteed current
+    /// relative to keystrokes, so the suggestion sitting in the context can
+    /// belong to a PREVIOUS word ("Þátturinn" applied over "Lovr", six
+    /// passes stale). Every suggestion our service bridges carries the
+    /// engine's pending token in `additionalInfo` (the WHOLE session token
+    /// — dots and deferred trailing dot included — matching the
+    /// `additionalDeleteCount` machinery, NOT KeyboardKit's dot-sheared
+    /// current word); at apply time we require it to still equal the live
+    /// proxy token the delimiter is about to commit (case-sensitively; the
+    /// pure decision lives in `TypeEngine.AutocorrectApplyGuard`, unit-
+    /// tested on macOS). Mismatch ⇒ skip the apply entirely — the delimiter
+    /// inserts plainly and the user keeps what they typed. Bar taps are
+    /// unaffected (`handle(_ suggestion:)` never comes through here).
+    ///
+    /// Ledger note: nothing is pre-armed for an apply — the proxy-edit
+    /// ledger records the ACTUAL before→after window around the whole
+    /// `handle` call (snapshot at entry, flush at `tryPerformAutocomplete`),
+    /// so a skipped apply simply yields a smaller after-window (just the
+    /// delimiter) and classifies as a plain typing evolution.
+    ///
+    /// Recorder: the applied/skipped text is noted BEFORE super mutates the
+    /// document, so the following autocomplete pass attributes it. No-op
+    /// unless a recording session is armed.
     override func tryApplyAutocorrectSuggestion(
         before gesture: Keyboard.Gesture,
         on action: KeyboardAction
     ) {
-        if shouldApplyAutocorrectSuggestion(before: gesture, on: action),
-            let applied = autocompleteContext.suggestions.first(where: { $0.isAutocorrect })
-        {
-            betterAutocompleteService?.noteRecordedAutocorrectApplied(applied.text)
+        guard
+            shouldApplyAutocorrectSuggestion(before: gesture, on: action),
+            let suggestion = autocompleteContext.suggestions.first(where: { $0.isAutocorrect })
+        else { return }  // mirrors super's own early-outs (it would no-op too)
+        let window = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
+        guard
+            AutocorrectApplyGuard.shouldAutoApply(
+                recordedPendingToken: suggestion.additionalInfo[
+                    BetterKeyboardAutocompleteService.pendingTokenInfoKey
+                ],
+                textBeforeCursor: window
+            )
+        else {
+            // Stale suggestion: skip the apply, insert the delimiter plainly.
+            betterAutocompleteService?.noteRecordedStaleAutocorrectSkip(suggestion.text)
+            return
         }
+        betterAutocompleteService?.noteRecordedAutocorrectApplied(suggestion.text)
         super.tryApplyAutocorrectSuggestion(before: gesture, on: action)
     }
 }

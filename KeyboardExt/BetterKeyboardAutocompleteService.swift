@@ -118,6 +118,16 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         return attachmentMemoArmed
     }
 
+    // MARK: - Request sequencing (lock-guarded, NOT queue-confined)
+
+    /// Monotonic stamp for autocomplete requests (wave #28 delivery-side
+    /// staleness drop — see `autocomplete(_:)`). Written at request time on
+    /// the calling Task's thread and read at publish time on `queue`, hence
+    /// its own lock rather than queue confinement.
+    private let requestLock = NSLock()
+    private var requestGeneration: UInt64 = 0
+    private var latestRequestedText = ""
+
     /// The user's current spacebar behavior (PLAN.md "Spacebar behavior").
     /// Read by the mode-3 bridge on `queue` and by the mode-2 action handler
     /// on the main thread.
@@ -182,14 +192,48 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     var locale: Locale = .init(identifier: "is")
 
     func autocomplete(_ text: String) async throws -> Autocomplete.ServiceResult {
-        await withCheckedContinuation { continuation in
+        // Delivery-side staleness drop (wave #28, defense in depth behind
+        // the apply-time token guard in `BetterKeyboardActionHandler`):
+        // KeyboardKit spawns one unstructured Task per request, so an older
+        // result can reach the main-actor `autocompleteContext` after a
+        // newer one. Sequence-stamp the request now; at publish time a
+        // result superseded by a newer request for DIFFERENT input text is
+        // returned `isOutdated`, which `AutocompleteContext.update` drops
+        // without clearing the bar. The engine pass itself still runs —
+        // `TypingSession` must observe every window in order; only the
+        // publish is suppressed.
+        requestLock.lock()
+        requestGeneration &+= 1
+        let generation = requestGeneration
+        latestRequestedText = text
+        requestLock.unlock()
+        return await withCheckedContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else {
                     return continuation.resume(
                         returning: .init(inputText: text, suggestions: [])
                     )
                 }
-                continuation.resume(returning: self.performAutocomplete(text))
+                let result = self.performAutocomplete(text)
+                self.requestLock.lock()
+                let superseded = AutocorrectApplyGuard.isSupersededResult(
+                    requestGeneration: generation,
+                    requestText: text,
+                    latestGeneration: self.requestGeneration,
+                    latestText: self.latestRequestedText
+                )
+                self.requestLock.unlock()
+                continuation.resume(
+                    returning: superseded
+                        ? .init(
+                            inputText: result.inputText,
+                            suggestions: result.suggestions,
+                            emojiSuggestions: result.emojiSuggestions,
+                            nextCharacterPredictions: result.nextCharacterPredictions,
+                            isOutdated: true
+                        )
+                        : result
+                )
             }
         }
     }
@@ -290,6 +334,16 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     func noteRecordedAutocorrectApplied(_ text: String) {
         queue.async { [weak self] in
             self?.recorder.captureApplied(.autocorrect(text))
+        }
+    }
+
+    /// DEV-MODE recorder: the apply-time staleness guard SKIPPED an armed
+    /// autocorrect (its recorded pending token no longer matched the live
+    /// proxy token — wave #28). Recorded distinctly so the session analyzer
+    /// can count how often the guard fires in the wild. No-op unless armed.
+    func noteRecordedStaleAutocorrectSkip(_ text: String) {
+        queue.async { [weak self] in
+            self?.recorder.captureApplied(.staleSkip(text))
         }
     }
 

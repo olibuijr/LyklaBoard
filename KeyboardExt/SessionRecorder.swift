@@ -65,6 +65,11 @@ final class SessionRecorder {
     enum AppliedAction {
         case autocorrect(String)
         case suggestionTap(String)
+        /// The apply-time staleness guard skipped an armed autocorrect whose
+        /// recorded pending token no longer matched the live proxy token
+        /// (wave #28); the payload is the suggestion text that was NOT
+        /// applied. Lets the analyzer count guard firings in the wild.
+        case staleSkip(String)
     }
 
     // MARK: - Wiring
@@ -239,13 +244,14 @@ private struct KBRecord: Encodable {
     }
 
     struct Applied: Encodable {
-        let kind: String  // "none" | "autocorrect" | "tap"
+        let kind: String  // "none" | "autocorrect" | "tap" | "stale-skip"
         let text: String?
 
         init(_ action: SessionRecorder.AppliedAction?) {
             switch action {
             case .autocorrect(let text): kind = "autocorrect"; self.text = text
             case .suggestionTap(let text): kind = "tap"; self.text = text
+            case .staleSkip(let text): kind = "stale-skip"; self.text = text
             case nil: kind = "none"; self.text = nil
             }
         }
