@@ -21,6 +21,7 @@ from analyze import (  # noqa: E402
     reconstruct_pairs,
     _inflection_offer,
     _silent_candidates,
+    _is_junk_tier,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -143,10 +144,33 @@ def test_silent_candidates():
     print("  OK  silent-miss  habb->hann, fra->frá, mash->UNRESOLVABLE")
 
 
+def test_junk_tier_attestation():
+    """Regression test for the 'lss' bug: is.lex is a raw frequency table,
+    not a curated dictionary, so a low-z attestation must NOT exempt a token
+    from the silent-miss scan unless BÍN also validates it as a real word.
+    Values below are real `type-repl :word` output from this repo's own
+    session corpus (see analyze.py's `_is_junk_tier` docstring)."""
+    # "lss" — the actual bug: attested in is.lex as web-noise junk (low z,
+    # not BÍN-known) — must be treated as junk-tier (scan it).
+    assert _is_junk_tier(is_present=True, is_z=-1.03, bin_known=False) is True
+    # "gil" — a real word at the EXACT SAME z as "lss" — BÍN saves it.
+    assert _is_junk_tier(is_present=True, is_z=-1.03, bin_known=True) is False
+    # "hárblásara" — real word, much lower z still — BÍN saves it.
+    assert _is_junk_tier(is_present=True, is_z=-2.35, bin_known=True) is False
+    # "kjúklinginn" — real word just above the floor — never even junk-tier
+    # regardless of BÍN (the z check alone already exempts it).
+    assert _is_junk_tier(is_present=True, is_z=-0.94, bin_known=False) is False
+    # Absent from is.lex entirely — not this function's concern (attest_tokens
+    # gates on `is_present` before this ever matters), but must not misfire.
+    assert _is_junk_tier(is_present=False, is_z=-3.55, bin_known=False) is False
+    print("  OK  junk-tier attestation  lss->junk, gil/hárblásara->real (BÍN-saved)")
+
+
 if __name__ == "__main__":
     run()
     print("\nv2 behaviours:")
     test_erase_retype_alignment()
     test_inflection_miss()
     test_silent_candidates()
+    test_junk_tier_attestation()
     print("\nPASS — v2 behaviours (alignment, inflection, silent-miss) verified.")

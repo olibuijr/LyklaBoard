@@ -520,8 +520,23 @@ _ALPHABET = set("abcdefghijklmnopqrstuvwxyzðþæöáéíóúý")
 
 # A neighbour must be at least this common (unigram count) to be offered as a
 # correction — this is what separates a real high-frequency target from corpus
-# noise, and keeps keyboard-mash tokens UNRESOLVABLE.
-SILENT_NEIGHBOUR_MIN = 20000
+# noise, and keeps keyboard-mash tokens UNRESOLVABLE. Lowered from 20000: a
+# common inflected verb form like "las" (~7.7k) is a legitimate correction
+# target — is.lex's fine-grained per-wordform counting means even everyday
+# words can sit well under what a lemma-level count would suggest.
+SILENT_NEIGHBOUR_MIN = 5000
+
+# Below this calibrated is.lex z-score (TypeEngine's `calibratedUnigramScore`,
+# same z the engine itself computes — see `attest_tokens`), an is.lex
+# attestation is treated as possible corpus noise rather than a real word,
+# UNLESS BÍN morphology validates it (rare-but-real words and noise both
+# cluster right around this boundary; z alone cannot tell them apart, see
+# `attest_tokens`'s docstring). Calibrated empirically against this repo's
+# session corpus: catches "lss" (z=-1.03, not BÍN-known — the actual bug)
+# while every rare-but-real word in the corpus at a similar or lower z
+# ("gil" -1.03, "snefil" -1.22, "þiðna" -1.53, "hárblásara" -2.35, ...) is
+# BÍN-known and stays exempt.
+JUNK_Z_FLOOR = -1.0
 
 
 def _adjacent_keys(ch: str) -> set:
@@ -592,13 +607,42 @@ def _find_type_repl(repo_root: str) -> Optional[str]:
     return None
 
 
+def _is_junk_tier(is_present: bool, is_z: float, bin_known: bool) -> bool:
+    """True when an is.lex attestation is likely corpus noise rather than a
+    real word (see `attest_tokens`'s docstring for why both signals are
+    needed). Pulled out as a pure function so it's unit-testable without
+    shelling out to `type-repl`."""
+    return is_present and is_z < JUNK_Z_FLOOR and not bin_known
+
+
 def attest_tokens(tokens: list, repo_root: str) -> tuple:
     """Query the engine's curated lexicons for each token via `type-repl :word`.
 
-    Returns (attest, source) where attest maps token → {'is': bool, 'en': bool}
-    (present in that lexicon) and source is 'type-repl' or 'corpus' (fallback).
-    The type-repl path is authoritative — it excludes corpus noise the engine
-    curated out (e.g. "fra"/"fa" are corpus tokens but NOT is.lex words)."""
+    Returns (attest, source) where attest maps token → {'is': bool, 'en': bool,
+    'is_junk_tier': bool} (present in that lexicon, plus whether the IS
+    attestation is corpus noise rather than a real word — see below) and
+    source is 'type-repl' or 'corpus' (fallback). The type-repl path is
+    authoritative — it excludes corpus noise the engine curated out (e.g.
+    "fra"/"fa" are corpus tokens but NOT is.lex words).
+
+    `is_junk_tier`: is.lex is a raw unigram frequency table, not a curated
+    dictionary — it keeps web-noise tokens (OCR errors, leetspeak, stray
+    keymashes that happened to occur in the crawl) right alongside real
+    words, so `f != "-"` alone is NOT "this is a real word". Two independent
+    engine signals narrow it down:
+      - `z` (calibratedUnigramScore): a real word's frequency, however rare,
+        sits far more often above JUNK_Z_FLOOR than noise's does — but the
+        two distributions overlap heavily right at that boundary, so z alone
+        both under- and over-flags (rare-but-real words like "gil" or
+        "snefil" score the SAME z as noise like "lss").
+      - BÍN morphological validity: BÍN is a curated Icelandic wordform
+        database, so `binKnown` reliably clears every rare-but-real word
+        that z alone can't distinguish from noise. It does not clear foreign
+        proper nouns (BÍN has no surnames), but those fall back to
+        UNRESOLVABLE (no cheap-edit high-frequency neighbour), not a
+        misleading correction.
+    A token is junk-tier only when BOTH signals agree it might not be real:
+    below the z floor AND not BÍN-known."""
     binary = _find_type_repl(repo_root)
     uniq = list(dict.fromkeys(tokens))
     if binary:
@@ -607,21 +651,30 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
             out = subprocess.run(
                 [binary], input=script, capture_output=True, text=True, timeout=120
             ).stdout
-            is_f = re.findall(r"is\.lex\s+f=(\S+)", out)
-            en_f = re.findall(r"en\.lex\s+f=(\S+)", out)
-            if len(is_f) == len(uniq) and len(en_f) == len(uniq):
-                attest = {
-                    t: {"is": is_f[i] != "-", "en": en_f[i] != "-"}
-                    for i, t in enumerate(uniq)
-                }
+            is_f = re.findall(r"is\.lex\s+f=(\S+)\s+z=(\S+)", out)
+            en_f = re.findall(r"en\.lex\s+f=(\S+)\s+z=(\S+)", out)
+            bin_known = re.findall(r"BÍN\s+(known|-)", out)
+            if len(is_f) == len(uniq) and len(en_f) == len(uniq) and len(bin_known) == len(uniq):
+                attest = {}
+                for i, t in enumerate(uniq):
+                    is_present = is_f[i][0] != "-"
+                    is_z = float(is_f[i][1])
+                    known = bin_known[i] == "known"
+                    junk_tier = _is_junk_tier(is_present, is_z, known)
+                    attest[t] = {
+                        "is": is_present and not junk_tier,
+                        "en": en_f[i][0] != "-",
+                        "is_junk_tier": junk_tier,
+                    }
                 return attest, "type-repl"
         except Exception:
             pass
     # Fallback: plain membership in the frequency corpora (less precise — the
-    # corpora keep low-frequency noise the curated lexicon dropped).
+    # corpora keep low-frequency noise the curated lexicon dropped, and there
+    # is no z/BÍN signal here to separate real rare words from that noise).
     lex = load_lexicons(repo_root)
     attest = {
-        t: {"is": t.lower() in lex["is"], "en": t.lower() in lex["en"]}
+        t: {"is": t.lower() in lex["is"], "en": t.lower() in lex["en"], "is_junk_tier": False}
         for t in uniq
     }
     return attest, "corpus"
