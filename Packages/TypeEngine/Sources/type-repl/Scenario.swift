@@ -71,6 +71,15 @@ import TypeEngine
 ///   EXPECT_AUTOCORRECT therefore judge the top NON-verbatim suggestion,
 ///   while EXPECT_VERBATIM checks the escape-hatch slot itself.
 ///
+///   EJECT <word>                   long-press-eject a learned word (wave 37):
+///                                  tombstone it + drop it from the seeded
+///                                  snapshot and session overlay, then re-apply
+///                                  — the headless model of the service's
+///                                  PersonalModel.remove + snapshot-refresh
+///   EXPECT_PERSONAL_LEARNED <word> <word> is in the bar AND flagged own-learned
+///                                  personal vocabulary (ejectable, wave 37)
+///   EXPECT_NOT_PERSONAL_LEARNED <word>  <word> is in the bar but NOT flagged
+///                                  own-learned (a base-lexicon / verbatim slot)
 ///   EXPECT_TOP <word>              top non-verbatim suggestion is exactly <word>
 ///   EXPECT_AUTOCORRECT <word>      top non-verbatim suggestion is <word> AND flagged autocorrect
 ///   EXPECT_NO_AUTOCORRECT [word]   no suggestion is flagged autocorrect
@@ -336,6 +345,43 @@ struct ScenarioRunner {
                     fail("usage: LEARN <word>")
                 } else {
                     typist.learnWord(argument)
+                }
+
+            case "EJECT":
+                // Long-press eject (wave 37): headless twin of the service's
+                // PersonalModel.remove + snapshot refresh. Tombstone the word
+                // in the seeded snapshot (deletions stick), drop it from the
+                // learned set, drop any in-session overlay copy, and re-apply
+                // so the bar reflects the removal immediately.
+                if argument.isEmpty {
+                    fail("usage: EJECT <word>")
+                } else {
+                    seeds.words.removeValue(forKey: argument)
+                    seeds.explicit.remove(argument)
+                    seeds.tombstones.insert(argument)
+                    engine.forgetSessionWord(argument)
+                    applySeeds()
+                    typist.refresh()
+                }
+
+            case "EXPECT_PERSONAL_LEARNED":
+                expectBar { bar in
+                    guard let hit = bar.first(where: { $0.text == argument }) else {
+                        return "expected \"\(argument)\" in bar: \(Self.describe(bar))"
+                    }
+                    return hit.isPersonalLearned
+                        ? nil
+                        : "\"\(argument)\" is in the bar but NOT flagged personal-learned"
+                }
+
+            case "EXPECT_NOT_PERSONAL_LEARNED":
+                expectBar { bar in
+                    guard let hit = bar.first(where: { $0.text == argument }) else {
+                        return "expected \"\(argument)\" in bar: \(Self.describe(bar))"
+                    }
+                    return hit.isPersonalLearned
+                        ? "\"\(argument)\" is unexpectedly flagged personal-learned"
+                        : nil
                 }
 
             case "EXPECT_EVENTS":

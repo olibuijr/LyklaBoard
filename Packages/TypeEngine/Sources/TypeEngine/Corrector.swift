@@ -28,19 +28,47 @@ public struct Suggestion: Equatable, Sendable {
     /// restoration suggestions entirely in URL/email/webSearch/secure
     /// fields.
     public let isRestoration: Bool
+    /// True only when this suggestion's text is a word the user's OWN
+    /// personal vocabulary learned (implicitly via the commit threshold or
+    /// explicitly via a verbatim tap / dictionary-editor add) and that is
+    /// NOT otherwise valid — not in is.lex/en.lex, not BÍN-known, not a
+    /// productive compound. Set by `TypingSession` (never the corrector),
+    /// and only on non-verbatim slots. It drives the wave-37 long-press
+    /// eject affordance in the toolbar: the symmetric inverse of tap-to-
+    /// learn — long-press an own-learned word to forget it. Base-lexicon
+    /// words (og, það) are NEVER flagged, even when the user has also
+    /// committed them: removing them would tombstone vocabulary the engine
+    /// still validates from the base lexicon, so they are not ejectable.
+    public let isPersonalLearned: Bool
 
     public init(
         text: String,
         isAutocorrect: Bool,
         confidence: Double,
         isVerbatim: Bool = false,
-        isRestoration: Bool = false
+        isRestoration: Bool = false,
+        isPersonalLearned: Bool = false
     ) {
         self.text = text
         self.isAutocorrect = isAutocorrect
         self.confidence = confidence
         self.isVerbatim = isVerbatim
         self.isRestoration = isRestoration
+        self.isPersonalLearned = isPersonalLearned
+    }
+
+    /// A copy of this suggestion flagged as own-learned personal vocabulary
+    /// (wave 37 eject affordance). All other fields are preserved byte-for-
+    /// byte.
+    func markingPersonalLearned() -> Suggestion {
+        Suggestion(
+            text: text,
+            isAutocorrect: isAutocorrect,
+            confidence: confidence,
+            isVerbatim: isVerbatim,
+            isRestoration: isRestoration,
+            isPersonalLearned: true
+        )
     }
 }
 

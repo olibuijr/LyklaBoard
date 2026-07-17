@@ -75,9 +75,26 @@ public extension Autocomplete {
 
 public extension Autocomplete.Suggestion {
 
+    /// FORK PATCH (Lyklaborð wave 37 — long-press to eject learned
+    /// vocabulary): the `additionalInfo` key an `AutocompleteService` sets to
+    /// `"1"` to mark a suggestion as the user's OWN learned personal
+    /// vocabulary (not a base-lexicon word). The autocomplete toolbar reads
+    /// ``isPersonalLearned`` off this to offer a long-press "forget"
+    /// affordance. Not upstream — see `docs/WAVES.md`.
+    static let isPersonalLearnedInfoKey = "is.solberg.lyklabord.personalLearned"
+
     /// Whether the suggestion is an autocorrect suggestion.
     var isAutocorrect: Bool {
         type == .autocorrect
+    }
+
+    /// FORK PATCH (Lyklaborð wave 37): whether this suggestion is a word the
+    /// user's own personal vocabulary learned (set by the host
+    /// `AutocompleteService` via ``isPersonalLearnedInfoKey``). Drives the
+    /// toolbar's long-press eject affordance. False for every ordinary /
+    /// base-lexicon / verbatim suggestion.
+    var isPersonalLearned: Bool {
+        additionalInfo[Self.isPersonalLearnedInfoKey] == "1"
     }
 
     /// Whether the suggestion is a regular suggestion.

@@ -32,6 +32,109 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 37: long-press a learned suggestion to eject it
+
+- **Trigger** (owner's idea, pairs with tap-to-learn which already works):
+  tapping the quoted verbatim/`.unknown` slot LEARNS a word (KeyboardKit
+  autolearn on `.unknown` → `learnWord`). The symmetric inverse was missing —
+  when a bar suggestion is a word from the user's OWN learned vocabulary,
+  LONG-PRESSING it should offer to forget it (remove/tombstone), without
+  digging into the app's Orðasafn dictionary editor. Tap teaches, long-press
+  forgets. Pure bar-interaction feature: the corrector is untouched (personal
+  gate byte-identical, below).
+- **Source flag — `isPersonalLearned` on the TypeEngine `Suggestion`**,
+  derived from a new engine predicate `TypeEngine.isPersonalLearnedWord`:
+  `personal.isValidWord(w) && !personal.isTombstoned(w) &&
+  !isKnownAnywhere(w) && compoundSplit(w) == nil` — valid personal
+  vocabulary (snapshot or session overlay) that is NOT otherwise valid
+  (is.lex/en.lex/BÍN/productive compound). This is exactly the ejectable
+  class: a word the user ALONE taught the keyboard. Base words (og, það) are
+  never flagged even when also personally committed — tombstoning them could
+  not stop the engine validating them from the base lexicon, so they are not
+  ejectable (proven: `PERSONAL hestur 50` → "hestur" completion carries the
+  flag = false). `TypingSession.buildSuggestions` maps the flag onto every
+  NON-verbatim suggestion just before assembly; the verbatim escape-hatch and
+  the wave-36 literal-revert slots are `.unknown` (the typed literal) and are
+  never flagged — they are the tap-to-learn hatch, not own-learned words.
+  `bridge()` threads the flag into the KK suggestion's `additionalInfo` under
+  a KK-owned key (`Autocomplete.Suggestion.isPersonalLearnedInfoKey`, value
+  "0"/"1"), read back via the fork's `Autocomplete.Suggestion.isPersonalLearned`.
+- **KK fork patch (the long-press gesture KK has for keys but NOT for
+  suggestion items)** — `Autocomplete+Toolbar.swift`: the tap `Button` that
+  wraps each suggestion (`toolbarItemButton`) became a dedicated
+  `ToolbarItemButton` view. A normal tap still routes to `suggestionAction`
+  (insert). When an injected `Autocomplete.EjectAffordance` is present AND the
+  suggestion `isPersonalLearned`, a `.onLongPressGesture` arms an inline
+  confirm. Affordance + copy are injected by the host via
+  `.autocompleteEjectAffordance(_:)` (new public env value + view modifier in
+  `Autocomplete+ToolbarItem.swift`); nil = upstream tap-only behavior, so with
+  no host wiring the fork is byte-for-byte the prior toolbar. All copy lives
+  in the host (KeyboardKit ships no localization for it) via closures on the
+  affordance.
+- **Confirm UX — reversible inline two-step pill (NO dark patterns), chosen
+  over KK's callout/menu machinery**: long-press arms a red confirm pill in
+  that slot — `Fjarlægja „<orð>"?` (`ToolbarItemEjectConfirm`) with an
+  explicit ✕ cancel next to the confirm, so removal is never accidental and
+  always cancelable. Chosen over a destructive-immediate action (deletion must
+  be reversible) and over KK's `Keyboard.Gesture` callout/menu machinery
+  (heavy in an extension; the inline pill lives entirely in the button's own
+  `@State`). A new keystroke rebuilds the bar → `.onChange(of: suggestion.text)`
+  auto-cancels a stale confirm. Copy is Icelandic/warm per the App/Strings
+  COPY RULE, in a small new `KeyboardStrings` enum in KeyboardExt (the app's
+  `Strings` is a separate target).
+- **Eject → tombstone → snapshot refresh (reuses `PersonalModel.remove`, no
+  new deletion path)**: the confirm routes to
+  `BetterKeyboardAutocompleteService.ejectPersonalWord`, which on the engine
+  queue does a coordinated read-modify-write on the App Group model file —
+  load `PersonalModel`, `remove(word:)` (drops counts + bigrams, inserts a
+  permanent tombstone — deletions stick, existing behavior), save atomically —
+  then `forgetSessionWord` (the in-session overlay is not tombstone-aware, so
+  a word taught by a verbatim tap this session must be dropped from it too or
+  it resurrects) and re-injects the freshly-tombstoned model as the personal
+  snapshot so the word leaves the bar immediately. Local file only: no
+  network, no new entitlement — the extension-privacy doctrine is intact.
+  NOTE (documented asymmetry): the app writes the model file with a plain
+  atomic save on the assumption the extension never writes it; the extension
+  now does, coordinated — best-effort against a concurrent app compaction (a
+  lost tombstone would only let the word return, never crash). `forgetSession`
+  added to `PersonalStore`/`TypeEngine`.
+- **Harness coverage** (`isPersonalLearned` flag + eject→tombstone→refresh +
+  not-ejectable-base rule are all headless; the gesture + inline confirm are
+  device-only): new `type-repl` directives `EJECT <word>` (headless twin of
+  the service's remove + snapshot refresh: tombstone the seed, drop it from
+  the learned set + session overlay, re-apply), `EXPECT_PERSONAL_LEARNED` /
+  `EXPECT_NOT_PERSONAL_LEARNED`. 5 new core.scenarios: own-learned completion
+  flagged; base-word-committed-personally NOT flagged; verbatim slot never
+  flagged; eject removes from the bar AND leaves the typed word uncorrected
+  (tombstone sticks); session-learned eject forgets the overlay. 8 new
+  `PersonalVocabularyTests` (predicate true/false incl. base-word/tombstone/
+  unknown, flag threads through TypingSession, verbatim slot unflagged,
+  `forgetSessionWord`, and the full model-path eject:
+  `PersonalModel.remove` → snapshot → gone-from-bar). Learning already owns
+  the deeper tombstone-sticks coverage (`testTombstonedWordDoesNotRelearn…`,
+  `testVerbatimTapDoesNotOverrideTombstone`, `testRemoveTombstoneAllows…`) —
+  the eject reuses that exact `remove`.
+- **Gates**: TypeEngine `swift test` 454/454 (+8 wave-37); Learning 100/100
+  (unchanged; clean rebuild after the Code/better-keyboard →
+  Code/LyklabordApp module-cache staleness). Scenario suites all green: core
+  158/158 (+5 wave-37), dogfood 46/46, inflect 13/13, touch 11/11, compounds
+  22/22. Simulator build green (xcodegen + Debug/iOS-Simulator — compiles the
+  KK fork for iOS; the macOS `swift build` of KeyboardKit fails only on
+  PRE-EXISTING `#Preview` `(ColorScheme)->Color` ShapeStyle cascades in
+  untouched files, not the fork patch). BuildInfo.swift reverted (stamped by
+  the build). Personal gate BYTE-IDENTICAL to wave 36 (61 rows, top1 28,
+  falseAc 10; slangur 3/3): the one regression `„vold|„cold` is the SAME
+  pre-existing force-correction wave 36 flagged, present with this wave off —
+  `type-eval personal` replays the corrector directly, bypassing
+  `TypingSession` where all this wave's flag code lives. Baseline unchanged.
+- **Open (device-only, flag for next dogfood)**: verify live that a
+  long-press on an own-learned bar suggestion arms the red `Fjarlægja „orð"?`
+  pill (and only on own-learned words — a normal tap still inserts), that
+  confirm removes the word from Orðasafn (tombstoned, never silently
+  relearned) and it vanishes from the bar immediately, that ✕ / a new
+  keystroke cancels, and that the verbatim slot and base words never arm it.
+  The gesture + SwiftUI confirm interaction cannot be reproduced headlessly.
+
 ## 2026-07-17 — Wave 36: backspace reverts autocorrect via a reserved literal slot
 
 - **Trigger**: dogfood session 2026-07-17T21-49-40 — the user typed the

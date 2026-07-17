@@ -201,6 +201,56 @@ public extension EnvironmentValues {
     /// Apply a ``Autocomplete/ToolbarItemStyle``.
     @Entry var autocompleteToolbarItemStyle = Autocomplete
         .ToolbarItemStyle.standard
+
+    /// FORK PATCH (Lyklaborð wave 37 — long-press to eject learned
+    /// vocabulary): the affordance the toolbar uses to let a user forget a
+    /// word their own personal vocabulary learned. `nil` (the default) keeps
+    /// upstream behavior — suggestions are tap-only. See `docs/WAVES.md`.
+    @Entry var autocompleteEjectAffordance: Autocomplete.EjectAffordance? = nil
+}
+
+public extension Autocomplete {
+
+    /// FORK PATCH (Lyklaborð wave 37 — long-press to eject learned
+    /// vocabulary): what the toolbar should do when the user long-presses a
+    /// suggestion flagged ``Autocomplete/Suggestion/isPersonalLearned``, plus
+    /// the localized copy for the inline confirm. Injected by the host via
+    /// ``SwiftUICore/View/autocompleteEjectAffordance(_:)`` so all copy stays
+    /// in the host (KeyboardKit ships no localization for it). Not upstream.
+    struct EjectAffordance {
+
+        /// Run when the user CONFIRMS removal of `suggestion`.
+        public var action: (Autocomplete.Suggestion) -> Void
+
+        /// Localized confirm-pill title for a suggestion, e.g.
+        /// `Fjarlægja „orð"?` — the host owns the wording.
+        public var confirmTitle: (Autocomplete.Suggestion) -> String
+
+        /// Localized accessibility label for the cancel control.
+        public var cancelLabel: String
+
+        public init(
+            action: @escaping (Autocomplete.Suggestion) -> Void,
+            confirmTitle: @escaping (Autocomplete.Suggestion) -> String,
+            cancelLabel: String
+        ) {
+            self.action = action
+            self.confirmTitle = confirmTitle
+            self.cancelLabel = cancelLabel
+        }
+    }
+}
+
+public extension View {
+
+    /// FORK PATCH (Lyklaborð wave 37): inject the toolbar long-press eject
+    /// affordance (see ``Autocomplete/EjectAffordance``). Pass `nil` to
+    /// disable (upstream tap-only behavior).
+    func autocompleteEjectAffordance(
+        _ affordance: Autocomplete.EjectAffordance?
+    ) -> some View {
+        self.environment(\.autocompleteEjectAffordance, affordance)
+    }
 }
 
 

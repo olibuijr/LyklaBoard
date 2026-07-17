@@ -192,12 +192,17 @@ private extension Autocomplete.Toolbar {
     }
 
     func toolbarItemButton(for suggestion: Suggestion) -> some View {
-        Button {
-            suggestionAction(suggestion)
-        } label: {
+        // FORK PATCH (Lyklaborð wave 37 — long-press to eject): route the
+        // tap through a dedicated button view that adds a long-press → inline
+        // confirm affordance for suggestions flagged `isPersonalLearned`.
+        // With no eject affordance injected (upstream) it is a plain tap
+        // button, byte-for-byte the prior behavior.
+        ToolbarItemButton(
+            suggestion: suggestion,
+            suggestionAction: suggestionAction
+        ) {
             toolbarItemView(for: suggestion)
         }
-        .buttonStyle(.plain)
     }
 
     func toolbarItemView(for suggestion: Suggestion) -> some View {
@@ -228,6 +233,116 @@ private extension Autocomplete.Toolbar {
         let isLast = index >= suggestions.count - 1
         if isLast { return !emojiSuggestions.isEmpty }
         return !suggestions[index+1].isAutocorrect
+    }
+}
+
+// MARK: - Fork patch (Lyklaborð wave 37): long-press to eject learned words
+
+/// FORK PATCH (Lyklaborð wave 37 — long-press to eject learned vocabulary):
+/// the tap button wrapping one toolbar suggestion, extended with a long-press
+/// → inline two-step confirm for suggestions the user's OWN personal
+/// vocabulary learned (``Autocomplete/Suggestion/isPersonalLearned``).
+///
+/// Interaction (device-only — no headless coverage): a normal tap always
+/// inserts the suggestion. When an ``Autocomplete/EjectAffordance`` is
+/// injected AND the suggestion is own-learned, a long-press arms an inline
+/// confirm pill — a red "Fjarlægja „orð"?" the user taps to forget the word,
+/// plus a cancel (✕). A reversible two-step confirm was chosen over a
+/// destructive-immediate action (no dark patterns; every deletion is
+/// cancelable) and over KeyboardKit's callout/menu machinery (heavy in an
+/// extension; the inline pill lives entirely in this view's own state). Any
+/// change to the suggestion at this slot (the next keystroke rebuilds the
+/// bar) auto-cancels a pending confirm.
+struct ToolbarItemButton<Content: View>: View {
+
+    let suggestion: Autocomplete.Suggestion
+    let suggestionAction: (Autocomplete.Suggestion) -> Void
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.autocompleteEjectAffordance) private var eject
+    @State private var confirmingEject = false
+
+    private var isEjectable: Bool {
+        suggestion.isPersonalLearned && eject != nil
+    }
+
+    var body: some View {
+        Group {
+            if confirmingEject, let eject {
+                ToolbarItemEjectConfirm(
+                    title: eject.confirmTitle(suggestion),
+                    cancelLabel: eject.cancelLabel,
+                    onConfirm: {
+                        eject.action(suggestion)
+                        confirmingEject = false
+                    },
+                    onCancel: { confirmingEject = false }
+                )
+            } else {
+                tapButton
+            }
+        }
+        // A rebuilt bar (new keystroke) may no longer show the armed word —
+        // never leave a stale confirm pointing at a different suggestion.
+        .onChange(of: suggestion.text) { _ in confirmingEject = false }
+    }
+
+    @ViewBuilder
+    private var tapButton: some View {
+        let button = Button {
+            suggestionAction(suggestion)
+        } label: {
+            content()
+        }
+        .buttonStyle(.plain)
+
+        if isEjectable {
+            // A long-press arms the confirm without inserting the word; a
+            // plain tap still routes to `suggestionAction` above.
+            button.onLongPressGesture(minimumDuration: 0.45) {
+                confirmingEject = true
+            }
+        } else {
+            button
+        }
+    }
+}
+
+/// FORK PATCH (Lyklaborð wave 37): the inline confirm pill shown in a
+/// suggestion slot after a long-press arms an eject. Two explicit targets —
+/// cancel (✕) and a red confirm — so removal is never accidental and always
+/// cancelable.
+struct ToolbarItemEjectConfirm: View {
+
+    let title: String
+    let cancelLabel: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.primary)
+                    .padding(6)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(cancelLabel)
+
+            Button(action: onConfirm) {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.red))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

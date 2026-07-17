@@ -873,6 +873,17 @@ public final class TypingSession {
             }
         }
 
+        // Own-learned flag (wave 37, long-press eject): mark every non-
+        // verbatim suggestion whose text is a word the user's personal
+        // vocabulary alone taught the engine (not is.lex/en.lex/BÍN/compound),
+        // so the toolbar can offer a long-press "forget" affordance. The
+        // verbatim escape-hatch / literal-revert slots are the typed literal
+        // (`.unknown`) and are never ejectable, so they are left unflagged.
+        engineSuggestions = engineSuggestions.map {
+            guard !$0.isVerbatim, engine.isPersonalLearnedWord($0.text) else { return $0 }
+            return $0.markingPersonalLearned()
+        }
+
         // Reserved literal-revert slot (wave 36): right after an autocorrect
         // commit, the first backspace reveals the corrected word — lead the
         // bar with the byte-exact pre-correction literal (verbatim/`.unknown`)

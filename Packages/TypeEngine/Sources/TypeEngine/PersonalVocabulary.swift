@@ -192,6 +192,16 @@ final class PersonalStore {
         session = [:]
     }
 
+    /// Drop a single word from the in-session learned overlay (wave 37
+    /// eject): the snapshot's tombstone stops the SNAPSHOT surfacing it, but
+    /// a word learned via a verbatim tap earlier in THIS keyboard session
+    /// still lives in the overlay (which is not tombstone-aware), so ejecting
+    /// must also forget it here or it resurrects. Lowercase-keyed like every
+    /// overlay entry.
+    func forgetSession(_ word: String) {
+        session.removeValue(forKey: word.lowercased())
+    }
+
     // MARK: - Queries (all lowercase-tolerant)
 
     /// Learned/user-added/session-learned — the always-valid contract

@@ -1,5 +1,6 @@
 import XCTest
 
+import Learning
 @testable import TypeEngine
 
 /// Engine-side personal-learning semantics (M2): validity/protection,
@@ -336,5 +337,92 @@ final class PersonalVocabularyTests: XCTestCase {
         let before = e.probabilityIcelandic
         e.confirmWord("kubbur")
         XCTAssertEqual(e.probabilityIcelandic, before, accuracy: 1e-9)
+    }
+
+    // MARK: - Own-learned flag / long-press eject (wave 37)
+
+    func testOwnLearnedWordIsEjectable() {
+        let e = engine(personal: FakePersonal(words: ["kubbur": 8]))
+        XCTAssertTrue(e.isPersonalLearnedWord("kubbur"))
+        XCTAssertTrue(e.isPersonalLearnedWord("KUBBUR"), "case-insensitive")
+    }
+
+    func testBaseWordIsNeverEjectableEvenWhenPersonallyCommitted() {
+        // "og" is is.lex vocabulary; committing it personally must not make
+        // it ejectable — tombstoning it could not stop the engine validating
+        // it from the base lexicon.
+        let e = engine(personal: FakePersonal(words: ["og": 50]))
+        XCTAssertTrue(e.isPersonalWord("og"))
+        XCTAssertFalse(e.isPersonalLearnedWord("og"))
+    }
+
+    func testTombstonedWordIsNotEjectable() {
+        let e = engine(
+            personal: FakePersonal(words: ["kubbur": 8], tombstones: ["kubbur"]))
+        XCTAssertFalse(e.isPersonalLearnedWord("kubbur"))
+    }
+
+    func testUnknownWordIsNotEjectable() {
+        let e = engine()
+        XCTAssertFalse(e.isPersonalLearnedWord("kubbur"))
+    }
+
+    func testSuggestionCarriesOwnLearnedFlag() {
+        // The flag threads through TypingSession.buildSuggestions onto the
+        // completion of a learned word; the verbatim slot stays unflagged.
+        let e = engine(personal: FakePersonal(words: ["kubbur": 8]))
+        let session = TypingSession(engine: e)
+        let bar = session.suggestions(for: "kubbu")
+        guard let hit = bar.first(where: { $0.text == "kubbur" }) else {
+            return XCTFail("kubbur not in bar: \(bar.map(\.text))")
+        }
+        XCTAssertTrue(hit.isPersonalLearned)
+        let verbatim = bar.first { $0.isVerbatim }
+        XCTAssertNotNil(verbatim, "expected a verbatim slot")
+        XCTAssertFalse(verbatim?.isPersonalLearned ?? true,
+            "the verbatim/.unknown slot is never ejectable")
+    }
+
+    func testBaseWordSuggestionIsNotFlagged() {
+        let e = engine(personal: FakePersonal(words: ["hestur": 50]))
+        let session = TypingSession(engine: e)
+        let bar = session.suggestions(for: "hestu")
+        guard let hit = bar.first(where: { $0.text == "hestur" }) else {
+            return XCTFail("hestur not in bar: \(bar.map(\.text))")
+        }
+        XCTAssertFalse(hit.isPersonalLearned)
+    }
+
+    func testForgetSessionWordDropsOverlayEntry() {
+        // The eject path forgets the in-session overlay so a word taught by a
+        // verbatim tap this session cannot resurrect after removal.
+        let e = engine()
+        e.learnSessionWord("kubbur")
+        XCTAssertTrue(e.isPersonalLearnedWord("kubbur"))
+        e.forgetSessionWord("kubbur")
+        XCTAssertFalse(e.isPersonalWord("kubbur"))
+        XCTAssertFalse(e.isPersonalLearnedWord("kubbur"))
+    }
+
+    func testEjectModelPathTombstonesAndStopsSuggesting() {
+        // The service's eject reuses PersonalModel.remove + a fresh snapshot;
+        // exercise exactly that composition (Learning owns the deeper
+        // tombstone-sticks coverage). After remove() the word is tombstoned,
+        // no longer ejectable, and no longer suggested.
+        let model = PersonalModel()
+        try? model.addUserWord("kubbur")
+        let e = engine()
+        e.setPersonalVocabulary(PersonalSnapshot(model: model))
+        XCTAssertTrue(e.isPersonalLearnedWord("kubbur"))
+
+        model.remove(word: "kubbur")
+        e.forgetSessionWord("kubbur")
+        e.setPersonalVocabulary(PersonalSnapshot(model: model))
+
+        XCTAssertTrue(model.isTombstoned("kubbur"))
+        XCTAssertFalse(e.isPersonalLearnedWord("kubbur"))
+        let bar = TypingSession(engine: e).suggestions(for: "kubbu")
+        XCTAssertFalse(bar.contains { $0.text == "kubbur" },
+            "ejected word must leave the bar: \(bar.map(\.text))")
     }
 }

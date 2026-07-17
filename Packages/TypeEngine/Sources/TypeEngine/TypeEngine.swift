@@ -139,6 +139,16 @@ public final class TypeEngine {
         rebuildLemmaLift()
     }
 
+    /// Forget a single word from the in-session learned overlay (wave 37
+    /// long-press eject): pair with `setPersonalVocabulary` re-injection of a
+    /// snapshot whose model has already tombstoned the word, so a word taught
+    /// via a verbatim tap in this same session cannot resurrect the ejected
+    /// entry. Same queue-confinement contract as every other engine call.
+    public func forgetSessionWord(_ word: String) {
+        model.personal.forgetSession(word)
+        rebuildLemmaLift()
+    }
+
     // MARK: - Inflection intelligence (PLAN.md "Inflection intelligence")
 
     /// Inject (or clear) the Stage-B inflection artifacts (paradigms.bin
@@ -192,6 +202,22 @@ public final class TypeEngine {
     /// session overlay), case-insensitively.
     public func isPersonalWord(_ word: String) -> Bool {
         model.personal.isValidWord(word)
+    }
+
+    /// Whether `word` is EJECTABLE own-learned personal vocabulary (wave 37
+    /// long-press-to-forget): valid personal vocabulary (snapshot or session
+    /// overlay), not tombstoned, and NOT otherwise valid — absent from
+    /// is.lex/en.lex, not BÍN-known, and not a productive compound. This is
+    /// exactly the class the toolbar may offer to remove: a word the user
+    /// alone taught the keyboard. Base-lexicon words (og, það) return false
+    /// even when the user has also committed them — tombstoning them would
+    /// not stop the engine validating them from the base lexicon, so they are
+    /// never ejectable.
+    public func isPersonalLearnedWord(_ word: String) -> Bool {
+        model.personal.isValidWord(word)
+            && !model.personal.isTombstoned(word)
+            && !model.isKnownAnywhere(word)
+            && model.compoundSplit(of: word) == nil
     }
 
     /// Autocap-artifact judgment for LEARNING-side capture (wave 26, the

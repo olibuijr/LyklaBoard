@@ -789,6 +789,58 @@ EXPECT_TOP veitingahusid
 T " "
 EXPECT_BUFFER "veitingahusid "
 
+# ============================================================
+# Wave 37 — long-press to eject learned vocabulary. Own-learned words carry
+# an `isPersonalLearned` flag the toolbar uses for a long-press "forget"
+# affordance; base-lexicon words never do. EJECT models the service's
+# PersonalModel.remove + snapshot refresh (tombstone sticks, word leaves the
+# bar). The gesture + inline confirm itself is device-only.
+# ============================================================
+
+SCENARIO own-learned completion is flagged ejectable
+PERSONAL veitingahusid 8
+T veitingahusi
+EXPECT_CONTAINS veitingahusid
+EXPECT_PERSONAL_LEARNED veitingahusid
+
+SCENARIO base word committed personally is NOT ejectable
+# The user has committed "hestur" many times, so it is personal vocabulary —
+# but it is also is.lex base vocabulary, so removing it could not stop the
+# engine validating it. It must never be flagged ejectable.
+PERSONAL hestur 50
+T hestu
+EXPECT_CONTAINS hestur
+EXPECT_NOT_PERSONAL_LEARNED hestur
+
+SCENARIO verbatim escape-hatch slot is never ejectable
+# The quoted literal / .unknown slot is the tap-to-learn hatch, not an
+# own-learned suggestion — it must stay unflagged even for an OOV token.
+T veitingahusid
+EXPECT_VERBATIM veitingahusid
+EXPECT_NOT_PERSONAL_LEARNED veitingahusid
+
+SCENARIO ejecting a learned word removes it from the bar and tombstones it
+PERSONAL veitingahusid 8
+T veitingahusi
+EXPECT_PERSONAL_LEARNED veitingahusid
+EJECT veitingahusid
+EXPECT_NOT_CONTAINS veitingahusid
+# Tombstone sticks: typing the whole word is left uncorrected (deletion means
+# "stop suggesting", never "start correcting"), and the learned form is gone.
+T d
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_BUFFER "veitingahusid "
+
+SCENARIO ejecting a session-learned word forgets the overlay too
+# A verbatim-tap (LEARN) teaches the word this session; ejecting must clear
+# the in-session overlay as well as tombstone the snapshot, or it resurrects.
+LEARN veitingahusid
+T veitingahusi
+EXPECT_PERSONAL_LEARNED veitingahusid
+EJECT veitingahusid
+EXPECT_NOT_CONTAINS veitingahusid
+
 SCENARIO standard field emits learning events at commits
 T "hestur og "
 EXPECT_COMMITS 2

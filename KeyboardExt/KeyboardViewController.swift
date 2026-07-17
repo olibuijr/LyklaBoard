@@ -230,8 +230,49 @@ final class KeyboardViewController: KeyboardInputViewController {
             .keyboardCalloutActions { params in
                 Callouts.Actions.icelandic.actions(for: params.action)
             }
+            // Wave 37: long-press a suggestion that is the user's OWN learned
+            // vocabulary to eject it (tap teaches, long-press forgets). Only
+            // suggestions the service flags `isPersonalLearned` get the
+            // affordance; the confirm is a reversible inline pill. Routes to
+            // the autocomplete service's tombstone path (App Group file only,
+            // no network). nil when the service is unavailable ⇒ tap-only.
+            .autocompleteEjectAffordance(
+                (controller.services.autocompleteService
+                    as? BetterKeyboardAutocompleteService)
+                    .map { service in
+                        Autocomplete.EjectAffordance(
+                            action: { suggestion in
+                                service.ejectPersonalWord(suggestion.text)
+                            },
+                            confirmTitle: { suggestion in
+                                KeyboardStrings.ejectConfirm(suggestion.text)
+                            },
+                            cancelLabel: KeyboardStrings.ejectCancel
+                        )
+                    }
+            )
         }
     }
+}
+
+// MARK: - Keyboard-extension copy (Icelandic)
+
+/// User-facing copy that renders INSIDE the keyboard (the app's `Strings`
+/// enum is a separate target). Icelandic-first, warm register — the same
+/// COPY RULE as `App/Strings.swift`: system labels stay verbatim English,
+/// everything else is Icelandic. Kept tiny; grows only as keyboard-side UI
+/// needs strings.
+enum KeyboardStrings {
+
+    /// Long-press eject confirm pill (wave 37). Warm, plain Icelandic, with
+    /// the word in Icelandic quotation marks; kept short so it fits a
+    /// suggestion slot. Full intent: "remove <word> from your dictionary".
+    static func ejectConfirm(_ word: String) -> String {
+        "Fjarlægja \u{201E}\(word)\u{201C}?"
+    }
+
+    /// Accessibility label for the eject cancel (✕) control.
+    static let ejectCancel = "Hætta við"
 }
 
 // MARK: - Accessibility (VoiceOver labels)

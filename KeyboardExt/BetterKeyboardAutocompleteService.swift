@@ -509,14 +509,73 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         }
     }
 
-    /// Deliberate no-op (documented decision, M2 wave 2): un-learning is
-    /// deletion, and deletion must tombstone — a durable, synced user
-    /// decision that lives in the containing app's dictionary editor
-    /// (`PersonalModel.remove(word:)`), not in a keyboard-side callback.
-    /// The event log has no tombstone event by design (the extension can
-    /// only ever ADD evidence); KeyboardKit never calls this from any UI we
-    /// ship, so a silent no-op is safe.
+    /// Deliberate no-op (documented decision, M2 wave 2): KeyboardKit's own
+    /// `unlearnWord` hook is never called from any UI we ship. Deliberate
+    /// keyboard-side removal now has its own explicit path — `ejectPersonalWord`
+    /// (wave 37, the long-press eject affordance) — which tombstones via
+    /// `PersonalModel.remove(word:)` exactly like the app's dictionary editor.
     func unlearnWord(_ word: String) {}
+
+    /// Long-press eject (wave 37 — "tap teaches, long-press forgets"): the
+    /// user long-pressed a bar suggestion that is their OWN learned personal
+    /// vocabulary and confirmed removal. Tombstone it through the SAME
+    /// `PersonalModel.remove(word:)` path the app's dictionary editor uses,
+    /// persist the model, and refresh the engine's personal snapshot so the
+    /// word disappears from the bar immediately and never silently relearns
+    /// (tombstones stick — existing `remove` behavior). Local App Group file
+    /// mutation only: no network, no new entitlement (extension privacy
+    /// doctrine intact). No-op without an entitled, resolvable personal-model
+    /// file — there is nothing to remove.
+    func ejectPersonalWord(_ word: String) {
+        queue.async { [weak self] in
+            self?.ejectPersonalWordOnQueue(word)
+        }
+    }
+
+    private func ejectPersonalWordOnQueue(_ word: String) {
+        guard let engine, let personalModelURL else { return }
+        // Same gate as the snapshot load: only touch the personal store when
+        // the personal layer is entitled (DEBUG always is).
+        guard Self.isPlusEntitled(appGroupId: appGroupId) else { return }
+        do {
+            // Coordinated read-modify-write on the model file: load the app-
+            // owned model, tombstone the word, save atomically. The model is
+            // app-owned (the app writes it with a plain atomic save), so this
+            // is best-effort coordination against a concurrent app compaction
+            // — a lost tombstone would merely let the word return, never a
+            // crash. The removal itself is `PersonalModel.remove`, byte-for-
+            // byte the dictionary editor's deletion (drops counts + bigrams,
+            // inserts a permanent tombstone).
+            let model = try CoordinatedFileAccess.coordinateWrite(
+                at: personalModelURL
+            ) { url -> PersonalModel in
+                let model =
+                    FileManager.default.fileExists(atPath: url.path)
+                    ? try PersonalModel(contentsOf: url)
+                    : PersonalModel()
+                model.remove(word: word)
+                try model.save(to: url)
+                return model
+            }
+            // Immediate snapshot refresh so the ejected word leaves the bar
+            // now. Forget any in-session overlay copy first (a word taught by
+            // a verbatim tap earlier this session lives in the overlay, which
+            // is not tombstone-aware), THEN inject the freshly-tombstoned
+            // model as the new snapshot.
+            engine.forgetSessionWord(word)
+            engine.setPersonalVocabulary(PersonalSnapshot(model: model))
+            // Keep the mtime cache honest so the next viewWillAppear re-stat
+            // does not needlessly reload a file we already reflect in memory.
+            personalModelDate =
+                (try? FileManager.default.attributesOfItem(
+                    atPath: personalModelURL.path))?[.modificationDate] as? Date
+            NSLog("[better-keyboard] ejected personal word (tombstoned)")
+        } catch {
+            NSLog(
+                "[better-keyboard] personal eject failed: %@",
+                String(describing: error))
+        }
+    }
 
     // The learned-word listing lives in the app's dictionary editor (the
     // PersonalModel is the source of truth); KeyboardKit never renders
@@ -927,6 +986,12 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             additionalInfo: [
                 "confidence": String(format: "%.3f", suggestion.confidence),
                 Self.pendingTokenInfoKey: pendingToken,
+                // Wave 37: mark own-learned personal vocabulary so the toolbar
+                // can offer a long-press eject (tap teaches, long-press
+                // forgets). Only TypingSession's non-verbatim, personal-only
+                // suggestions carry the flag; base-lexicon words never do.
+                Autocomplete.Suggestion.isPersonalLearnedInfoKey:
+                    suggestion.isPersonalLearned ? "1" : "0",
             ]
         )
     }
