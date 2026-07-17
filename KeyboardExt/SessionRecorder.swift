@@ -50,10 +50,10 @@ final class SessionRecorder {
 
     /// `UserDefaults` key (App Group suite) holding the id of the session the
     /// app is currently recording into. Absent/empty ⇒ disarmed.
-    static let sessionIdKey = "is.lyklabord.dev.recording.sessionId"
+    static let sessionIdKey = "is.solberg.lyklabord.dev.recording.sessionId"
     /// `UserDefaults` key (App Group suite) holding the unix timestamp past
     /// which this side must treat itself as disarmed (auto-expiry).
-    static let armedUntilKey = "is.lyklabord.dev.recording.armedUntil"
+    static let armedUntilKey = "is.solberg.lyklabord.dev.recording.armedUntil"
     /// Subdirectory (under the App Group container's Documents) holding the
     /// per-session `<id>-app.jsonl` (app timeline) and `<id>-kb.jsonl` (this).
     static let sessionsSubdirectory = "sessions"

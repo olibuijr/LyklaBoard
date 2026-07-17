@@ -25,5 +25,5 @@ enum BuildInfo {
     /// Short git commit of the engine/app source this binary was built from.
     /// Rewritten by the project.yml preBuildScript; "unknown" if git was
     /// unavailable at build time (e.g. a source tarball with no .git).
-    static let engineCommit = "ed2fb78"
+    static let engineCommit = "7a6aa92+dirty"
 }

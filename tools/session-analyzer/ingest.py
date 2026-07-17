@@ -9,13 +9,13 @@ Sources scanned (each optional; a missing dir is skipped, never fatal):
      copies a session into the app's ubiquity container, iCloud syncs it to
      ~/Library/Mobile Documents/<container>/Documents/sessions on the Mac.
 
-       Container id:      iCloud.is.lyklabord
-       Mobile-Documents:  iCloud~is~lyklabord   (dots → tildes, no team prefix,
+       Container id:      iCloud.is.solberg.lyklabord
+       Mobile-Documents:  iCloud~is~solberg~lyklabord   (dots → tildes, no team prefix,
                           no ".ios" suffix — the app's ubiquity container is
-                          `iCloud.is.lyklabord`, NOT `iCloud.is.lyklabord.ios`)
+                          `iCloud.is.solberg.lyklabord`, NOT `iCloud.is.solberg.lyklabord`)
 
      Full default path:
-       ~/Library/Mobile Documents/iCloud~is~lyklabord/Documents/sessions
+       ~/Library/Mobile Documents/iCloud~is~solberg~lyklabord/Documents/sessions
 
      Override with --ubiquity-dir (or LYKLABORD_UBIQUITY_DIR) if your account
      encodes it differently.
@@ -47,7 +47,7 @@ import analyze
 import aggregate
 
 DEFAULT_UBIQUITY = os.path.expanduser(
-    "~/Library/Mobile Documents/iCloud~is~lyklabord/Documents/sessions")
+    "~/Library/Mobile Documents/iCloud~is~solberg~lyklabord/Documents/sessions")
 
 SESSION_SUFFIXES = ("-app.jsonl", "-kb.jsonl", "-meta.json")
 

@@ -1,6 +1,6 @@
 name: BetterKeyboard
 options:
-  bundleIdPrefix: is.lyklabord
+  bundleIdPrefix: is.solberg.lyklabord
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -10,11 +10,11 @@ settings:
     SWIFT_VERSION: "5.9"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
-    # Sosialistaflokkur Islands (paid org team): provisions the App Group
-    # (group.is.lyklabord — shared learning store) and, once activated,
-    # the iCloud.is.lyklabord CloudKit container. Team IDs ship inside
+    # Jökull Sólberg's personal Apple Developer team: provisions the App
+    # Group (group.is.solberg.lyklabord — shared learning store) and the
+    # iCloud.is.solberg.lyklabord CloudKit container. Team IDs ship inside
     # every app binary; not a secret.
-    DEVELOPMENT_TEAM: B4724Z74TM
+    DEVELOPMENT_TEAM: RDC8539AWM
     CODE_SIGN_STYLE: Automatic
 
 packages:
@@ -70,9 +70,9 @@ targets:
         # (App/RecordingStore.swift) are user-visible AND user-deletable —
         # the OTA export path, no servers (see docs/PRIVACY.md "Þróunarhamur").
         # Document-scope-public is what makes the container a top-level folder
-        # in Files > iCloud Drive. Same container as CloudKit (iCloud.is.lyklabord).
+        # in Files > iCloud Drive. Same container as CloudKit (iCloud.is.solberg.lyklabord).
         NSUbiquitousContainers:
-          iCloud.is.lyklabord:
+          iCloud.is.solberg.lyklabord:
             NSUbiquitousContainerIsDocumentScopePublic: true
             NSUbiquitousContainerName: Lyklaborð
             NSUbiquitousContainerSupportedFolderLevels: Any
@@ -80,11 +80,11 @@ targets:
       path: App/BetterKeyboard.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.is.lyklabord
+          - group.is.solberg.lyklabord
         # CloudKit: APP ONLY — the keyboard extension must never gain
         # network-capable entitlements (PLAN architecture invariant).
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.is.lyklabord
+          - iCloud.is.solberg.lyklabord
         # iCloud Documents (ubiquity) — APP ONLY, same container. Lets the app
         # write dev-mode sessions into the user's own iCloud Drive for OTA
         # pickup on the Mac. The keyboard extension keeps ZERO iCloud/network
@@ -94,7 +94,7 @@ targets:
         # the provisioning profile — CI sim builds (CODE_SIGNING_ALLOWED=NO)
         # ignore entitlements entirely and are unaffected.
         com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.is.lyklabord
+          - iCloud.is.solberg.lyklabord
         com.apple.developer.icloud-services:
           - CloudKit
           # CloudDocuments is what actually runs iCloud Drive document sync
@@ -105,7 +105,7 @@ targets:
           - CloudDocuments
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios
+        PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord
         PRODUCT_NAME: BetterKeyboard
         MARKETING_VERSION: "0.1.0"
         # Bumped 1→2 with the CloudDocuments entitlement: iCloud Drive only
@@ -194,10 +194,10 @@ targets:
       path: KeyboardExt/BetterKeyboardExt.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.is.lyklabord
+          - group.is.solberg.lyklabord
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.keyboard
         PRODUCT_NAME: BetterKeyboardExt
         MARKETING_VERSION: "0.1.0"
         # Keep in lockstep with the app target (App Store requires matching
@@ -238,7 +238,7 @@ targets:
           UIApplicationSupportsMultipleScenes: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.replayhost
+        PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.replayhost
         PRODUCT_NAME: ReplayHost
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -255,7 +255,7 @@ targets:
       - target: ReplayHost
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.replayhost.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: is.solberg.lyklabord.replayhost.uitests
         PRODUCT_NAME: ReplayRigUITests
         TEST_TARGET_NAME: ReplayHost
         GENERATE_INFOPLIST_FILE: YES

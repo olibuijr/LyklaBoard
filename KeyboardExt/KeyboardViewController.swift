@@ -25,7 +25,7 @@ extension KeyboardApp {
     static var betterKeyboard: Self {
         .init(
             name: "Lyklaborð",
-            appGroupId: "group.is.lyklabord",
+            appGroupId: "group.is.solberg.lyklabord",
             locales: [.icelandic]
         )
     }

@@ -24,7 +24,7 @@
 	<false/>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.is.lyklabord</key>
+		<key>iCloud.is.solberg.lyklabord</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>

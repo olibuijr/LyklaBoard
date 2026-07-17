@@ -19,8 +19,8 @@ import Foundation
 /// code — so the three raw values below MUST stay byte-for-byte identical to
 /// the app's enum cases (`completeCurrentWord` / `alwaysInsertPrediction` /
 /// `alwaysInsertSpace`), and `defaultsKey` / the suite name MUST match
-/// `AppModel.spacebarModeDefaultsKey` ("is.lyklabord.settings.spacebarMode")
-/// and `AppModel.appGroupIdentifier` ("group.is.lyklabord"). The app persists
+/// `AppModel.spacebarModeDefaultsKey` ("is.solberg.lyklabord.settings.spacebarMode")
+/// and `AppModel.appGroupIdentifier` ("group.is.solberg.lyklabord"). The app persists
 /// `SpacebarMode.rawValue` under that key via `@AppStorage`
 /// (`App/SettingsView.swift`); we read the same string here.
 enum SpacebarMode: String {
@@ -51,7 +51,7 @@ enum SpacebarMode: String {
 
     /// Raw-value key in the App Group `UserDefaults` suite. Mirrors
     /// `AppModel.spacebarModeDefaultsKey`.
-    static let defaultsKey = "is.lyklabord.settings.spacebarMode"
+    static let defaultsKey = "is.solberg.lyklabord.settings.spacebarMode"
 
     /// Read the current mode live from the App Group `UserDefaults` suite.
     ///

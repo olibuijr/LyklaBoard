@@ -19,7 +19,7 @@
 //  │   recording indicator in the pad.                                        │
 //  │ • Sessions are written to App Group Documents/sessions/ (LOCAL) and, on  │
 //  │   stop, ALSO copied into the USER'S OWN iCloud Drive (the app's ubiquity │
-//  │   container iCloud.is.lyklabord, document-scope-public → visible &       │
+//  │   container iCloud.is.solberg.lyklabord, document-scope-public → visible &       │
 //  │   deletable in Files). This is an OTA convenience for the developer's    │
 //  │   own devices — the user's private iCloud, no servers of ours, same      │
 //  │   promise as the dictionary's optional CloudKit sync. The local copies   │
@@ -42,8 +42,8 @@ final class RecordingStore {
 
     // MARK: - App Group contract (MUST match KeyboardExt/SessionRecorder.swift)
 
-    static let sessionIdKey = "is.lyklabord.dev.recording.sessionId"
-    static let armedUntilKey = "is.lyklabord.dev.recording.armedUntil"
+    static let sessionIdKey = "is.solberg.lyklabord.dev.recording.sessionId"
+    static let armedUntilKey = "is.solberg.lyklabord.dev.recording.armedUntil"
     static let sessionsSubdirectory = "sessions"
     /// Auto-expiry window; re-stamped on every pad change while recording.
     static let armWindow: TimeInterval = 10 * 60
@@ -52,7 +52,7 @@ final class RecordingStore {
     /// Sessions are copied here on stop so they sync to the developer's own
     /// iCloud Drive and can be picked up on the Mac (tools/session-analyzer
     /// ingest.py), no servers involved. App-only; the extension never touches it.
-    static let ubiquityContainerId = "iCloud.is.lyklabord"
+    static let ubiquityContainerId = "iCloud.is.solberg.lyklabord"
 
     /// Optional App Group key a FUTURE keyboard-extension wave may stamp with
     /// its own marketing/build version so the manifest can record the exact
@@ -60,7 +60,7 @@ final class RecordingStore {
     /// extension stamps nothing) — the manifest falls back to the app build and
     /// records `kbVersionSource: "app-build-fallback"`. Defined here so a later
     /// extension wave has a stable key to write.
-    static let kbVersionKey = "is.lyklabord.dev.kbVersion"
+    static let kbVersionKey = "is.solberg.lyklabord.dev.kbVersion"
 
     static let manifestSchema = "lyklabord.session-manifest.v1"
 

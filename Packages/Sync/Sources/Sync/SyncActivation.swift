@@ -3,7 +3,7 @@ import Foundation
 /// CloudKit activation constants and the deliberate "not provisioned yet"
 /// gate.
 ///
-/// The CloudKit container ("iCloud.is.lyklabord") requires the paid-team
+/// The CloudKit container ("iCloud.is.solberg.lyklabord") requires the paid-team
 /// provisioning step (App ID + iCloud capability + container creation in
 /// the developer portal) which is deferred — see PLAN.md M3/M4. Until then
 /// the app wires `SyncEngine` to `UnactivatedCloudStore`, so every code
@@ -15,7 +15,7 @@ public enum SyncActivation {
 
     /// TODO(provisioning): flip to `true` once the paid Apple Developer
     /// team exists and the following steps are done:
-    ///   1. Create the iCloud container `iCloud.is.lyklabord` in the
+    ///   1. Create the iCloud container `iCloud.is.solberg.lyklabord` in the
     ///      developer portal.
     ///   2. Add the CloudKit capability + container to the APP target's
     ///      entitlements only (`App/BetterKeyboard.entitlements`) — the
@@ -26,12 +26,12 @@ public enum SyncActivation {
     ///   4. Set `ITSAppUsesNonExemptEncryption` appropriately (v1-blocker
     ///      list: CryptoKit sync is exempt-standard-crypto, but the key
     ///      must be declared).
-    public static let isCloudKitProvisioned = true  // activated 2026-07-16: container registered on team B4724Z74TM
+    public static let isCloudKitProvisioned = true  // activated 2026-07-16: container registered on team RDC8539AWM
 
     /// The CloudKit container identifier this product will use.
     /// TODO(provisioning): this is where the real `CKContainer` gets
     /// activated — `CloudKitRecordStore(containerIdentifier:)` consumes it.
-    public static let containerIdentifier = "iCloud.is.lyklabord"
+    public static let containerIdentifier = "iCloud.is.solberg.lyklabord"
 
     /// Custom record zone in the user's PRIVATE database. A custom zone
     /// (not the default zone) so we get atomic operations and could adopt

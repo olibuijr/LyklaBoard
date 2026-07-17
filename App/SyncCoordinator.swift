@@ -24,13 +24,13 @@ final class SyncCoordinator {
     /// the spacebar mode, so a later extension wave could show a subtle
     /// sync indicator if ever wanted). Default ON per PLAN decision #5
     /// ("sync transparently, zero-config") — absent key means enabled.
-    static let syncEnabledDefaultsKey = "is.lyklabord.settings.icloudSyncEnabled"
+    static let syncEnabledDefaultsKey = "is.solberg.lyklabord.settings.icloudSyncEnabled"
 
     /// Random per-install identifier for the record's `deviceLastWriter`
     /// diagnostics field. Deliberately NOT the user-visible device name
     /// (no PII in record metadata) and deliberately in the app's OWN
     /// standard defaults (device-local by definition).
-    private static let deviceIdentifierDefaultsKey = "is.lyklabord.sync.deviceIdentifier"
+    private static let deviceIdentifierDefaultsKey = "is.solberg.lyklabord.sync.deviceIdentifier"
 
     /// How long dictionary-editor mutations / compactions coalesce before
     /// one sync round runs (rapid-fire edits become a single round-trip).
@@ -79,7 +79,7 @@ final class SyncCoordinator {
     init(modelURL: URL?) {
         self.modelURL = modelURL
         // TODO(provisioning): when `SyncActivation.isCloudKitProvisioned`
-        // flips (paid team + container "iCloud.is.lyklabord" + app-target
+        // flips (paid team + container "iCloud.is.solberg.lyklabord" + app-target
         // entitlement — see SyncActivation docs), this line starts
         // constructing the real store; nothing else changes.
         let store: CloudRecordStore = SyncActivation.isCloudKitProvisioned

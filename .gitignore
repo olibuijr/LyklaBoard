@@ -37,3 +37,6 @@ tools/session-analyzer/.greynir-cache.json
 # text (typo|intended row keys), so it is gitignored just like the corpus it
 # summarizes. Local-only; `type-eval personal --update-baseline` rewrites it.
 scores/personal-baseline.json
+
+# Xcode/SwiftPM build products anywhere in the tree
+build/

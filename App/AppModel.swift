@@ -23,7 +23,7 @@ final class AppModel {
     /// Must match `App/BetterKeyboard.entitlements`,
     /// `KeyboardExt/BetterKeyboardExt.entitlements`, and
     /// `KeyboardApp.appGroupId` in `KeyboardExt/KeyboardViewController.swift`.
-    static let appGroupIdentifier = "group.is.lyklabord"
+    static let appGroupIdentifier = "group.is.solberg.lyklabord"
 
     /// Filenames inside the App Group container. Chosen here because
     /// neither file exists on disk yet — the keyboard extension does not
@@ -37,7 +37,7 @@ final class AppModel {
     /// setting written by `SettingsView`. Not consumed by the extension yet
     /// — this wave only writes the value so a later extension wave has a
     /// stable key to read. Raw value is `SpacebarMode.rawValue`.
-    static let spacebarModeDefaultsKey = "is.lyklabord.settings.spacebarMode"
+    static let spacebarModeDefaultsKey = "is.solberg.lyklabord.settings.spacebarMode"
 
     // MARK: - State
 

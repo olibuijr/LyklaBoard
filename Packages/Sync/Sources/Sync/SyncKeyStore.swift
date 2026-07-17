@@ -25,7 +25,7 @@ public enum SyncKeyStoreError: Error, Equatable {
 /// Keychain constants, documented for auditability:
 ///
 /// - `kSecClass` = `kSecClassGenericPassword`
-/// - `kSecAttrService` = `"is.lyklabord.sync"`
+/// - `kSecAttrService` = `"is.solberg.lyklabord.sync"`
 /// - `kSecAttrAccount` = `"personal-model-key.v1"` (`.v1` so a future
 ///   envelope-format change can mint a new item without deleting this one)
 /// - `kSecAttrSynchronizable` = `true` — the item lives in the **iCloud
@@ -36,7 +36,7 @@ public enum SyncKeyStoreError: Error, Equatable {
 ///   `...ThisDeviceOnly` variant, which would silently break iCloud
 ///   Keychain synchronization.
 public enum SyncKeychainConstants {
-    public static let service = "is.lyklabord.sync"
+    public static let service = "is.solberg.lyklabord.sync"
     public static let account = "personal-model-key.v1"
 }
 

@@ -168,7 +168,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     // MARK: - Init
 
     /// - Parameter appGroupId: the shared App Group
-    ///   (`KeyboardApp.betterKeyboard.appGroupId`, "group.is.lyklabord");
+    ///   (`KeyboardApp.betterKeyboard.appGroupId`, "group.is.solberg.lyklabord");
     ///   nil disables personal learning entirely (tests).
     init(appGroupId: String? = nil) {
         self.appGroupId = appGroupId

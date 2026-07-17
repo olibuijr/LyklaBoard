@@ -31,10 +31,10 @@ commercial forks of a free community project) for the code itself.
   confirming the name was unsquatted in App Store search (reservation in
   App Store Connect still pending as of this writing).
 - **Identifiers renamed** before M2 data accumulation: bundle ids
-  `is.betterkeyboard.app` → `is.lyklabord.app` and
-  `is.betterkeyboard.app.keyboard` → `is.lyklabord.app.keyboard`
-  (`bundleIdPrefix: is.lyklabord` in `project.yml`); App Group
-  `group.is.betterkeyboard` → `group.is.lyklabord` (both entitlements
+  `is.betterkeyboard.app` → `is.solberg.lyklabord.app` and
+  `is.betterkeyboard.app.keyboard` → `is.solberg.lyklabord.app.keyboard`
+  (`bundleIdPrefix: is.solberg.lyklabord` in `project.yml`); App Group
+  `group.is.betterkeyboard` → `group.is.solberg.lyklabord` (both entitlements
   files, and `KeyboardApp.appGroupId` in `KeyboardExt/KeyboardViewController.swift`);
   display names (app and extension `CFBundleDisplayName`, plus
   `KeyboardApp.name`) set to "Lyklaborð"; onboarding copy updated to match.

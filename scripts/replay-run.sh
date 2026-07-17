@@ -87,7 +87,7 @@ echo "== 4. Best-effort keyboard enable + software-keyboard on (fragile; see hea
 # Undocumented: append our appex to the enabled-keyboards list. Does NOT grant
 # Full Access. If this fails to take, the UITest skips with instructions.
 xcrun simctl spawn "$UDID" defaults write com.apple.Preferences AppleKeyboards \
-  -array-add "is.lyklabord.app.keyboard" 2>/dev/null || true
+  -array-add "is.solberg.lyklabord.app.keyboard" 2>/dev/null || true
 # The on-screen keyboard only appears when the Simulator's "Connect Hardware
 # Keyboard" is OFF. This is a host Simulator.app preference (part of the same
 # one-time setup as enabling Lyklaborð). Best-effort; the UITest reports clearly
