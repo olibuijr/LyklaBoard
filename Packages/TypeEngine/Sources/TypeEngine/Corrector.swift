@@ -549,14 +549,166 @@ public struct Corrector {
             admit(completion.word)
         }
 
+        // 3c/3d. Case-aware long-word completions (wave 23 — the
+        // Kirkjubæjarklaustur class, session 2026-07-16T15-32-25; see the
+        // EngineConfig "Case-aware long-word completions" doc). Both
+        // passes admit SPECULATIVE completions: priced on a dedicated
+        // completion channel (trailing typed chars as extra-character
+        // errors + completionCharCost per not-yet-typed char — the
+        // structural full-DP price of a many-chars-longer candidate is
+        // unpayable by design) and EXCLUDED from every pass-gating probe
+        // below, so the split/deep-beam/diacritic pass decisions stay
+        // byte-identical to the pre-wave engine. Offers only: speculative
+        // completions are never attested-vouched winners and the
+        // conservatism rules never let them auto-apply over the margins.
+        var speculativeCompletions: Set<String> = []
+        // Every completion word the 3c pools SAW (admitted or already in
+        // the pool via an ordinary pass — a beam-reachable "ketill" is
+        // still the case-sibling expansion's entry point to "katli").
+        var expansionSources: Set<String> = []
+        // Split-case companion pairs recorded by 3d (form → its paradigm
+        // sibling in the OTHER supported case), consumed at bar assembly:
+        // when one case form makes the bar under a genuinely split
+        // governor, the other rides directly behind it.
+        var caseCompanions: [String: String] = [:]
+        func admitSpeculativeCompletion(_ word: String) {
+            guard word != typed, candidates[word] == nil else { return }
+            guard !model.isPersonalTombstoned(word) else { return }
+            candidates[word] = speculativeCompletionCost(
+                typedChars: typedChars, candidate: word, pricing: pricing, perTap: perTap)
+            speculativeCompletions.insert(word)
+        }
+        if config.caseCompletionEnabled, governorFit != nil, !typedIsValid,
+            typedChars.count >= config.caseCompletionMinLength,
+            typedChars.allSatisfy(\.isLetter)
+        {
+            // 3c. Governed prefix-repair completions: the typed token may
+            // be the intended stem plus one-or-two junk characters
+            // ("Kirkjubæjars|" wanted extensions of "Kirkjubæjar") —
+            // complete the trimmed prefixes. Icelandic-only: governors
+            // are an Icelandic phenomenon. Trim allowance scales with
+            // length: short tokens get one junk char, the long-word tail
+            // (8+) two — dev showed 2-char trims on 5-7 char tokens
+            // walking speculative completions over honest single-edit
+            // repairs ("Andyu": trim-2 shared stem "and" admitted every
+            // "segir and…" continuation over the plain u-deletion).
+            let effectiveMaxTrim =
+                typedChars.count >= config.caseCompletionMinLength + 3
+                ? config.caseCompletionMaxTrim : 1
+            for trim in 1...effectiveMaxTrim {
+                let prefixLength = typedChars.count - trim
+                guard prefixLength >= 4 else { break }
+                let prefix = String(typedChars.prefix(prefixLength))
+                for completion in model.icelandic.completions(of: prefix, limit: completionLimit) {
+                    admitSpeculativeCompletion(completion.word)
+                    expansionSources.insert(completion.word)
+                }
+            }
+            // Bigram-attested continuations of the governor that extend a
+            // trimmed prefix of the typed token join the same channel
+            // ("yfir heiðn|": "heiðina" is bigram-attested after yfir but
+            // sits below the frequency cut of the "heið" completion
+            // range — exact usage evidence must not lose to the
+            // frequency-ranked pool). Same memoized fan-out the wave-27
+            // continuation proposals read; shape filter: shared prefix
+            // within caseCompletionMaxTrim of the typed length, and the
+            // continuation extends it.
+            if let fit = governorFit {
+                let minShared = typedChars.count - effectiveMaxTrim
+                for continuation in model.continuationProposals.continuations(
+                    of: fit.previousWord, slot: 0,
+                    fetch: {
+                        model.icelandic.continuations(
+                            of: fit.previousWord,
+                            limit: config.contextContinuationPoolLimit)
+                    })
+                {
+                    let word = continuation.word
+                    guard word.count > minShared, candidates[word] == nil else { continue }
+                    let wordChars = Array(word)
+                    var shared = 0
+                    while shared < min(typedChars.count, wordChars.count),
+                        typedChars[shared] == wordChars[shared]
+                    {
+                        shared += 1
+                    }
+                    guard shared >= minShared, wordChars.count > shared else { continue }
+                    admitSpeculativeCompletion(word)
+                    expansionSources.insert(word)
+                }
+            }
+        }
+        if config.caseCompletionEnabled, let fit = governorFit,
+            let paradigms = model.inflection.model?.paradigms
+        {
+            // 3d. Case-sibling expansion: every pooled completion whose
+            // lemma attribution is UNAMBIGUOUS (surface-form doctrine —
+            // ambiguous lemma keeps the attested surface only) offers its
+            // paradigm siblings in the governor's supported cases
+            // (dominant + genuinely-split runner-up), number and
+            // definiteness held fixed. This is what puts the accusative
+            // "kirkjubæjarklaustur" next to the frequency-dominant dative
+            // "kirkjubæjarklaustri" after "á": the completion pool is
+            // frequency-ranked and simply does not carry the other case.
+            let supported = fit.supportedCaseCodes(
+                minSecondProbability: config.caseSplitSecondMinProbability)
+            var sourceSet = expansionSources
+            for word in candidates.keys
+            where word.count > typedChars.count && word.hasPrefix(typed) {
+                sourceSet.insert(word)
+            }
+            sourceSet.remove(typed)
+            let sources = sourceSet.sorted()  // deterministic expansion order
+            for source in sources {
+                let analyses = paradigms.analyses(ofForm: source)
+                guard let first = analyses.first,
+                    analyses.allSatisfy({
+                        $0.lemma == first.lemma && $0.pos == first.pos
+                            && $0.genderCode == first.genderCode
+                    })
+                else { continue }
+                for analysis in analyses {
+                    for code in supported where code != analysis.bundle.caseCode {
+                        let target = analysis.bundle.replacingCase(code)
+                        for group in paradigms.groups(ofLemma: analysis.lemma)
+                        where group.pos == analysis.pos
+                            && group.genderCode == analysis.genderCode
+                        {
+                            for form in group.forms where form.bundle == target {
+                                admitSpeculativeCompletion(form.form)
+                                if form.form != typed, form.form != source,
+                                    !model.isPersonalTombstoned(form.form),
+                                    caseCompanions[source] == nil
+                                {
+                                    caseCompanions[source] = form.form
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 4. Completions of slightly shorter prefixes — but only when no
         // good close candidate exists yet: covers suffix-area typos that
         // neither the beam's bounded edits nor typed-prefix completions
         // reach cheaply ("basicly"→"basically", "publically"→"publicly").
         // Spatial cost still judges the candidates, so junk from the wider
         // buckets ranks on merit.
+        // Gate probes below EXCLUDE the speculative case-completion
+        // admissions (see 3c/3d): pass gating must stay byte-identical to
+        // the pre-wave engine — speculative completions widen the bar,
+        // never the pass decisions.
+        func bestNonSpeculativeCost() -> Double {
+            var best = Double.infinity
+            for (word, cost) in candidates
+            where cost.total < best && !speculativeCompletions.contains(word) {
+                best = cost.total
+            }
+            return best
+        }
         if typedChars.count >= 5,
-            (candidates.values.map(\.total).min() ?? .infinity) > config.closeCandidateGate
+            bestNonSpeculativeCost() > config.closeCandidateGate
         {
             let shortestPrefix = max(3, typedChars.count - 4)
             for length in stride(from: typedChars.count - 1, through: shortestPrefix, by: -1) {
@@ -584,7 +736,8 @@ public struct Corrector {
         // candidate, so BÍN-floored junk ("garalega") cannot suppress the
         // honest repair it is junk relative to.
         if !typedIsValid, typedChars.count >= 5,
-            bestAttestedCost(in: candidates) > config.diacriticCompletionGate
+            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                > config.diacriticCompletionGate
         {
             // Shortest prefix first: it has the fewest variants and the
             // widest completion range, and the tail typo is more likely to
@@ -620,7 +773,8 @@ public struct Corrector {
         if !typedIsValid,
             typedChars.count >= config.beamLongMinLength,
             config.beamMaxEdits > config.beamShortMaxEdits,
-            bestAttestedCost(in: candidates) > config.beamDeepGate
+            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                > config.beamDeepGate
         {
             runBeam(maxEdits: config.beamMaxEdits)
         }
@@ -629,7 +783,12 @@ public struct Corrector {
         // are cheap unattested readings ("frá"+completion) that must not
         // hold the space-miss split gate shut — split suggestions compete
         // with them on merit instead.
-        let bestSoFar = candidates.values.map(\.total).min() ?? .infinity
+        let bestSoFar = bestNonSpeculativeCost()
+
+        // Compound-completion admissions (5b-b, wave 23 pricing): word →
+        // its hypothesized HEAD, consumed by the scoring ranking terms and
+        // the split-demotion assembly rule.
+        var compoundCompletionHeads: [String: String] = [:]
 
         // 5b. Compound-head repairs + compound completions (wave 22, the
         // dogfood "stökklrikanum" → "stökkleikanum" class — PLAN.md
@@ -649,7 +808,8 @@ public struct Corrector {
             typedChars.allSatisfy(\.isLetter),
             let morphology = model.morphology,
             let paradigms = model.inflection.model?.paradigms,
-            bestAttestedCost(in: candidates) > config.compoundRepairGate
+            bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                > config.compoundRepairGate
         {
             let minModifier = config.compoundMinModifierLength
             let minHead = config.compoundMinHeadLength
@@ -763,15 +923,35 @@ public struct Corrector {
                 // (b) Compound continuations ("stökklei|" → stökk+leikur):
                 // is.lex completions of the head region, head-validated.
                 // Icelandic-only — compounding is the IS phenomenon.
+                // Wave-23 completion-specific pricing (the wave-22
+                // deferral): a hypothesized extension prices at
+                // compoundCompletionBasePenalty + 0.5/char instead of the
+                // raw completion shortcut that structurally outbid
+                // space-miss splits; the recorded head feeds the
+                // head-attestation + case-fit ranking terms at scoring,
+                // and the split-demotion assembly rule below guarantees
+                // splits keep their slots.
                 if config.compoundCompletionEnabled, headRegion.count >= 2 {
                     for completion in model.icelandic.completions(
                         of: String(headRegion), limit: config.completionPoolLimit)
                     {
                         guard lookupBudget > 0 else { break }
                         lookupBudget -= 1
-                        if generatedHeadOK(completion.word) {
-                            admit(modifier + completion.word)
-                        }
+                        guard generatedHeadOK(completion.word) else { continue }
+                        let candidateWord = modifier + completion.word
+                        guard candidateWord != typed,
+                            candidateWord.count > typed.count,
+                            candidates[candidateWord] == nil,
+                            !model.isPersonalTombstoned(candidateWord)
+                        else { continue }
+                        let extensionCount = candidateWord.count - typed.count
+                        candidates[candidateWord] = ChannelCost(
+                            total: config.compoundCompletionBasePenalty
+                                + Double(extensionCount) * config.completionCharCost,
+                            errorOps: extensionCount + 1,
+                            restorationOps: 0
+                        )
+                        compoundCompletionHeads[candidateWord] = completion.word
                     }
                 }
             }
@@ -795,11 +975,33 @@ public struct Corrector {
             // case fit lifts right-case junk ("á rit|" pulling "rut" above
             // honest completions) without any grammatical justification —
             // the typed keys, not the governor, are the evidence there.
+            // Speculative case-completions (3c/3d) are completions in
+            // spirit — typed a junk char or two past the intended stem —
+            // so they earn the same morph term (wave 23).
             if let fit = governorFit,
-                word.hasPrefix(typed),
+                word.hasPrefix(typed) || speculativeCompletions.contains(word),
                 model.icelandic.bigramFrequency(fit.previousWord, word) == nil
             {
                 score += fit.fitNats(for: word)
+            }
+            // Compound completions rank WITHIN the pool by their head
+            // (wave 23): the whole word sits at the shared compound floor,
+            // so the head — the part carrying the inflection and the
+            // frequency signal — differentiates: its attestation tier
+            // (floored at compoundHeadMinZ so bound suffix forms are not
+            // punished for being attested nowhere by construction) and its
+            // governor case fit (the head carries the compound's case).
+            if let head = compoundCompletionHeads[word] {
+                score +=
+                    config.compoundCompletionHeadZWeight
+                    * max(
+                        model.calibratedUnigramScore(of: head, language: .icelandic),
+                        config.compoundHeadMinZ)
+                if let fit = governorFit,
+                    model.icelandic.bigramFrequency(fit.previousWord, word) == nil
+                {
+                    score += fit.fitNats(for: head)
+                }
             }
             return (word, cost, score)
         }
@@ -837,6 +1039,23 @@ public struct Corrector {
                     )
                 }
             )
+        }
+
+        // Hard split-precedence rule (wave 23, the wave-22 deferral
+        // condition): a hypothesized compound EXTENSION never displaces a
+        // space-miss split reading — every split candidate ranks above
+        // every compound completion, unconditionally ("fimmtabókin" keeps
+        // offering "fimmta bókin" first, whatever the pricing says).
+        if !compoundCompletionHeads.isEmpty,
+            let worstSplitScore = scored.lazy
+                .filter({ $0.word.contains(" ") })
+                .map(\.score).min()
+        {
+            for index in scored.indices
+            where compoundCompletionHeads[scored[index].word] != nil {
+                scored[index].score = min(
+                    scored[index].score, worstSplitScore - 1e-9)
+            }
         }
 
         scored.sort { $0.score > $1.score || ($0.score == $1.score && $0.word < $1.word) }
@@ -1065,7 +1284,8 @@ public struct Corrector {
                 if config.vacuumAutoApplyEnabled,
                     !typicalityOK, !farRepair, !short,
                     model.morphology?.isKnown(best.word) == true,
-                    bestAttestedCost(in: candidates) > config.closeCandidateGate
+                    bestAttestedCost(in: candidates, excluding: speculativeCompletions)
+                        > config.closeCandidateGate
                 {
                     vacuum = true
                     typicalityOK = true
@@ -1227,6 +1447,44 @@ public struct Corrector {
                 confidence: z > 0 ? exp(entry.score - maxScore) / z : 0,
                 isRestoration: entry.cost.isRestorationOnly
             )
+        }
+
+        // Split-case companion offer (wave 23): a genuinely split governor
+        // ("á": þgf location / þf motion) must not make the bar guess one
+        // case reading — when a completion with a recorded companion (3d:
+        // unambiguous lemma, sibling in the other supported case) makes
+        // the bar, the companion rides directly behind it. One insertion
+        // per bar (the top-most companioned suggestion), never displacing
+        // an auto-apply winner's slot 0, offer-only by construction.
+        if !caseCompanions.isEmpty {
+            insertion: for (index, suggestion) in suggestions.enumerated()
+            where !suggestion.isAutocorrect {
+                guard let companion = caseCompanions[suggestion.text],
+                    companion != suggestion.text
+                else { continue }
+                if let existing = suggestions.firstIndex(where: { $0.text == companion }) {
+                    // Already offered: promote to ride directly behind its
+                    // sibling (a below-the-fold companion would otherwise
+                    // be trimmed off by the verbatim slot).
+                    guard existing > index + 1 else { break insertion }
+                    let moved = suggestions.remove(at: existing)
+                    suggestions.insert(moved, at: index + 1)
+                } else {
+                    let confidence = scored.prefix(8)
+                        .first(where: { $0.word == companion })
+                        .map { z > 0 ? exp($0.score - maxScore) / z : 0 } ?? 0
+                    suggestions.insert(
+                        Suggestion(
+                            text: companion,
+                            isAutocorrect: false,
+                            confidence: confidence
+                        ),
+                        at: min(index + 1, suggestions.count)
+                    )
+                    suggestions = Array(suggestions.prefix(limit))
+                }
+                break insertion
+            }
         }
 
         // Wrong-form offer (PLAN.md Stage B #2, offer-only — HARD): the
@@ -2103,9 +2361,12 @@ public struct Corrector {
     /// Cheapest attested-or-personal candidate cost in a generation pool
     /// (the gate currency for passes that BÍN-floored junk must not
     /// suppress — see step 4b).
-    private func bestAttestedCost(in candidates: [String: ChannelCost]) -> Double {
+    private func bestAttestedCost(
+        in candidates: [String: ChannelCost], excluding: Set<String> = []
+    ) -> Double {
         var best = Double.infinity
-        for (word, cost) in candidates where cost.total < best && isAttestedOrPersonal(word) {
+        for (word, cost) in candidates
+        where cost.total < best && !excluding.contains(word) && isAttestedOrPersonal(word) {
             best = cost.total
         }
         return best
@@ -2242,6 +2503,101 @@ public struct Corrector {
             }
         }
         return cost
+    }
+
+    /// Speculative completion channel (wave 23 — the case-aware
+    /// long-word completion passes 3c/3d): the candidate extends a PREFIX
+    /// of the typed token, and the trailing typed characters past that
+    /// shared prefix are read as extra-character errors:
+    ///
+    ///   cost = |typed residue| · insertion + |extension| · completionCharCost
+    ///
+    /// min'd against the ordinary lane-priced channel cost (which already
+    /// carries the strict-prefix completion shortcut — a residue-free
+    /// candidate reduces to today's pricing exactly). Without this
+    /// channel a candidate 7 characters longer than the typed token is
+    /// structurally unrankable (7 omissions ≈ 28 nats), which is why
+    /// "Kirkjubæjars" could never surface a Kirkjubæjarklaustur form.
+    /// Error-class by definition — a completion is never restoration.
+    func speculativeCompletionCost(
+        typedChars: [Character],
+        candidate: String,
+        pricing: FoldPricing,
+        perTap: PerTapCostProvider? = nil
+    ) -> ChannelCost {
+        let ordinary = channelCost(
+            typedChars: typedChars, candidate: candidate, pricing: pricing, perTap: perTap)
+        let candidateChars = Array(candidate)
+        let n = typedChars.count
+        let m = candidateChars.count
+        guard n > 0, m > 0 else { return ordinary }
+        // Completion mini-DP over {match, extra typed char, omitted
+        // intended char} — NO substitutions, deliberately: a
+        // substitution+completion composite reading ("hveru" → sub u→j +
+        // complete "um" → "hverjum") prices below honest single-edit
+        // repairs of the finished word and walked speculative completions
+        // over them on the dev corpus (the wave-22 fold-priced-twin
+        // lesson, completion edition). Gemination-shaped indels keep
+        // their lane discount (they are the same indel classes the main
+        // DP prices). The alignment may stop at any intended prefix once
+        // the typed word is consumed; remaining chars price at the
+        // completion rate.
+        let insertion = spatial.costs.insertion
+        let deletion = spatial.costs.deletion
+        let infinity = Double.infinity
+        let width = m + 1
+        var dp = [Double](repeating: infinity, count: (n + 1) * width)
+        var ops = [Int](repeating: 0, count: (n + 1) * width)
+        dp[0] = 0
+        for j in 1...m {
+            let price =
+                (j >= 2 && candidateChars[j - 1] == candidateChars[j - 2])
+                ? pricing.geminationIndelPrice(base: deletion) : deletion
+            dp[j] = dp[j - 1] + price
+            ops[j] = ops[j - 1] + 1
+        }
+        for i in 1...n {
+            let typedChar = typedChars[i - 1]
+            let extraPrice =
+                (i >= 2 && typedChar == typedChars[i - 2])
+                ? pricing.geminationIndelPrice(base: insertion) : insertion
+            dp[i * width] = dp[(i - 1) * width] + extraPrice
+            ops[i * width] = ops[(i - 1) * width] + 1
+            for j in 1...m {
+                var best = dp[(i - 1) * width + j] + extraPrice
+                var bestOps = ops[(i - 1) * width + j] + 1
+                if typedChar == candidateChars[j - 1] {
+                    let diagonal = dp[(i - 1) * width + (j - 1)]
+                    if diagonal < best {
+                        best = diagonal
+                        bestOps = ops[(i - 1) * width + (j - 1)]
+                    }
+                }
+                let omissionPrice =
+                    (j >= 2 && candidateChars[j - 1] == candidateChars[j - 2])
+                    ? pricing.geminationIndelPrice(base: deletion) : deletion
+                let left = dp[i * width + (j - 1)] + omissionPrice
+                if left < best {
+                    best = left
+                    bestOps = ops[i * width + (j - 1)] + 1
+                }
+                dp[i * width + j] = best
+                ops[i * width + j] = bestOps
+            }
+        }
+        var completion = ordinary
+        for j in 0...m {
+            let remaining = m - j
+            let total = dp[n * width + j] + Double(remaining) * config.completionCharCost
+            if total < completion.total {
+                completion = ChannelCost(
+                    total: total,
+                    errorOps: ops[n * width + j] + remaining,
+                    restorationOps: 0
+                )
+            }
+        }
+        return completion
     }
 
     /// Diacritic/orthographic restoration map: plain character → characters

@@ -106,3 +106,75 @@ T "ég fer frá "
 # only reorders bigram-silent candidates): "frá því" is the corpus king.
 EXPECT_TOP því
 EXPECT_NO_AUTOCORRECT
+
+# ---------------------------------------------------------------------------
+# Wave 23: case-aware long-word completions (the Kirkjubæjarklaustur
+# split-case class, session 2026-07-16T15-32-25)
+# ---------------------------------------------------------------------------
+
+SCENARIO flagship: Kirkjubaejars offers both split-case klaustur forms
+# The live session: "…að dundra okkur á Kirkjubæjars" wanted accusative
+# "Kirkjubæjarklaustur" (á-motion) but the frequency-ranked pool carried
+# only the dative "Kirkjubæjarklaustri" (is.lex 2570 vs 570). The typed
+# junk "s" put every klaustur form outside the strict completion range —
+# the governed prefix-repair pass (3c) re-opens it, and the split-case
+# companion rule (á: þgf 0.52 / þf 0.26) surfaces BOTH case forms.
+# Honesty: they ride at slots 4-5 behind the honest strict completion
+# (Kirkjubæjarskóla) and the single-deletion repair (Kirkjubæjar) — a
+# limit-3 device bar still shows only those two.
+T "að dundra okkur á Kirkjubæjars"
+EXPECT_VERBATIM Kirkjubæjars
+EXPECT_CONTAINS Kirkjubæjarklaustri
+EXPECT_CONTAINS Kirkjubæjarklaustur
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO split-case companion rides behind the dative at the klaustur stem
+# One keystroke earlier ("Kirkjubæjar|") the case-sibling expansion (3d)
+# lifts the accusative next to the frequency-dominant dative INSIDE the
+# device-sized bar: the lemma is unambiguous (surface-form doctrine
+# satisfied), so both governed readings of "á" are offered instead of
+# guessing the location reading.
+LIMIT 3
+T "að dundra okkur á Kirkjubæjar"
+EXPECT_TOP Kirkjubæjarklaustri
+EXPECT_CONTAINS Kirkjubæjarklaustur
+EXPECT_NO_AUTOCORRECT
+LIMIT 5
+
+SCENARIO yfir heidi completes to the accusative definite heidina
+# Live session 2026-07-17T12-04-13: "fór yfir heiðina" — yfir-motion
+# governs the accusative, and the bigram "yfir heiðina" (232) carries it
+# at corpus strength: the definite accusative leads the completions and
+# the þgf companion (heiðinni) rides in the bar (yfir is split
+# þf 0.36 / þgf 0.31).
+T "fór yfir heiði"
+EXPECT_VERBATIM heiði
+EXPECT_TOP heiðina
+EXPECT_CONTAINS heiðinni
+EXPECT_NO_AUTOCORRECT
+
+SCENARIO live heidn surfaces heidina through the yfir bigram
+# Same session, the actual typed token: "heiðn" is one interior omission
+# short of the heiði stem, so heiðina sits outside every strict
+# completion range AND below the frequency cut of the "heið" range —
+# only the governor-continuation source (bigram "yfir heiðina") reaches
+# it. Honest ranking: the strict completions of the literal prefix
+# (heiðni, heiðnum…) legitimately lead; the intended form makes the
+# wide bar, not the device bar.
+LIMIT 8
+T "fór yfir heiðn"
+EXPECT_VERBATIM heiðn
+EXPECT_CONTAINS heiðina
+EXPECT_NO_AUTOCORRECT
+LIMIT 5
+
+SCENARIO no governor context keeps the frequency completion ranking
+# Sentence-initial "Kirkjubæjars" has no governor: the speculative
+# passes are inert and the bar is byte-identical to the pre-wave
+# engine — the frequency-ranked strict completion leads, no klaustur
+# form is hypothesized.
+T "Kirkjubæjars"
+EXPECT_VERBATIM Kirkjubæjars
+EXPECT_TOP Kirkjubæjarskóla
+EXPECT_NOT_CONTAINS Kirkjubæjarklaustri
+EXPECT_NO_AUTOCORRECT

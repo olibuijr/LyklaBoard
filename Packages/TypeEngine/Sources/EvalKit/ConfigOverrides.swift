@@ -98,6 +98,10 @@ public enum ConfigOverrides {
         "autocorrectContextShortMinZ": { $0.autocorrectContextShortMinZ = $1 },
         "autocorrectContextLiftFloor": { $0.autocorrectContextLiftFloor = $1 },
         "contextContinuationMaxCost": { $0.contextContinuationMaxCost = $1 },
+        // Case-aware completions (wave 23)
+        "caseSplitSecondMinProbability": { $0.caseSplitSecondMinProbability = $1 },
+        "compoundCompletionBasePenalty": { $0.compoundCompletionBasePenalty = $1 },
+        "compoundCompletionHeadZWeight": { $0.compoundCompletionHeadZWeight = $1 },
     ]
 
     /// Int-valued tunables.
@@ -121,6 +125,9 @@ public enum ConfigOverrides {
         "compoundRepairMaxModifiers": { $0.compoundRepairMaxModifiers = $1 },
         "compoundRepairMaxLookups": { $0.compoundRepairMaxLookups = $1 },
         "compoundFloorFrequency": { $0.compoundFloorFrequency = UInt32(max(0, $1)) },
+        // Case-aware completions (wave 23)
+        "caseCompletionMaxTrim": { $0.caseCompletionMaxTrim = $1 },
+        "caseCompletionMinLength": { $0.caseCompletionMinLength = $1 },
     ]
 
     /// Bool-valued tunables (per-profile lane-relaxation toggles).
@@ -136,6 +143,8 @@ public enum ConfigOverrides {
         // Context ranking (wave 27)
         "bigramContextFoldBackoffEnabled": { $0.bigramContextFoldBackoffEnabled = $1 },
         "contextContinuationEnabled": { $0.contextContinuationEnabled = $1 },
+        // Case-aware completions (wave 23)
+        "caseCompletionEnabled": { $0.caseCompletionEnabled = $1 },
     ]
 
     /// All override keys, sorted — for `--help` / docs / diagnostics.

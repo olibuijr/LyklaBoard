@@ -105,6 +105,37 @@ EXPECT_AUTOCORRECT hann
 T " "
 EXPECT_LAST_COMMIT hann
 
+# ============================================================
+# 5. Compound completions (wave 23 — the pricing wave 22 deferred)
+# ============================================================
+
+SCENARIO stokklei offers the compound completion stokkleikur
+# The wave-22 machinery, enabled with completion-specific pricing:
+# compoundCompletionBasePenalty + 0.5/char instead of the raw completion
+# shortcut. "stökkleikur" is OOV everywhere (compound stökk+leikur) —
+# only the head-completion pass can offer it. It ranks below the honest
+# short-extension hypotheses (stökkleið, stökkleik — commoner, better
+# í-case-fit heads), hence the wide bar.
+LIMIT 6
+T "Fáir betri í stökklei"
+EXPECT_CONTAINS stökkleikur
+EXPECT_NO_AUTOCORRECT
+LIMIT 5
+
+SCENARIO fimmtabokin splits keep their slots over compound completions
+# The wave-22 deferral condition, now a contract: the speculative
+# extension "fimmtabókina" is generated (wide-bar offer) but the hard
+# split-precedence rule ranks every space-miss split reading above every
+# compound completion — at the default bar the splits and the honest
+# repair fill the slots and the extension is denied one. Typed valid
+# compound ("fimmta"+"bókin" decomposes): protected, commits as typed.
+T "las fimmtabókin"
+EXPECT_CONTAINS fimmta bókin
+EXPECT_NOT_CONTAINS fimmtabókina
+EXPECT_NO_AUTOCORRECT
+T " "
+EXPECT_LAST_COMMIT fimmtabókin
+
 SCENARIO eotthbap still autocorrects to eitthvað
 # 8 chars — long enough for the repair pass gates, but no prefix of
 # "eotthbap" is a legal modifier, so the compound machinery stays out

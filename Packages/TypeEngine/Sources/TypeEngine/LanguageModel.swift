@@ -225,13 +225,30 @@ public struct EngineConfig: Sendable {
     public var compoundRepairMaxLookups: Int = 1400
     /// Also pool lexicon completions of the head REGION under the fixed
     /// modifier ("stökklei|" → stökk + leikur…): compound continuations in
-    /// the bar (scope 3 of the wave, riding the same pass). DEFAULT OFF
-    /// (2026-07-17 verdict): completion-priced compound extensions
-    /// (0.5/char) structurally outrank space-miss splits and honest
-    /// repairs on the dev corpus — a speculative "fimmtabókina" must not
-    /// displace "fimmta bókin". Revisit with completion-specific pricing
-    /// in the split-case wave (#23).
-    public var compoundCompletionEnabled = false
+    /// the bar (scope 3 of wave 22, riding the same pass). Wave 22 shipped
+    /// this DEFAULT OFF: at the raw 0.5/char completion price a
+    /// speculative extension structurally outranked space-miss splits and
+    /// honest repairs ("fimmtabókina" over "fimmta bókin"). Wave 23
+    /// enabled it with completion-specific pricing: extensions cost
+    /// `compoundCompletionBasePenalty` + 0.5/char (a hypothesized
+    /// decomposition is dearer than an attested completion), rank WITHIN
+    /// the pool by head attestation (`compoundCompletionHeadZWeight`) +
+    /// the head's governor case fit, and a hard assembly rule keeps every
+    /// space-miss split reading ranked above every compound extension —
+    /// the split machinery keeps its slots unconditionally.
+    public var compoundCompletionEnabled = true
+    /// Base channel penalty of a compound-completion extension, on top of
+    /// the 0.5/char completion rate (wave 23 — the completion-specific
+    /// pricing wave 22 deferred for). Anchored at the split-substitution
+    /// tier: hypothesizing an unattested decomposition is at least as
+    /// speculative as reading a typed letter as a missed spacebar.
+    public var compoundCompletionBasePenalty: Double = 3.0
+    /// Weight on the head's calibrated is.lex z (floored at
+    /// `compoundHeadMinZ` so bound suffix forms — attested nowhere by
+    /// construction — are not punished for it) when ranking compound
+    /// completions: the head carries the inflection and the frequency
+    /// signal while the whole word sits at the shared compound floor.
+    public var compoundCompletionHeadZWeight: Double = 0.25
     /// Frequency assigned to a compound-valid word absent from every
     /// table: STRICTLY below `binFloorFrequency`, so a BÍN-attested whole
     /// word always outranks a hypothesized decomposition at equal cost
@@ -897,6 +914,48 @@ public struct EngineConfig: Sendable {
     /// backoff can only reorder what is pooled, so the pool widens exactly
     /// where frequency-only ranking fails.
     public var morphCompletionPoolLimit: Int = 24
+
+    // --- Case-aware long-word completions (wave 23 — the
+    // Kirkjubæjarklaustur class, session 2026-07-16T15-32-25: after
+    // "…okkur á" the bar offered ONLY the dative completion
+    // "Kirkjubæjarklaustri" while the á-motion context wanted the
+    // accusative "Kirkjubæjarklaustur"). Two seams, both RANKING-only
+    // (completions are bar offers, never auto-applied — margin-free):
+    //  * governed prefix-repair completions: an OOV token under an active
+    //    governor may be a completion typed one-or-two junk characters
+    //    past the intended stem ("Kirkjubæjars|" wanted extensions of
+    //    "Kirkjubæjar"); the trimmed-prefix completions are admitted at a
+    //    SPECULATIVE completion price (trailing typed chars as
+    //    extra-character errors + completionCharCost per not-yet-typed
+    //    char) instead of the structural full-DP price that made a
+    //    7-chars-longer candidate unrankable.
+    //  * case-sibling expansion: a pooled completion whose lemma
+    //    attribution is UNAMBIGUOUS (surface-form doctrine: ambiguous
+    //    lemma → attested surface only) contributes its paradigm siblings
+    //    in the governor's supported cases — dominant plus the runner-up
+    //    when the distribution is genuinely split (á governs both þgf
+    //    location 0.52 and þf motion 0.26: guessing one starves the bar
+    //    of the other), holding number/definiteness fixed.
+    // Speculative admissions are EXCLUDED from every pass-gating probe
+    // (bestSoFar / bestAttestedCost), so the split/deep-beam/diacritic
+    // pass decisions stay byte-identical to the pre-wave engine.
+
+    /// Master toggle (eval A/B). Inert without an inflection model.
+    public var caseCompletionEnabled = true
+    /// How many trailing typed characters may be treated as errors when
+    /// completing a trimmed prefix (the "Kirkjubæjars" junk-s class). Each
+    /// trimmed char prices at the extra-character (insertion) constant.
+    public var caseCompletionMaxTrim: Int = 2
+    /// Minimum typed length for the prefix-repair completion pass: short
+    /// tokens have real repair passes and completion pools of their own —
+    /// this machinery exists for the long-word tail where the DP price of
+    /// a many-chars-longer candidate is structurally unpayable.
+    public var caseCompletionMinLength: Int = 5
+    /// A governor's runner-up case joins the supported-case set for
+    /// sibling expansion when its probability is at/above this ("á": þf
+    /// 0.257 qualifies — genuinely split government; "frá": þf 0.149 does
+    /// not — dative government is essentially decided).
+    public var caseSplitSecondMinProbability: Double = 0.2
     /// Personal lemma lift, in nats: paradigm siblings of a learned surface
     /// form with UNAMBIGUOUS lemma attribution get this additive prior
     /// (consumed as a multiplicative LemmaBoostProviding — see

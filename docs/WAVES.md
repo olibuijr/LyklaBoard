@@ -32,6 +32,87 @@ architecture in `docs/adr/`. Newest first.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
 
+## 2026-07-17 — Wave 23: case-aware long-word completions (split-case governors)
+
+- **Trigger**: the flagship INFLECTION_MISS (session 2026-07-16T15-32-25):
+  typing "…dundra okkur á Kirkjubæjars" toward "Kirkjubæjarklaustur", the
+  bar's ONLY klaustur form was the dative "Kirkjubæjarklaustri" — is.lex
+  frequency (2570 vs 570) decides the completion pool, and "á" governs BOTH
+  þgf location (0.522) and þf motion (0.257), so guessing one case starves
+  the bar of the other. Plus wave 22's deferral: compound completions built
+  but OFF pending completion-specific pricing. Live session
+  2026-07-17T12-04-13 landed mid-wave as extra targets (ellilífeyrisþegi
+  rank 31/31, Þórðarson ~24, heiðn→heiðina absent).
+- **Decided — ranking-only, margin-free** (completions are bar offers; the
+  conservatism invariant is untouched): (1) **Governed prefix-repair
+  completions** (pass 3c, OOV + governor + length ≥ 5): complete the
+  trimmed prefixes (trim 1; 2 at length ≥ 8 — 2-char trims on short tokens
+  walked "segir and…" continuations over the honest "Andyu"→Andy deletion)
+  plus the governor's bigram-attested continuations that extend a trimmed
+  prefix ("yfir heiðina" f=232 sits below the frequency cut of the "heið"
+  range — usage evidence must not lose to the frequency pool). (2)
+  **Speculative completion channel**: match/extra-typed/omitted only — NO
+  substitutions, learned the hard way: the first cut priced sub+complete
+  composites ("hveru" → sub u→j + "um" ≈ 2 nats) under honest single-edit
+  repairs and cost 9 dev top-1 rows (the wave-22 fold-priced-twin lesson,
+  completion edition); final channel = residue at the indel constants
+  (gemination discounts kept) + 0.5/char extension, min'd with the
+  ordinary DP. Speculative admissions are EXCLUDED from every pass-gating
+  probe (bestSoFar/bestAttestedCost) — they widen the bar, never the pass
+  decisions. (3) **Case-sibling expansion** (pass 3d): a pooled completion
+  with UNAMBIGUOUS lemma attribution (surface-form doctrine — ambiguous
+  lemma keeps the attested surface only) contributes paradigm siblings in
+  the governor's supported cases — dominant + runner-up when P(second) ≥
+  0.2 (á/yfir are genuinely split; frá 0.149 is not) — number/definiteness
+  held fixed; a split-case COMPANION rule at assembly seats the other case
+  form directly behind its sibling ("Kirkjubæjar|" at device limit 3:
+  klaustri top, klaustur right behind). Morph fit extends to speculative
+  completions; exact-bigram override still wins.
+- **Compound completions SHIPPED** (the wave-22 deferral): priced at
+  compoundCompletionBasePenalty 3.0 + 0.5/char (a hypothesized
+  decomposition ≥ the split-substitution tier, never the raw completion
+  shortcut that structurally outbid splits), ranked within the pool by
+  head attestation (0.25 × z, floored at compoundHeadMinZ so bound
+  suffixes aren't punished) + the head's case fit, and a HARD assembly
+  rule: every space-miss split reading ranks above every compound
+  extension ("fimmtabókin" keeps "fimmta bókin" first, contract
+  scenarioed). Dev A/B on-vs-off: top-1/false-ac/ac-fired ±0.00, top-3
+  −1 row — the offer is essentially free now.
+- **Live targets after the wave** (repl, real artifacts): "á Kirkjubæjars"
+  bar = skóla, Kirkjubæjar, klaustri, klaustur (both cases, limit 5);
+  "yfir heiðn" surfaces heiðina (#7/8 wide bar — strict completions of the
+  literal prefix honestly lead), next keystroke "yfir heiði" → heiðina
+  TOP with þgf companion heiðinni; "var ellil|" → ellilífeyrisþegi #7 (was
+  31/31); "Þorðarason" → Þórðarson now auto-applies top-1. Honest residue:
+  klaustur forms still miss the device limit-3 bar at the "Kirkjubæjars"
+  state (two cheaper honest candidates lead); the one dev top-1 loss is
+  "opinbeir"→opinberi displaced by "opinbera" (genuine "hinn opinbera"
+  corpus usage — a toss-up we accept).
+- **BÍN casing findings**: paradigms.bin DOES carry place names and
+  patronymics, lowercased like lemma-is.bin ("kirkjubæjarklaustur" full
+  paradigm nf/þf=klaustur þgf=klaustri ef=klausturs; "þórðarson" is.lex
+  f=25745 + BÍN nf/þf) — typed-capitalization transfer (TypeEngine
+  leading-cap rule) covers casing end-to-end, verified in the session bars.
+- **Personal-data hygiene** (wave-27 precedent): corrected the pipeline's
+  mis-guessed row heipina|heiðn → heipina|heiðina (the intent chain and
+  final session text both say heiðina — the engine's p→ð+completion fire
+  now matches it, registered in confirmed-intents) and DROPPED the
+  malformed "a|Arnj" row (an in-flight fragment backspaced before any
+  commit — kb.jsonl shows applied:none throughout; replaying it with a
+  delimiter manufactures a false-ac the session never had).
+- **Gates**: dev 2339 top-1 / 121 false-ac vs 2340/122 (−0.03pp top-1,
+  within the 0.2pp gate; false-ac DOWN 1; ac-fired −4); heldout (once)
+  2287/162 vs 2288/162 (false-ac FLAT, top-1 −1, top-3 −1); scorecard
+  PASS (micro 166/167, false-ac 0, valid-word safety green); personal
+  gate 41 rows top1 22 falseAc 4 — zero
+  regressions, 12 improvements (new-session rows), baseline updated;
+  scenarios 206/206 ×3 (7 new: flagship both-case contract, companion at
+  device limit, heiði→heiðina top, heiðn wide-bar contract, no-governor
+  byte-parity, stökklei→stökkleikur, fimmtabókin split precedence);
+  swift test 409 green (7 new CaseCompletionTests: split/decided
+  supported-cases, no-sub channel pricing, paradigm-only sibling lift,
+  ambiguity veto, governor-off inertness); bench worst ~4.6 ms (gate 30).
+
 ## 2026-07-17 — Wave 27: context-ranking (bigram evidence at ranking/margin time)
 
 - **Trigger**: the largest tracked class in the session-analyzer top-gaps

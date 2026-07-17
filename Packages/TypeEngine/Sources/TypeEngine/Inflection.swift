@@ -662,6 +662,29 @@ struct GovernorFit {
         return weight * best
     }
 
+    /// Supported case codes for completion offers (wave 23 split-case
+    /// rule): the dominant case always; the runner-up joins when its
+    /// probability clears `minSecondProbability` — a genuinely split
+    /// government ("á": þgf 0.52 location / þf 0.26 motion) must offer
+    /// BOTH case forms rather than guessing the reading, while a decided
+    /// governor ("frá" þgf 0.68) keeps a single-case offer. Dominant
+    /// first — callers rely on the order only for determinism.
+    func supportedCaseCodes(minSecondProbability: Double) -> [Int] {
+        var codes = [dominantCaseCode]
+        var second: Int?
+        for code in 0..<4 where code != dominantCaseCode {
+            if second == nil
+                || governor.caseProbabilities[code] > governor.caseProbabilities[second!]
+            {
+                second = code
+            }
+        }
+        if let second, governor.caseProbabilities[second] >= minSecondProbability {
+            codes.append(second)
+        }
+        return codes
+    }
+
     /// Wrong-form machinery (offer-only — PLAN.md Stage B #2): the typed
     /// word is VALID but every reading of it fits the governor much worse
     /// than the governor's dominant case; return the paradigm SIBLING forms
