@@ -1,9 +1,9 @@
 ---
 // Lyklaborð — landing page. Static, Icelandic-first, one JS island (the hero).
 import Base from "../layouts/Base.astro";
-const title = "Lyklaborð — íslenskt lyklaborð sem kann íslensku";
+const title = "Lyklaborð — íslenskt lyklaborð sem skilur íslensku";
 const description =
-  "Lyklaborð er opið og ókeypis iOS-lyklaborð fyrir íslensku og ensku í senn: leiðréttingar sem skilja beygingar (byggðar á BÍN), broddar settir sjálfkrafa, ekkert netsamband. Væntanlegt í App Store.";
+  "Lyklaborð er opið og ókeypis iOS-lyklaborð fyrir íslensku og ensku í senn: leiðréttingar sem skilja beygingar (byggðar á BÍN), broddar settir sjálfkrafa, engin gagnasöfnun. Væntanlegt í App Store.";
 ---
 
 <Base title={title} description={description}>
@@ -12,11 +12,11 @@ const description =
       <section class="hero">
         <header class="hero-copy">
           <h1 class="wordmark">Lyklaborð</h1>
-          <p class="pitch">Íslenskt lyklaborð sem kann íslensku.</p>
+          <p class="pitch">Íslenskt lyklaborð sem skilur íslensku.</p>
           <p class="meta">
             <span>Opinn hugbúnaður</span>
             <span aria-hidden="true">·</span>
-            <span>Ekkert netsamband</span>
+            <span>Þú átt gögnin</span>
             <span aria-hidden="true">·</span>
             <span>Væntanlegt í App&nbsp;Store</span>
           </p>
@@ -39,11 +39,10 @@ const description =
       <!-- ================================================== Features -->
       <section class="features" aria-label="Eiginleikar">
         <div class="feature">
-          <h2>Íslenska og enska á einu lyklaborði</h2>
+          <h2>Íslenska og enska, blandað saman</h2>
           <p>
-            Tveggja akreina mállíkan fylgir þér á milli mála. Stakar slettur trufla
-            ekkert — og lyklaborðið hrifsar aldrei völdin í miðri setningu. Þegar þú
-            skiptir í alvöru yfir í ensku fylgir það með.
+            Slettur og enska leyfð — og líka leiðrétt. Tveggja akreina mállíkan
+            fylgir þér á milli mála, svo þú þarft aldrei að skipta um lyklaborð.
           </p>
         </div>
         <div class="feature">
@@ -56,11 +55,11 @@ const description =
           </p>
         </div>
         <div class="feature">
-          <h2>Skrifaðu broddlaust</h2>
+          <h2>Skrifaðu broddstafi án broddstafa</h2>
           <p>
-            Að sleppa broddum er innsláttaraðferð, ekki villa. Þú skrifar
-            <em>„flytjum i bud“</em> á fullri ferð og færð
-            <em>„flytjum í búð“</em> — lyklaborðið setur broddana á sinn stað.
+            Ef þú sleppir broddstaf birtast þeir samt. Þú skrifar
+            <em>„ut i bud“</em> á fullri ferð og færð
+            <em>„út í búð“</em> — lyklaborðið setur broddana á sinn stað.
           </p>
         </div>
         <div class="feature">
@@ -74,9 +73,9 @@ const description =
         <div class="feature">
           <h2>Að ógleymdum — orðaforðanum þínum</h2>
           <p>
-            Með Lyklaborð+ lærir lyklaborðið orðin þín á tækinu sjálfu. Þú getur
-            skoðað hvert og eitt, eytt þeim hverju fyrir sig — og flutt
-            orðaforðann þinn inn úr SwiftKey.
+            Með Lyklaborð+ byggir lyklaborðið upp grunn af nýyrðum, nöfnum og
+            slangri — á tækinu sjálfu. Þitt að skoða, eyða — og flytja inn úr
+            SwiftKey.
           </p>
         </div>
         <div class="feature">
@@ -96,9 +95,7 @@ const description =
           Allur kóðinn er opinn á
           <a href="https://github.com/jokull/LyklabordApp">GitHub</a> undir
           MIT-leyfi. Persónuverndarstefnan er
-          <a href="https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
-            >skjalfest í kóðasafninu</a
-          >. Íslensk málgögn eru fengin úr
+          <a href="/privacy">birt hér á síðunni</a> og skjalfest í kóðasafninu. Íslensk málgögn eru fengin úr
           <a href="https://bin.arnastofnun.is">Beygingarlýsingu íslensks nútímamáls</a>,
           © Stofnun Árna Magnússonar í íslenskum fræðum.
         </p>
