@@ -90,12 +90,20 @@ targets:
           - iCloud.is.lyklabord
         com.apple.developer.icloud-services:
           - CloudKit
+          # CloudDocuments is what actually runs iCloud Drive document sync
+          # for the ubiquity container (dev-mode session export, RecordingStore).
+          # Without it the app gets a ubiquity URL and writes locally, but
+          # nothing uploads and the Mac-side Mobile Documents mirror never
+          # materializes.
+          - CloudDocuments
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: is.lyklabord.ios
         PRODUCT_NAME: BetterKeyboard
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        # Bumped 1→2 with the CloudDocuments entitlement: iCloud Drive only
+        # re-reads NSUbiquitousContainers on a bundle-version change.
+        CURRENT_PROJECT_VERSION: "2"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
