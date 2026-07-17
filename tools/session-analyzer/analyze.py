@@ -60,6 +60,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+import taxonomy
+
 
 # --------------------------------------------------------------------------
 # Loading
@@ -619,11 +621,19 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
     """Query the engine's curated lexicons for each token via `type-repl :word`.
 
     Returns (attest, source) where attest maps token → {'is': bool, 'en': bool,
-    'is_junk_tier': bool} (present in that lexicon, plus whether the IS
-    attestation is corpus noise rather than a real word — see below) and
-    source is 'type-repl' or 'corpus' (fallback). The type-repl path is
-    authoritative — it excludes corpus noise the engine curated out (e.g.
-    "fra"/"fa" are corpus tokens but NOT is.lex words).
+    'is_junk_tier': bool, 'is_present': bool, 'bin': bool} (present in that
+    lexicon, plus whether the IS attestation is corpus noise rather than a
+    real word — see below) and source is 'type-repl' or 'corpus' (fallback).
+    The type-repl path is authoritative — it excludes corpus noise the engine
+    curated out (e.g. "fra"/"fa" are corpus tokens but NOT is.lex words).
+
+    `is_present` is the RAW is.lex membership (before junk-tier filtering) —
+    the taxonomy's compound-oov detector needs "absent from is.lex entirely",
+    which is a different question from "is a real word" (`is`/`bin` below).
+    `bin` is raw BÍN morphological validity — the taxonomy's
+    valid-word-overlap / proper-noun-oov detectors need this directly since
+    BÍN catches real words is.lex's frequency table doesn't have a good count
+    for (e.g. "syndur", BÍN-known but is.lex-absent).
 
     `is_junk_tier`: is.lex is a raw unigram frequency table, not a curated
     dictionary — it keeps web-noise tokens (OCR errors, leetspeak, stray
@@ -665,16 +675,20 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
                         "is": is_present and not junk_tier,
                         "en": en_f[i][0] != "-",
                         "is_junk_tier": junk_tier,
+                        "is_present": is_present,
+                        "bin": known,
                     }
                 return attest, "type-repl"
         except Exception:
             pass
     # Fallback: plain membership in the frequency corpora (less precise — the
     # corpora keep low-frequency noise the curated lexicon dropped, and there
-    # is no z/BÍN signal here to separate real rare words from that noise).
+    # is no z/BÍN signal here to separate real rare words from that noise;
+    # BÍN validity is unknowable without the binary, so `bin` stays False).
     lex = load_lexicons(repo_root)
     attest = {
-        t: {"is": t.lower() in lex["is"], "en": t.lower() in lex["en"], "is_junk_tier": False}
+        t: {"is": t.lower() in lex["is"], "en": t.lower() in lex["en"],
+            "is_junk_tier": False, "is_present": t.lower() in lex["is"], "bin": False}
         for t in uniq
     }
     return attest, "corpus"
@@ -779,11 +793,245 @@ def silent_miss_scan(app: list, repo_root: str) -> tuple:
 
 
 # --------------------------------------------------------------------------
+# Taxonomy tagging (v3) — attach a [class · status] to every finding
+# --------------------------------------------------------------------------
+#
+# See taxonomy.py for the class list, precedence, and the pure classifier.
+# This section gathers the REAL context each detector needs (BÍN/is.lex
+# attestation via type-repl, bar contents, confirmed-intents overrides) and
+# feeds it into `taxonomy.classify_finding`.
+
+def _bar_seen_for_silent(kb: list, token: str) -> list:
+    """Approximate bar cross-reference for a SILENT_MISS/UNRESOLVABLE token:
+    every bar text seen in a kb pass whose window tail is a prefix/superstring
+    match of `token` (position-agnostic, unlike `_bar_texts_while_typing` —
+    a SilentMiss token is deduped session-wide so this stays cheap and rarely
+    double-counts). This is what lets e.g. "gret" pick up the "gert" the live
+    bar actually offered (at a losing rank) during the final-text scan, which
+    only sees the committed text, not the bar history."""
+    seen = []
+    tl = token.lower()
+    for r in kb:
+        tail = last_word(r.window).lower()
+        if not tail:
+            continue
+        if tl.startswith(tail) or tail.startswith(tl):
+            for b in r.bar:
+                txt = b.get("text", "")
+                if txt and txt not in seen:
+                    seen.append(txt)
+    return seen
+
+
+def detect_stale_applies(kb: list) -> list:
+    """Wave-28 regression watch: an applied autocorrect whose text equals the
+    PREVIOUSLY committed word (a no-op re-apply) while the bar concurrently
+    held a different `ac` candidate, or an explicit `stale-skip` applied kind.
+    Returns a list of {'applied', 'prev', 't'} — empty on healthy sessions."""
+    findings = []
+    prev_committed = None
+    for r in kb:
+        applied = r.applied or {}
+        kind = applied.get("kind", "none")
+        if kind == "stale-skip":
+            findings.append({"applied": applied.get("text", ""), "prev": prev_committed, "t": r.t})
+        elif kind == "autocorrect":
+            text = applied.get("text", "")
+            other_ac = [b.get("text") for b in r.bar
+                       if b.get("ac") and b.get("text") != text]
+            if prev_committed is not None and text == prev_committed and other_ac:
+                findings.append({"applied": text, "prev": prev_committed, "t": r.t})
+        # A kb pass right after a word commits has its window end in a
+        # trailing space (verified against real kb.jsonl `applied.kind ==
+        # "autocorrect"` passes) — that's when the tail word is "committed",
+        # as opposed to a mid-type pass where it's still a partial word.
+        if r.window.endswith(" "):
+            cw = last_word(r.window)
+            if cw:
+                prev_committed = cw
+    return findings
+
+
+def silent_intended(m: "SilentMiss", confirmed_intents: dict) -> str:
+    """The best-guess "intended" word for a SilentMiss finding: a
+    confirmed-intents.jsonl correction if one exists (it always wins — the
+    user themselves confirmed it), else the top-ranked `_silent_candidates`
+    guess, else "" (truly no guess, e.g. an UNRESOLVABLE mash with no
+    confirmed intent either). Shared by `tag_findings` (classification) and
+    every renderer that displays a SilentMiss's guessed correction, so the
+    two never drift apart."""
+    override = (confirmed_intents or {}).get(m.token.lower())
+    if override and override.get("intended"):
+        return override["intended"]
+    return m.candidates[0][0] if m.candidates else ""
+
+
+def taxonomy_tokens_for_session(events: list, silent: list,
+                                confirmed_intents: dict = None) -> list:
+    """Every raw token whose attestation the taxonomy tagger needs for one
+    session: every event's typo/intended, every silent finding's token plus
+    its best-guess intended (confirmed-intents override or top candidate —
+    see `silent_intended`, so an override target like "eitthvað" gets
+    attested even when it never appears in `_silent_candidates`' own list)."""
+    toks = set()
+    for e in events:
+        if e.typo:
+            toks.add(e.typo)
+        if e.intended:
+            toks.add(e.intended)
+    for m in silent:
+        toks.add(m.token)
+        intended = silent_intended(m, confirmed_intents)
+        if intended:
+            toks.add(intended)
+    return [t for t in toks if t]
+
+
+def tag_findings(events: list, kb: list, silent: list, repo_root: str,
+                 confirmed_intents: dict = None) -> tuple:
+    """Attach a (class_id, status) taxonomy tag to every Event and SilentMiss
+    finding. Returns (event_tags, silent_tags, attest_source) where
+    event_tags/silent_tags map `id(finding)` -> (class_id, status)."""
+    if confirmed_intents is None:
+        confirmed_intents = taxonomy.load_confirmed_intents()
+
+    primary = taxonomy_tokens_for_session(events, silent, confirmed_intents)
+    # Speculatively probe compound substrings for every len>=8 word up front
+    # (one batched type-repl call total, filtered by is-presence afterward)
+    # rather than round-tripping type-repl twice per session.
+    probe_targets = set()
+    for w in primary:
+        if len(w) >= 8:
+            probe_targets |= set(taxonomy.compound_probe_substrings(w))
+    all_tokens = list(dict.fromkeys(primary + list(probe_targets)))
+    if all_tokens:
+        attest, source = attest_tokens(all_tokens, repo_root)
+    else:
+        attest, source = {}, "none"
+
+    def valid(word: str) -> bool:
+        if not word:
+            return False
+        a = attest.get(word, {})
+        return bool(a.get("is")) or bool(a.get("bin"))
+
+    def is_present(word: str) -> bool:
+        return bool(attest.get(word, {}).get("is_present")) if word else False
+
+    def compound_hit(word: str) -> str:
+        if not word or len(word) < 8 or is_present(word):
+            return ""
+        for seg in taxonomy.compound_probe_substrings(word):
+            a = attest.get(seg, {})
+            if a.get("is") or a.get("bin"):
+                return seg
+        return ""
+
+    def ctx_for(typo: str, intended: str, event_cls: str, bar_seen) -> "taxonomy.FindingContext":
+        typo_l = typo.lower() if typo else typo
+        ed = edit_distance(typo.lower(), intended.lower()) if typo and intended else 0
+        return taxonomy.FindingContext(
+            typo=typo, intended=intended, event_cls=event_cls,
+            bar_seen=tuple(bar_seen or ()),
+            typo_valid=valid(typo), intended_valid=valid(intended),
+            intended_is_lex_present=is_present(intended),
+            compound_hit=compound_hit(intended),
+            edit_distance=ed,
+            confirmed=confirmed_intents.get(typo_l) if typo_l else None,
+        )
+
+    event_tags = {}
+    for e in events:
+        ctx = ctx_for(e.typo, e.intended, e.cls, e.offered_bar)
+        event_tags[id(e)] = taxonomy.classify_finding(ctx)
+
+    silent_tags = {}
+    for m in silent:
+        intended = silent_intended(m, confirmed_intents)
+        bar_seen = _bar_seen_for_silent(kb, m.token)
+        ctx = ctx_for(m.token, intended, m.cls, bar_seen)
+        silent_tags[id(m)] = taxonomy.classify_finding(ctx)
+
+    return event_tags, silent_tags, source
+
+
+# --------------------------------------------------------------------------
+# Lane posterior timeline — per-word IS-lane posterior via type-repl replay
+# --------------------------------------------------------------------------
+
+_STATE_RE = re.compile(r"P\(IS\)=([0-9]*\.?[0-9]+)\s+commits=(\d+)")
+
+# Lane whiplash: a single-word swing bigger than this is the Love-Island
+# poisoning signature — a session-immediate lane flip that shouldn't happen
+# on ordinary running text.
+WHIPLASH_THRESHOLD = 0.35
+
+
+def lane_timeline(app: list, repo_root: str) -> tuple:
+    """Per-word IS-lane posterior across the session's FINAL committed text,
+    extracted by replaying the words through `type-repl`'s interactive REPL:
+    one word per line -> one `state P(IS)=` report per commit (see Repl.swift
+    `report()`). Cheap (~tens of ms/word, dominated by process/engine
+    startup — a ~50-word session finishes in well under a second).
+
+    Returns (entries, source) where entries is a list of
+    {'word', 'p', 'whiplash'} (p is None if desynced/unavailable for that
+    word) and source is 'type-repl' or 'unavailable'."""
+    final = _final_text(app)
+    toks = words(final)
+    if not toks:
+        return [], "none"
+    binary = _find_type_repl(repo_root)
+    if not binary:
+        return [], "unavailable"
+
+    lines = []
+    for w in toks:
+        # A word literally starting with ':' would be misread as a REPL
+        # command; the leading space keeps it a no-op typed character instead.
+        line = (" " + w) if w.startswith(":") else w
+        lines.append(line + " ")
+    lines.append(":quit")
+    script = "\n".join(lines) + "\n"
+    try:
+        out = subprocess.run([binary], input=script, capture_output=True,
+                             text=True, timeout=120).stdout
+    except Exception:
+        return [], "unavailable"
+
+    posts = [float(m.group(1)) for m in _STATE_RE.finditer(out)]
+    if len(posts) < len(toks):
+        posts = posts + [None] * (len(toks) - len(posts))
+
+    entries = []
+    prev = 0.5
+    for w, p in zip(toks, posts):
+        whiplash = p is not None and abs(p - prev) > WHIPLASH_THRESHOLD
+        entries.append({"word": w, "p": p, "whiplash": whiplash})
+        if p is not None:
+            prev = p
+    return entries, "type-repl"
+
+
+# --------------------------------------------------------------------------
 # Reporting
 # --------------------------------------------------------------------------
 
 def render_report(sid: str, app: list, kb: list, events: list,
-                  silent: list = None, silent_source: str = "") -> str:
+                  silent: list = None, silent_source: str = "",
+                  event_tags: dict = None, silent_tags: dict = None,
+                  stale_applies: list = None,
+                  lane: list = None, lane_source: str = "",
+                  confirmed_intents: dict = None) -> str:
+    event_tags = event_tags or {}
+    silent_tags = silent_tags or {}
+    stale_applies = stale_applies or []
+    confirmed_intents = confirmed_intents or {}
+
+    def tag_of(finding):
+        return (event_tags.get(id(finding)) or silent_tags.get(id(finding))
+               or (taxonomy.NOVEL_ID, taxonomy.status_of(taxonomy.NOVEL_ID)))
+
     counts: dict = {}
     for e in events:
         counts[e.cls] = counts.get(e.cls, 0) + 1
@@ -791,12 +1039,52 @@ def render_report(sid: str, app: list, kb: list, events: list,
     flagged = sum(1 for e in events if e.cls != "CLEAN")
     clean = max(committed - flagged, 0)
 
+    novel_events = [e for e in events if event_tags.get(id(e), (None,))[0] == taxonomy.NOVEL_ID]
+    novel_silent = [m for m in (silent or [])
+                    if silent_tags.get(id(m), (None,))[0] == taxonomy.NOVEL_ID]
+    regressions = [
+        (kind, f, cls, status)
+        for finding_list, tags, kind in ((events, event_tags, "event"),
+                                         (silent or [], silent_tags, "silent"))
+        for f in finding_list
+        for cls, status in [tags.get(id(f), (None, ""))]
+        if taxonomy.is_regression_status(status)
+    ]
+
     lines = []
     lines.append(f"# Session report — {sid}")
     lines.append("")
     lines.append(f"- app records: {len(app)}  ·  kb passes: {len(kb)}")
     lines.append(f"- committed words (final text): {committed}")
     lines.append("")
+
+    # ---- NOVEL + regressions FIRST, so a maintainer's ~10 lines of
+    # attention go where the taxonomy can't yet help. ------------------
+    if stale_applies or regressions:
+        lines.append("## ⚠ REGRESSIONS (fixed classes recurring)")
+        lines.append("")
+        for sa in stale_applies:
+            lines.append(f"- `stale-apply` re-applied `{sa['applied']}` "
+                         f"(prev committed: `{sa['prev']}`) at t={sa['t']:.3f} "
+                         f"{taxonomy.format_tag('stale-apply')}")
+        for kind, f, cls, status in regressions:
+            typo, intended = (f.typo, f.intended) if kind == "event" else (
+                f.token, silent_intended(f, confirmed_intents) or "?")
+            lines.append(f"- `{typo}` → `{intended}` {taxonomy.format_tag(cls, status)}")
+        lines.append("")
+
+    if novel_events or novel_silent:
+        lines.append("## NOVEL findings (unclassified — taxonomy.py needs a look)")
+        lines.append("")
+        for e in novel_events:
+            ctx = " ".join(e.context)
+            lines.append(f"- {e.cls}: `{e.typo}` → `{e.intended}`"
+                         + (f"  (…{ctx})" if ctx else ""))
+        for m in novel_silent:
+            intended = silent_intended(m, confirmed_intents) or "?"
+            lines.append(f"- {m.cls}: `{m.token}` → `{intended}`")
+        lines.append("")
+
     lines.append("## Event counts")
     lines.append("")
     for cls in ["AUTOCORRECT_UNDONE", "MISS_OFFERED", "MISS_ABSENT",
@@ -811,7 +1099,8 @@ def render_report(sid: str, app: list, kb: list, events: list,
         lines.append("_none_")
     for e in events:
         ctx = " ".join(e.context)
-        lines.append(f"### {e.cls}")
+        cls, status = tag_of(e)
+        lines.append(f"### {e.cls}  {taxonomy.format_tag(cls, status)}")
         lines.append(f"- typed: `{e.typo}`  →  intended: `{e.intended}`")
         if ctx:
             lines.append(f"- context: …{ctx}")
@@ -835,7 +1124,8 @@ def render_report(sid: str, app: list, kb: list, events: list,
         lines.append("")
         for m in silent:
             ctx = " ".join(m.context)
-            lines.append(f"### {m.cls} — `{m.token}`")
+            cls, status = tag_of(m)
+            lines.append(f"### {m.cls} — `{m.token}`  {taxonomy.format_tag(cls, status)}")
             if ctx:
                 lines.append(f"- context: …{ctx} **{m.token}**")
             if m.candidates:
@@ -847,6 +1137,32 @@ def render_report(sid: str, app: list, kb: list, events: list,
                 lines.append("- candidates: _none within 2 cheap edits — "
                              "likely keyboard mash or an out-of-lexicon compound_")
             lines.append("")
+
+    lines.append("## Lane posterior timeline (per word, IS-lane P)")
+    lines.append("")
+    if lane is None or lane_source in ("", "none"):
+        lines.append("_not run_")
+    elif lane_source == "unavailable":
+        lines.append("_unavailable — type-repl binary not found "
+                     f"(source=`{lane_source}`)_")
+    elif not lane:
+        lines.append("_no committed words_")
+    else:
+        whiplash_n = sum(1 for e in lane if e["whiplash"])
+        lines.append(f"Source: `{lane_source}`. Whiplash (>{'%.2f' % WHIPLASH_THRESHOLD} "
+                     f"swing in one step): **{whiplash_n}**.")
+        lines.append("")
+        chunk = []
+        for i, e in enumerate(lane, 1):
+            p = f"{e['p']:.2f}" if e["p"] is not None else "?"
+            flag = " ⚠" if e["whiplash"] else ""
+            chunk.append(f"{e['word']}→{p}{flag}")
+            if i % 10 == 0:
+                lines.append(" · ".join(chunk))
+                chunk = []
+        if chunk:
+            lines.append(" · ".join(chunk))
+    lines.append("")
 
     lines.append("## Per-key tap offsets")
     lines.append("")
@@ -899,15 +1215,27 @@ def analyze_one(directory: str, sid: str, repo_root: Optional[str] = None) -> di
     app, kb = load_session(app_path, kb_path)
     events = classify(app, kb)
     silent, silent_source = silent_miss_scan(app, repo_root)
-    report = render_report(sid, app, kb, events, silent, silent_source)
+    confirmed_intents = taxonomy.load_confirmed_intents()
+    event_tags, silent_tags, tag_source = tag_findings(
+        events, kb, silent, repo_root, confirmed_intents)
+    stale_applies = detect_stale_applies(kb)
+    lane, lane_source = lane_timeline(app, repo_root)
+    report = render_report(sid, app, kb, events, silent, silent_source,
+                           event_tags, silent_tags, stale_applies,
+                           lane, lane_source, confirmed_intents)
     with open(os.path.join(directory, f"{sid}-report.md"), "w", encoding="utf-8") as fh:
         fh.write(report)
     with open(os.path.join(directory, f"{sid}-candidates.jsonl"), "w", encoding="utf-8") as fh:
         fh.write(candidates_jsonl(events))
     sm = sum(1 for m in silent if m.cls == "SILENT_MISS")
     ur = sum(1 for m in silent if m.cls == "UNRESOLVABLE")
+    novel_n = (sum(1 for e in events if event_tags.get(id(e), (None,))[0] == taxonomy.NOVEL_ID)
+              + sum(1 for m in silent if silent_tags.get(id(m), (None,))[0] == taxonomy.NOVEL_ID))
+    whiplash_n = sum(1 for e in lane if e["whiplash"])
     return {"sid": sid, "events": len(events), "silent_miss": sm,
-            "unresolvable": ur, "silent_source": silent_source}
+            "unresolvable": ur, "silent_source": silent_source,
+            "novel": novel_n, "whiplash": whiplash_n,
+            "stale_applies": len(stale_applies)}
 
 
 def analyze_dir(directory: str) -> int:
@@ -919,7 +1247,8 @@ def analyze_dir(directory: str) -> int:
     for sid in ids:
         s = analyze_one(directory, sid, repo_root)
         print(f"{s['sid']}: {s['events']} events, {s['silent_miss']} silent-miss / "
-              f"{s['unresolvable']} unresolvable ({s['silent_source']}) → "
+              f"{s['unresolvable']} unresolvable ({s['silent_source']}), "
+              f"{s['novel']} NOVEL, {s['whiplash']} whiplash → "
               f"{sid}-report.md, {sid}-candidates.jsonl")
     return 0
 

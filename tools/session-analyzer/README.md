@@ -163,6 +163,48 @@ binary once with:
 ( cd ../../Packages/TypeEngine && swift build -c release --product type-repl )
 ```
 
+### Known-class triage tagging (v3)
+
+Every finding — a corrector `Event` or a `SILENT_MISS`/`UNRESOLVABLE` — gets a
+`[class · status]` tag from the checked-in taxonomy in **`taxonomy.py`** (this
+file IS committed; it contains no personal typed text, only class
+definitions). Precedence (first match wins): `slangur-intentional` >
+`stale-apply` > `valid-word-overlap` > `inflection` > `space-miss` >
+`compound-oov` > `restoration-fold` > `deep-decode` > `context-ranking` >
+`proper-noun-oov` > `NOVEL`. `NOVEL` findings (matched nothing) get their own
+section at the **top** of the report; any finding tagged with a `fixed:*`
+status (a shipped fix recurring) renders in a loud `⚠ REGRESSIONS` section,
+also at the top. See `taxonomy.py`'s `CLASSES` for the full detect/status/notes
+per class, and `test_analyze.py`'s `test_taxonomy_*` functions for worked
+examples against this repo's own real cases (þvi→því, syndur→sýndur,
+stökklrikanum→stökkleikanum, eotthbap→eitthvað, kozy, …).
+
+`taxonomy.classify_finding` is pure (no type-repl, no kb.jsonl) — analyze.py's
+`tag_findings` gathers the real context (BÍN/is.lex attestation via
+`type-repl`, live bar contents, confirmed-intents overrides) and feeds it in.
+
+### Lane posterior timeline (v3)
+
+Each report gets a `## Lane posterior timeline` section: the session's final
+committed text is replayed word-by-word through `type-repl`'s interactive
+REPL (one word per line → one `state P(IS)=` report per commit, see
+`Repl.swift`'s `report()`), giving a cheap per-word IS-lane posterior without
+any TypeEngine changes. A single-step swing > 0.35 is flagged `⚠` (lane
+whiplash — the Love-Island poisoning signature) and counted per session in
+`aggregate.json`. Cost: dominated by process/engine startup, not per-word
+work — a ~50-word session finishes in well under a second.
+
+### Top gaps (v3, in AGGREGATE.md)
+
+`AGGREGATE.md` leads with a **Top gaps** table: every tagged finding across
+every session, bucketed by class, with a total count, a count restricted to
+the latest 3 sessions, a rising/flat/falling trend (latest-3 rate vs. the
+rate over every prior session), and a `typo → intended` example. `NOVEL` and
+any recurring `fixed:*` class sort first; `slangur-intentional` and
+`valid-word-overlap` (doctrine non-fires, never gaps) are excluded from the
+ranking and reported as a separate visible count instead. This table is the
+next-wave roadmap input.
+
 ## Test
 
 ```sh
@@ -170,4 +212,7 @@ python3 test_analyze.py   # exit 0 = pass
 ```
 
 Runs the classifier on `fixtures/fixture-*.jsonl`, a hand-built session with
-exactly one event of each class (living documentation of the wire format).
+exactly one event of each class (living documentation of the wire format), plus
+the v2 alignment/inflection/silent-miss behaviours and the v3 taxonomy
+classifier (`test_taxonomy_*`, `test_stale_apply_detection`) against real
+cases and small fabricated fixtures.

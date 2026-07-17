@@ -22,7 +22,10 @@ from analyze import (  # noqa: E402
     _inflection_offer,
     _silent_candidates,
     _is_junk_tier,
+    detect_stale_applies,
 )
+import taxonomy  # noqa: E402
+from taxonomy import FindingContext, classify_finding  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "fixtures", "fixture-app.jsonl")
@@ -166,6 +169,204 @@ def test_junk_tier_attestation():
     print("  OK  junk-tier attestation  lss->junk, gil/hárblásara->real (BÍN-saved)")
 
 
+
+# --------------------------------------------------------------------------
+# v3 — taxonomy classifier (known-class triage tagging, see taxonomy.py)
+# --------------------------------------------------------------------------
+#
+# classify_finding is pure — no type-repl, no kb.jsonl — so every case below
+# is hand-fed the attestation/bar facts a real session would have produced
+# (verified against this repo's own `type-repl :word` output and real
+# sessions/*-report.md where noted). This doubles as living documentation of
+# the taxonomy's PRECEDENCE order.
+
+def test_taxonomy_restoration_fold():
+    """þvi -> því (real SILENT_MISS in 2026-07-16T22-45-30): differs only by
+    an acute accent on an otherwise identical skeleton. þvi is not BÍN-known
+    (typo_valid=False); því is (intended_valid=True) — but only ONE side is
+    valid, so valid-word-overlap (which needs BOTH) doesn't preempt it."""
+    ctx = FindingContext(
+        typo="þvi", intended="því", event_cls="SILENT_MISS",
+        typo_valid=False, intended_valid=True, edit_distance=1,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "restoration-fold", (cls, status)
+    assert status == "watch"
+    print("  OK  taxonomy  þvi -> því  =>  restoration-fold · watch")
+
+
+def test_taxonomy_valid_word_overlap():
+    """syndur -> sýndur (real SILENT_MISS in 2026-07-17T08-30-35): BOTH are
+    BÍN-known real words ("syndur" = able to swim, "sýndur" = shown) — a
+    doctrine non-fire, must outrank restoration-fold even though the pair is
+    ALSO skeleton-equal by accent alone."""
+    ctx = FindingContext(
+        typo="syndur", intended="sýndur", event_cls="SILENT_MISS",
+        typo_valid=True, intended_valid=True, edit_distance=1,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "valid-word-overlap", (cls, status)
+    assert status == "accepted-gap"
+    print("  OK  taxonomy  syndur -> sýndur  =>  valid-word-overlap · accepted-gap (NONFIRE)")
+
+
+def test_taxonomy_compound_oov():
+    """stökklrikanum -> stökkleikanum (real MISS_ABSENT in
+    2026-07-16T14-59-28): intended is absent from is.lex entirely but its
+    tail (minus the -anum inflection) is the attested stem "leik"."""
+    ctx = FindingContext(
+        typo="stökklrikanum", intended="stökkleikanum", event_cls="MISS_ABSENT",
+        typo_valid=False, intended_valid=False, intended_is_lex_present=False,
+        compound_hit="leik", edit_distance=1,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "compound-oov", (cls, status)
+    assert status == "in-flight:#22"
+    print("  OK  taxonomy  stökklrikanum -> stökkleikanum  =>  compound-oov · in-flight:#22")
+
+
+def test_taxonomy_deep_decode():
+    """eotthbap -> eitthvað (real UNRESOLVABLE in 2026-07-16T22-45-30, only
+    resolvable via confirmed-intents.jsonl): 3 character substitutions
+    (o/i, b/v, p/ð) is >= the deep-decode threshold, and it is NOT a
+    restoration-fold (more than an accent/dental difference)."""
+    ctx = FindingContext(
+        typo="eotthbap", intended="eitthvað", event_cls="UNRESOLVABLE",
+        typo_valid=False, intended_valid=True, intended_is_lex_present=True,
+        edit_distance=3,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "deep-decode", (cls, status)
+    assert status == "in-flight:#27"
+    print("  OK  taxonomy  eotthbap -> eitthvað  =>  deep-decode · in-flight:#27")
+
+
+def test_taxonomy_context_ranking():
+    """The 'gret' class: the real SILENT_MISS session has "gret"'s top
+    candidate resolve to "gert" (a transposition, not an accent fold) via
+    `_silent_candidates`; the live kb bar for that word ALSO offered "gert"
+    (at a losing rank behind "Greta") which is what actually happened in
+    2026-07-16T22-45-30. Reconstructed here as a fabricated bar fixture
+    (classify_finding is pure and takes no kb.jsonl) so the "bar had it but
+    it was outranked" signal is exercised deterministically: edit_distance
+    is only 2 (not deep-decode) and the skeletons differ (not a restoration
+    fold), so context-ranking is the first class left standing."""
+    ctx = FindingContext(
+        typo="gret", intended="gert", event_cls="SILENT_MISS",
+        bar_seen=("gret", "Greta", "gert"),
+        typo_valid=False, intended_valid=True, edit_distance=2,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "context-ranking", (cls, status)
+    assert status == "in-flight:#27"
+    print("  OK  taxonomy  gret -> gert (fabricated bar)  =>  context-ranking · in-flight:#27")
+
+
+def test_taxonomy_proper_noun_oov():
+    """lindgren/astrid class: a capitalized, non-BÍN-known intended word
+    (foreign surname) with a SHORT edit distance from the typo — short
+    enough that deep-decode (which precedes proper-noun-oov) doesn't win
+    the pair first."""
+    ctx = FindingContext(
+        typo="Lindgre", intended="Lindgren", event_cls="MISS_ABSENT",
+        typo_valid=False, intended_valid=False, edit_distance=1,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "proper-noun-oov", (cls, status)
+    assert status == "accepted-gap"
+    print("  OK  taxonomy  Lindgre -> Lindgren  =>  proper-noun-oov · accepted-gap")
+
+
+def test_taxonomy_slangur_intentional():
+    """kozy (real SILENT_MISS in 2026-07-16T16-14-00, confirmed intentional
+    in confirmed-intents.jsonl): the confirmed override wins over EVERY
+    other signal, including a deep-decode-sized edit distance."""
+    ctx = FindingContext(
+        typo="kozy", intended="kost", event_cls="SILENT_MISS",
+        edit_distance=4, confirmed={"typo": "kozy", "intentional": True},
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "slangur-intentional", (cls, status)
+    assert status == "not-error"
+    print("  OK  taxonomy  kozy (confirmed intentional)  =>  slangur-intentional · not-error")
+
+
+def test_taxonomy_novel():
+    """A pair matching none of the detectors falls through to NOVEL —
+    rendered prominently, not silently dropped."""
+    ctx = FindingContext(
+        typo="blorf", intended="florby", event_cls="MISS_ABSENT",
+        typo_valid=False, intended_valid=False, edit_distance=2,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == taxonomy.NOVEL_ID, (cls, status)
+    print("  OK  taxonomy  blorf -> florby  =>  NOVEL")
+
+
+def test_stale_apply_detection():
+    """wave-28 regression watch, currently unobserved in any of this repo's
+    real sessions (`git grep`-verified: no "stale-skip" applied kind exists
+    yet) — this proves the detector isn't dead code by constructing the two
+    positive cases directly against kb.jsonl-shaped KBRecords:
+      1. an explicit `stale-skip` applied kind
+      2. an autocorrect that re-applies the word already committed one pass
+         back, while the bar concurrently held a DIFFERENT `ac` candidate
+    and a healthy negative case (autocorrect of a genuinely new word)."""
+    kb_explicit = [
+        KBRecord(t=1.0, sid="s", window="hann ", field="standard",
+                 bar=[], applied={"kind": "stale-skip", "text": "hann"},
+                 taps=[], backspaces=0),
+    ]
+    assert len(detect_stale_applies(kb_explicit)) == 1
+
+    kb_repeat = [
+        KBRecord(t=1.0, sid="s", window="kaffi ", field="standard",
+                 bar=[{"text": "kaffi", "ac": True}],
+                 applied={"kind": "autocorrect", "text": "kaffi"},
+                 taps=[], backspaces=0),
+        KBRecord(t=2.0, sid="s", window="kaffi ", field="standard",
+                 bar=[{"text": "kaffi", "ac": True}, {"text": "kaffe", "ac": True}],
+                 applied={"kind": "autocorrect", "text": "kaffi"},
+                 taps=[], backspaces=0),
+    ]
+    hits = detect_stale_applies(kb_repeat)
+    assert len(hits) == 1 and hits[0]["applied"] == "kaffi", hits
+
+    kb_healthy = [
+        KBRecord(t=1.0, sid="s", window="kaffi ", field="standard",
+                 bar=[{"text": "kaffi", "ac": True}],
+                 applied={"kind": "autocorrect", "text": "kaffi"},
+                 taps=[], backspaces=0),
+        KBRecord(t=2.0, sid="s", window="kaffi te ", field="standard",
+                 bar=[{"text": "tex", "ac": True}],
+                 applied={"kind": "autocorrect", "text": "tex"},
+                 taps=[], backspaces=0),
+    ]
+    assert detect_stale_applies(kb_healthy) == []
+    print("  OK  stale-apply detection  stale-skip + repeated-autocorrect fire, "
+          "healthy session stays clean")
+
+
+def test_taxonomy_precedence_order():
+    """PRECEDENCE sanity: valid-word-overlap must preempt restoration-fold
+    when a pair is BOTH (the syndur/sýndur real case already proves this
+    indirectly; this makes the ordering itself an explicit, isolated
+    assertion) and slangur-intentional preempts everything, even a
+    stale-apply-shaped context."""
+    both_valid_and_fold = FindingContext(
+        typo="thil", intended="þíl", typo_valid=True, intended_valid=True,
+    )
+    assert classify_finding(both_valid_and_fold)[0] == "valid-word-overlap"
+
+    intentional_over_stale = FindingContext(
+        typo="x", intended="y", applied_kind="stale-skip",
+        confirmed={"typo": "x", "intentional": True},
+    )
+    assert classify_finding(intentional_over_stale)[0] == "slangur-intentional"
+    print("  OK  taxonomy  precedence  valid-word-overlap > restoration-fold; "
+          "slangur-intentional > stale-apply")
+
+
 if __name__ == "__main__":
     run()
     print("\nv2 behaviours:")
@@ -173,4 +374,16 @@ if __name__ == "__main__":
     test_inflection_miss()
     test_silent_candidates()
     test_junk_tier_attestation()
-    print("\nPASS — v2 behaviours (alignment, inflection, silent-miss) verified.")
+    print("\nv3 behaviours (taxonomy classifier):")
+    test_taxonomy_restoration_fold()
+    test_taxonomy_valid_word_overlap()
+    test_taxonomy_compound_oov()
+    test_taxonomy_deep_decode()
+    test_taxonomy_context_ranking()
+    test_taxonomy_proper_noun_oov()
+    test_taxonomy_slangur_intentional()
+    test_taxonomy_novel()
+    test_taxonomy_precedence_order()
+    test_stale_apply_detection()
+    print("\nPASS — v2 + v3 behaviours (alignment, inflection, silent-miss, "
+          "taxonomy) verified.")

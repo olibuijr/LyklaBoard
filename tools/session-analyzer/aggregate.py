@@ -39,6 +39,7 @@ import sys
 from collections import defaultdict
 
 import analyze
+import taxonomy
 
 CORRECTOR_CLASSES = ("AUTOCORRECT_UNDONE", "MISS_OFFERED", "MISS_ABSENT")
 PROVENANCE_SOURCE = "session-pipeline"
@@ -123,7 +124,8 @@ def _uncontested_silent(sm) -> bool:
     return top[1] >= 3 * second[1]
 
 
-def analyze_session(directory: str, sid: str, repo_root: str) -> dict:
+def analyze_session(directory: str, sid: str, repo_root: str,
+                    confirmed_intents: dict = None) -> dict:
     """Re-derive everything the aggregate needs for one session."""
     app_path = os.path.join(directory, f"{sid}-app.jsonl")
     kb_path = os.path.join(directory, f"{sid}-kb.jsonl")
@@ -131,6 +133,12 @@ def analyze_session(directory: str, sid: str, repo_root: str) -> dict:
     events = analyze.classify(app, kb)
     silent, silent_source = analyze.silent_miss_scan(app, repo_root)
     meta = _load_meta(directory, sid)
+
+    event_tags, silent_tags, tag_source = analyze.tag_findings(
+        events, kb, silent, repo_root, confirmed_intents)
+    stale_applies = analyze.detect_stale_applies(kb)
+    lane, lane_source = analyze.lane_timeline(app, repo_root)
+    whiplash = sum(1 for e in lane if e["whiplash"])
 
     counts = defaultdict(int)
     for e in events:
@@ -166,6 +174,12 @@ def analyze_session(directory: str, sid: str, repo_root: str) -> dict:
         "events": events,
         "silent": silent,
         "offsets": offsets,
+        "event_tags": event_tags,
+        "silent_tags": silent_tags,
+        "tag_source": tag_source,
+        "stale_applies": stale_applies,
+        "whiplash": whiplash,
+        "lane_source": lane_source,
     }
 
 
@@ -298,34 +312,10 @@ def _seed_for(sid: str) -> int:
     return int(digits) if digits else 0
 
 
-def load_confirmed_intents(path: str = None) -> dict:
-    """User-confirmed intents for tokens the scan can't resolve on its own
-    (contested SILENT_MISS guesses, UNRESOLVABLE mashes). One JSON object per
-    line in confirmed-intents.jsonl (gitignored — personal typing):
-
-        {"typo": "dlmk", "intended": "dæmi"}
-        {"typo": "kozy", "intentional": true}   # not a typo — suppress
-
-    Keyed by lowercased typo. Confirmed rows are promoted straight into the
-    corpus with source "user-confirmed"; intentional rows are dropped from
-    both the corpus and PENDING-REVIEW."""
-    if path is None:
-        path = os.path.join(os.path.dirname(__file__), "confirmed-intents.jsonl")
-    intents = {}
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                typo = rec.get("typo", "")
-                if typo:
-                    intents[typo.lower()] = rec
-    return intents
+# load_confirmed_intents lives in taxonomy.py now (it's the taxonomy's own
+# slangur-intentional / user-confirmed-correction data source); re-exported
+# here for backward compat with any existing callers of aggregate.*.
+load_confirmed_intents = taxonomy.load_confirmed_intents
 
 
 def update_personal_eval(corpus_path: str, sessions: list,
@@ -456,6 +446,132 @@ def update_personal_eval(corpus_path: str, sessions: list,
 
 
 # --------------------------------------------------------------------------
+# Top-gaps rollup (the next-wave queue) — every taxonomy-tagged finding
+# across ALL sessions, bucketed by class. This is the roadmap input, so it
+# renders as the FIRST section of AGGREGATE.md.
+# --------------------------------------------------------------------------
+
+def _collect_tagged_findings(sessions: list, confirmed_intents: dict = None) -> list:
+    """Every taxonomy-tagged finding (event + silent-miss + stale-apply)
+    across all sessions, flattened to {typo, intended, class, status,
+    session} for the top-gaps rollup."""
+    confirmed_intents = confirmed_intents or {}
+    out = []
+    for s in sessions:
+        for e in s["events"]:
+            cls, status = s["event_tags"].get(
+                id(e), (taxonomy.NOVEL_ID, taxonomy.status_of(taxonomy.NOVEL_ID)))
+            out.append({"typo": e.typo, "intended": e.intended,
+                       "class": cls, "status": status, "session": s["sid"]})
+        for m in s["silent"]:
+            cls, status = s["silent_tags"].get(
+                id(m), (taxonomy.NOVEL_ID, taxonomy.status_of(taxonomy.NOVEL_ID)))
+            intended = analyze.silent_intended(m, confirmed_intents) or "?"
+            out.append({"typo": m.token, "intended": intended,
+                       "class": cls, "status": status, "session": s["sid"]})
+        for sa in s.get("stale_applies", []):
+            out.append({"typo": sa.get("prev") or "?", "intended": sa.get("applied", ""),
+                       "class": "stale-apply", "status": taxonomy.status_of("stale-apply"),
+                       "session": s["sid"]})
+    return out
+
+
+def _trend_arrow(latest_count: int, latest_n: int, prior_count: int, prior_n: int) -> str:
+    """Rising/flat/falling by comparing the latest-3-sessions rate to the
+    rate over every session before that. No prior sessions to compare
+    against -> anything present now reads as rising (there's no baseline to
+    call it flat against)."""
+    if latest_n == 0:
+        return "—"
+    latest_rate = latest_count / latest_n
+    if prior_n == 0:
+        return "rising ↑" if latest_count > 0 else "flat →"
+    prior_rate = prior_count / prior_n
+    if prior_rate == 0:
+        return "rising ↑" if latest_rate > 0 else "flat →"
+    ratio = latest_rate / prior_rate
+    if ratio > 1.2:
+        return "rising ↑"
+    if ratio < 0.8:
+        return "falling ↓"
+    return "flat →"
+
+
+def _top_gaps(sessions: list, tagged: list) -> dict:
+    """Bucket every tagged finding by class across ALL sessions. `sessions`
+    is chronological (session ids are UTC timestamps); "latest 3" is the
+    tail. NOVEL and any recurrence of a `fixed:` status sort first, then by
+    count in the latest 3 sessions. Doctrine non-fires (slangur-intentional,
+    valid-word-overlap) are excluded from the ranked rows and reported as a
+    separate visible count."""
+    ordered_sids = [s["sid"] for s in sessions]
+    latest3 = set(ordered_sids[-3:])
+    prior_sids = set(ordered_sids[:-3])
+
+    by_class = defaultdict(list)
+    for f in tagged:
+        by_class[f["class"]].append(f)
+
+    rows = []
+    for cls, items in by_class.items():
+        if cls in taxonomy.DOCTRINE_NONFIRE_CLASSES:
+            continue
+        status = items[0]["status"]
+        total = len(items)
+        latest_n = sum(1 for f in items if f["session"] in latest3)
+        prior_n = total - latest_n
+        example = items[0]
+        rows.append({
+            "class": cls, "status": status, "total": total,
+            "latest3": latest_n, "prior": prior_n,
+            "example": f"{example['typo']} → {example['intended']}",
+            "trend": _trend_arrow(latest_n, len(latest3), prior_n, len(prior_sids)),
+            "is_novel": cls == taxonomy.NOVEL_ID,
+            "is_regression": taxonomy.is_regression_status(status),
+        })
+
+    rows.sort(key=lambda r: (
+        0 if r["is_novel"] else 1,
+        0 if r["is_regression"] else 1,
+        -r["latest3"],
+        -r["total"],
+    ))
+
+    nonfires = defaultdict(int)
+    for f in tagged:
+        if f["class"] in taxonomy.DOCTRINE_NONFIRE_CLASSES:
+            nonfires[f["class"]] += 1
+
+    return {"rows": rows, "nonfires": dict(nonfires),
+           "latest3_sessions": sorted(latest3), "prior_sessions": sorted(prior_sids)}
+
+
+def render_top_gaps(gaps: dict) -> list:
+    L = []
+    L.append("## Top gaps (next-wave queue)")
+    L.append("")
+    L.append(f"Latest 3 sessions: {', '.join(gaps['latest3_sessions']) or '_none_'}"
+             f"  ·  prior: {len(gaps['prior_sessions'])} session(s)")
+    L.append("")
+    if gaps["rows"]:
+        L.append("| class | status | total | latest-3 | trend | example |")
+        L.append("|-------|--------|-------|----------|-------|---------|")
+        for r in gaps["rows"]:
+            flag = "  ⚠ REGRESSION" if r["is_regression"] else ""
+            L.append(f"| `{r['class']}` | {r['status']}{flag} | {r['total']} | "
+                     f"{r['latest3']} | {r['trend']} | `{r['example']}` |")
+    else:
+        L.append("_no tagged findings yet_")
+    L.append("")
+    nf = gaps["nonfires"]
+    nf_str = "  ·  ".join(f"{cls}: {n}" for cls, n in nf.items()) if nf else "none"
+    L.append(f"**Doctrine non-fires** (excluded from the ranking above, still "
+             f"visible): {nf_str}")
+    L.append("")
+    return L
+
+
+# --------------------------------------------------------------------------
 # Rendering
 # --------------------------------------------------------------------------
 
@@ -464,7 +580,7 @@ def _fmt_rate(x: float) -> str:
 
 
 def render_markdown(by_build: dict, overall: dict, offsets: dict, patterns: dict,
-                    trend: list, corpus: dict) -> str:
+                    trend: list, corpus: dict, gaps: dict = None) -> str:
     L = []
     L.append("# Session aggregate")
     L.append("")
@@ -476,6 +592,9 @@ def render_markdown(by_build: dict, overall: dict, offsets: dict, patterns: dict
     L.append("> This file lives in the gitignored `sessions/` dir because it "
              "quotes real typed text. See README.md for the workflow.")
     L.append("")
+
+    if gaps is not None:
+        L.extend(render_top_gaps(gaps))
 
     L.append("## Totals & rates by engine build")
     L.append("")
@@ -613,7 +732,9 @@ def build(sessions_dir: str, corpus_path: str = None) -> dict:
     if corpus_path is None:
         corpus_path = os.path.join(os.path.dirname(__file__), "personal-eval.jsonl")
     ids = analyze.discover_sessions(sessions_dir)
-    sessions = [analyze_session(sessions_dir, sid, repo_root) for sid in ids]
+    confirmed_intents = taxonomy.load_confirmed_intents()
+    sessions = [analyze_session(sessions_dir, sid, repo_root, confirmed_intents)
+               for sid in ids]
 
     by_build_sessions = defaultdict(list)
     for s in sessions:
@@ -629,7 +750,10 @@ def build(sessions_dir: str, corpus_path: str = None) -> dict:
     offsets = _merge_offsets(sessions)
     candidates = _collect_candidates(sessions)
     patterns = _patterns(candidates)
-    corpus = update_personal_eval(corpus_path, sessions)
+    corpus = update_personal_eval(corpus_path, sessions, confirmed_intents)
+
+    tagged = _collect_tagged_findings(sessions, confirmed_intents)
+    gaps = _top_gaps(sessions, tagged)
 
     summary = {
         "overall": {k: v for k, v in overall.items()},
@@ -637,6 +761,7 @@ def build(sessions_dir: str, corpus_path: str = None) -> dict:
         "trend": trend,
         "patterns": patterns,
         "tap_offsets": offsets,
+        "top_gaps": gaps,
         "personal_eval": {
             "path": os.path.relpath(corpus_path, repo_root),
             "total": corpus["total"],
@@ -644,9 +769,14 @@ def build(sessions_dir: str, corpus_path: str = None) -> dict:
             "pending": corpus["pending"],
         },
         "session_ids": ids,
+        "sessions": [
+            {"sid": s["sid"], "build": s["build"], "whiplash": s["whiplash"],
+             "lane_source": s["lane_source"], "stale_applies": len(s["stale_applies"])}
+            for s in sessions
+        ],
     }
 
-    md = render_markdown(by_build, overall, offsets, patterns, trend, corpus)
+    md = render_markdown(by_build, overall, offsets, patterns, trend, corpus, gaps)
     with open(os.path.join(sessions_dir, "AGGREGATE.md"), "w", encoding="utf-8") as fh:
         fh.write(md)
     with open(os.path.join(sessions_dir, "aggregate.json"), "w", encoding="utf-8") as fh:
