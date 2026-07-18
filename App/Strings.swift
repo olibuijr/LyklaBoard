@@ -30,7 +30,7 @@ enum Strings {
     enum Links {
         static let website = "https://lyklabord.solberg.is"
         static let githubRepo = "https://github.com/jokull/LyklabordApp"
-        static let privacyPolicy = "https://github.com/jokull/LyklabordApp/blob/main/docs/PRIVACY.md"
+        static let privacyPolicy = "https://lyklabord.solberg.is/privacy"
         static let exportFormat = "https://github.com/jokull/LyklabordApp/blob/main/docs/EXPORT_FORMAT.md"
         static let bin = "https://bin.arnastofnun.is"
         /// Help/FAQ page on the site ("Hjálp og algengar spurningar").
