@@ -18,8 +18,10 @@ target; see `store/README.md` §A.1.
 <!-- 29 chars -->
 
 ## Promotional text (≤170)
-`Free, open source, network-free — the Icelandic keyboard that places accents for you and understands BÍN inflection. Lyklaborð+ learns your words on-device.`
-<!-- 159 chars -->>
+`Free, open source, privacy-first — the Icelandic keyboard that places accents for you and understands BÍN inflection. Lyklaborð+ learns your words on-device.`
+<!-- 157 chars. "network-free" retired: it read as a blanket app-level claim,
+     but iCloud sync does use the network. The accurate, extension-scoped
+     "ZERO NETWORKING CODE" claim lives in the description body and stays. -->>
 
 ## Keywords (≤100, comma-separated, no spaces)
 `iceland,íslenska,typing,autocorrect,prediction,open source,offline,no tracking,swiftkey,morphology`
