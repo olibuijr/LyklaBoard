@@ -10,11 +10,11 @@ honestly.
 - Title (is): Lyklaborðið sem / skilur íslensku
 - Sub (is): Frítt. Opinn hugbúnaður. Deilir ekki gögnum.
 - Pitch (is): Íslenskt lyklaborð sem skilur íslensku.
-- Meta (is): Opinn hugbúnaður · Þú átt gögnin · Væntanlegt í App Store
+- Meta (is): Opinn hugbúnaður · Þú átt gögnin
 - Title (en): The keyboard that / knows Icelandic
 - Sub (en): Free. Open source. Privacy first.
 - Pitch (en): The Icelandic keyboard that actually knows Icelandic.
-- Meta (en): Open source · Privacy first · Coming to the App Store
+- Meta (en): Open source · Privacy first
 
 ## 2 · Accent restoration
 
@@ -44,12 +44,12 @@ honestly.
 - Title (en): Your vocabulary, / truly yours
 - Sub (en): With Lyklaborð+, the keyboard learns your new words, names, and slang — on-device. Yours to inspect, delete — and import from SwiftKey.
 
-## 6 · Privacy / zero networking
+## 6 · Privacy / data ownership
 
-- Title (is): Ekkert / netsamband
-- Sub (is): Lyklaborðsviðbótin inniheldur engan netkóða. Sannreynanlegt í frumkóðanum, ekki bara loforð.
-- Title (en): Zero / networking code
-- Sub (en): The keyboard extension contains no network code at all. Verifiable in the source — not just a promise.
+- Title (is): Þú átt / gögnin
+- Sub (is): Það sem þú skrifar fer aldrei af tækinu. Aukaorðin þín fara bara í þitt eigið iCloud — aldrei til okkar.
+- Title (en): Your data / stays yours
+- Sub (en): What you type never leaves your device. Your learned words sync only to your own iCloud — never to us.
 
 ## Typed content shown on the keyboard/screen per shot
 

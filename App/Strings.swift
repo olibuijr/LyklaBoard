@@ -52,7 +52,7 @@ enum Strings {
         static let tagline = "Íslenskt lyklaborð sem skilur íslensku."
         /// Accessibility label for the keycap hero image.
         static let heroAccessibilityLabel = "Þrívíður Ð-hnappur — merki Lyklaborðs"
-        static let subtitle = "Íslenskt og enskt lyklaborð sem hugsar um friðhelgi. Ekkert netkóði er í lyklaborðsviðbótinni sjálfri — allt gerist á tækinu þínu."
+        static let subtitle = "Íslenskt lyklaborð sem lærir á þig, kann fallbeygingu, bætir við broddstöfum, leyfir ensku og margt fleira. Gögnin eru þín og aðeins þín - Lyklaborð geymir aukaorðin þín bara í iCloud."
 
         static let setupHeading = "Svona virkjarðu lyklaborðið"
 
@@ -66,8 +66,8 @@ enum Strings {
 
         /// Shown WITH step 4, BEFORE iOS's own scary "Full Access" dialog —
         /// the honest preemption. Keep in sync with `FullAccess.noNetworkBody`.
-        static let fullAccessPreempt = "iOS sýnir þá staðlaða viðvörun sem á við um öll lyklaborð frá þriðja aðila. Hún hljómar illa — en Lyklaborð inniheldur engan netkóða og getur ekki sent neitt frá sér. Það er hægt að sannreyna í frumkóðanum."
-        static let step4Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með orðauppástungur að fullu án hans. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud og snertiviðbragði (iOS lokar á titring lyklaborðs án hans)."
+        static let fullAccessPreempt = "iOS sýnir þá staðlaða viðvörun sem á við um öll lyklaborð frá þriðja aðila. Hún hljómar illa — en Lyklaborð inniheldur engan netkóða og getur ekki sent neitt frá sér. Það er hægt að sannreyna þetta á GitHub þar sem kóðinn er opinn öllum."
+        static let step4Detail = "Valfrjálst. Lyklaborðið skrifar, leiðréttir sjálfkrafa og kemur með uppástungur. Fullur aðgangur kveikir aðeins á samstillingu orðabókarinnar þinnar við þitt eigið iCloud (iOS lokar á titring lyklaborðs án hans)."
         static let fullAccessMoreLink = "Meira um fullan aðgang og persónuvernd"
         static let openSettingsButton = "Opna Settings"
         /// The deep-link button lands directly on Lyklaborð's own page in
@@ -115,12 +115,12 @@ enum Strings {
         static let containerUnavailableTitle = "Sameiginleg gagnageymsla ekki tiltæk"
         static let containerUnavailableBody = "Þetta kemur venjulega fyrir í hermi (Simulator) án réttra heimilda fyrir App Group. Á alvöru tæki virkar orðasafnið eðlilega — orð sem lyklaborðið lærir birtast hér."
 
-        static let emptyStateTitle = "Ekkert í orðasafninu ennþá"
+        static let emptyStateTitle = "Orðasafnið er tómt"
         static let emptyStateHowItWorks = "Lyklaborðið lærir orð sem þú skrifar. Orð telst lært eftir að hafa verið samþykkt tvo mismunandi daga — eða strax ef þú ýtir á það í tillögustikunni (skýrt merki um að orðið sé rétt)."
         /// Shown in the empty state ONLY while the keyboard isn't enabled
         /// yet — the empty dictionary must never dead-end; point at Byrjun.
         static let emptyStateEnableFirst = "Fyrst þarf að virkja lyklaborðið sjálft — opnaðu flipann „Byrjun“ og fylgdu skrefunum þar."
-        static let emptyStatePrivacy = "Þetta gerist eingöngu á tækinu þínu. Orðasafnið fer aldrei neitt nema í þitt eigið iCloud — lyklaborðsviðbótin sjálf snertir aldrei netið."
+        static let emptyStatePrivacy = "Þetta gerist eingöngu á tækinu þínu. Orðasafnið fer aldrei neitt nema í þitt eigið iCloud — það sem þú skrifar á lyklaborðið fer ekki útaf tækinu, nema orðasafnið þitt og það fer bara beint á iCloud reikninginn þinn."
 
         static let noSearchResults = "Ekkert orð fannst"
     }
@@ -222,7 +222,7 @@ enum Strings {
         static let button = "Flytja út gögnin mín"
         static let footer = "Vistaðu allt sem lyklaborðið hefur lært — lærð orð og tíðni þeirra, orðin sem þú bættir við og orðin sem þú hefur eytt — sem eina læsilega skrá sem þú getur geymt eða fært annað. Þetta er spegilmyndin af SwiftKey-innflutningnum: gögnin þín eru þín til að taka með þér."
         /// Human-readable note embedded in the exported JSON file itself.
-        static let fileNote = "Þessi skrá er þín persónulega Lyklaborð-orðabók: lærð og handvirkt viðbætt orð, eyðingar, tíðni orðapara og innsláttartölfræði. Hún hefur aldrei farið af tækinu þínu nema þú hafir deilt henni rétt í þessu. Sjá $schema fyrir nákvæmt snið."
+        static let fileNote = "Þessi skrá er þín persónulega Lyklaborðsorðabók: lærð og handvirkt viðbætt orð, eyðingar, tíðni orðapara og innsláttartölfræði. Hún hefur aldrei farið af tækinu þínu nema þú hafir deilt henni rétt í þessu. Sjá $schema fyrir nákvæmt snið."
         static let preparing = "Undirbý útflutning…"
         static let failed = "Ekki tókst að búa til útflutningsskrána."
         /// Base filename (before the date suffix + .json). ASCII so it's a
@@ -263,7 +263,7 @@ enum Strings {
 
         // Paywall sheet
         static let paywallTagline = "Persónulega lagið ofan á ókeypis lyklaborðið."
-        static let paywallIntro = "Lyklaborðið sjálft er ókeypis og verður það áfram — full íslensk og ensk leiðrétting, orðauppástungur og beygingargreind. Lyklaborð+ bætir við laginu sem er persónulegt fyrir þig."
+        static let paywallIntro = "Lyklaborðið sjálft er ókeypis og verður það áfram — full íslensk og ensk leiðrétting og orðauppástungur. Lyklaborð+ bætir við laginu sem er persónulegt fyrir þig."
 
         static let featureVocabTitle = "Persónulegt orðasafn"
         static let featureVocabDetail = "Lyklaborðið lærir orðin þín — nöfn, slangur, fagorð — og þú stýrir safninu í orðabókarritlinum, með innflutningi úr SwiftKey."
