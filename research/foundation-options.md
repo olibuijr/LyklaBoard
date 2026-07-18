@@ -1,4 +1,4 @@
-# better-keyboard: Foundation Research
+# LyklaborÃ°: Foundation Research
 
 *Researched 2026-07-15. Goal: pick the open-source foundation for a privacy-first SwiftKey alternative on iOS — Icelandic + English bilingual typing, zero phone-home from the keyboard, learned patterns encrypted and synced via iCloud.*
 

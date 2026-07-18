@@ -9,6 +9,9 @@ import TypeEngine
 //   swift run -c release type-repl                       interactive REPL
 //   swift run -c release type-repl run <file.scenarios>  batch expectations
 //   swift run -c release type-repl bench                 latency percentiles
+//   swift run -c release type-repl last-mile             timed embedder replay
+//   swift run -c release type-repl artifact-probe        process-cold load probe
+//   swift run -c release type-repl calibration-profile   print build-time values
 //
 // Flags (all modes):
 //   --en <path>      en.lex override        (default <repo>/data/en/en.lex)
@@ -60,6 +63,8 @@ if resolvedPaths == nil, let en = enOverride, let is_ = isOverride {
     resolvedPaths = Artifacts.Paths(
         english: URL(fileURLWithPath: en),
         icelandic: URL(fileURLWithPath: is_),
+        englishCalibration: nil,
+        icelandicCalibration: nil,
         morphology: lemmaOverride.map(URL.init(fileURLWithPath:))
     )
 }
@@ -142,10 +147,37 @@ case "bench":
     // Default limit 3 = what the extension requests per keystroke.
     Bench(engine: engine).run(limit: limitOverride ?? 3)
 
+case "last-mile":
+    exit(Int32(TimedLastMileRunner(engine: engine).run()))
+
+case "artifact-probe":
+    // Intentionally do nothing after the production-shaped artifact load.
+    // `type-eval scorecard` launches this in a fresh process under
+    // `/usr/bin/time -l` and gates load latency + peak physical footprint.
+    print("artifact-probe ready")
+
+case "calibration-profile":
+    let d = engine.calibrationDiagnostics
+    let object: [String: Any] = [
+        "is": [
+            "mean": d.icelandicMean,
+            "sigma": d.icelandicSigma,
+            "warmupWords": Array(d.icelandicWarmupWords.prefix(64)),
+        ],
+        "en": [
+            "mean": d.englishMean,
+            "sigma": d.englishSigma,
+            "warmupWords": Array(d.englishWarmupWords.prefix(64)),
+        ],
+    ]
+    let data = try! JSONSerialization.data(
+        withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    print(String(decoding: data, as: UTF8.self))
+
 case nil:
     Repl(engine: engine).run(limit: limitOverride ?? 5)
 
 case let .some(unknown):
-    warn("unknown subcommand: \(unknown) (expected: run, bench, or none for REPL)")
+    warn("unknown subcommand: \(unknown) (expected: run, bench, last-mile, artifact-probe, calibration-profile, or none for REPL)")
     exit(2)
 }

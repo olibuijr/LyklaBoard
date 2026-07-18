@@ -652,3 +652,14 @@ TAP p 0 0
 EXPECT_NO_AUTOCORRECT
 T " "
 EXPECT_LAST_COMMIT skip
+
+SCENARIO quoted English fragment never loses its quote to Icelandic autocorrect (2026-07-17T21-49-40)
+# Real dogfood: while writing “cold start” inside Icelandic prose, the typo
+# `„vold` was forced to Icelandic `völd`, deleting the opening quote. Quoted
+# spans are code-switching evidence; a candidate that drops the typed quote
+# may remain in the bar but must never auto-apply.
+T "er ég að prófa „vold"
+EXPECT_NO_AUTOCORRECT
+EXPECT_VERBATIM „vold
+T " "
+EXPECT_LAST_COMMIT „vold

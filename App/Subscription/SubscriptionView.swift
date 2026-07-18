@@ -1,6 +1,6 @@
 //
 //  SubscriptionView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  The Lyklaborð+ paywall sheet. Honest open-core framing: the base
 //  keyboard is free forever; the subscription unlocks the PERSONAL layer

@@ -1,6 +1,6 @@
 //
 //  RootView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  M2: three-tab shell — Byrjun (onboarding), Orðasafn (dictionary editor),
 //  Stillingar (settings scaffold). Each tab owns its own NavigationStack.

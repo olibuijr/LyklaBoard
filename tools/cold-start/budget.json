@@ -1,0 +1,19 @@
+{
+  "minimumColdRuns": 20,
+  "activationToEngineReadyMs": {
+    "p50": 150,
+    "p95": 250,
+    "p99": 400
+  },
+  "firstRequestToStableResultMs": {
+    "p50": 100,
+    "p95": 300,
+    "p99": 450
+  },
+  "backlogDrainMs": {
+    "p50": 50,
+    "p95": 150,
+    "p99": 250
+  },
+  "maxQueuedWindowDepth": 8
+}

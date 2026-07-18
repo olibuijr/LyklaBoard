@@ -2,9 +2,9 @@
 //  Keyboard+TouchEvidence.swift
 //  KeyboardKit
 //
-//  better-keyboard fork: this file does not exist upstream. It carries
+//  LyklaborÃ° fork: this file does not exist upstream. It carries
 //  per-release touch coordinates from the gesture layer to the action
-//  handler for TypeEngine's coordinate-level decoding (better-keyboard
+//  handler for TypeEngine's coordinate-level decoding (LyklaborÃ°
 //  PLAN.md "Touch decoding", stage 1).
 //
 
@@ -12,7 +12,7 @@ import Foundation
 
 public extension Keyboard {
 
-    /// better-keyboard fork: main-thread latches carrying touch evidence
+    /// LyklaborÃ° fork: main-thread latches carrying touch evidence
     /// from the gesture layer to the action handler.
     ///
     /// Why a latch and not a parameter: KeyboardKit's gesture → action
@@ -35,7 +35,7 @@ public extension Keyboard {
         /// spans the key pitch — gestures attach outside the visual
         /// insets, see `Keyboard+ButtonModifier`): −0.5…+0.5 at the cell
         /// edges, x growing right, y growing down (toward the spacebar) —
-        /// the same convention as better-keyboard's ReplayRig TSI traces
+        /// the same convention as LyklaborÃ°'s ReplayRig TSI traces
         /// and `TypeEngine.TapSample`. Values may exceed ±0.5 when a drag
         /// releases outside the key within tolerance.
         public struct ReleaseTouch {

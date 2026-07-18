@@ -20,6 +20,7 @@ from analyze import (  # noqa: E402
     classify,
     load_session,
     reconstruct_pairs,
+    plausible_edit,
     _inflection_offer,
     _silent_candidates,
     _is_junk_tier,
@@ -112,6 +113,22 @@ def test_erase_retype_alignment():
     assert all(t != "af" and i != "af" for t, i in pairs), \
         f"'af' leaked as a pair: {pairs}"
     print("  OK  erase-retype alignment  fodu -> goda ('af' dropped)")
+
+
+def test_short_phrase_rewrite_is_not_a_correction():
+    """A deleted short phrase start followed by unrelated text must not enter
+    personal-eval as a typo pair.  This is the real `a` -> `ef` dogfood shape:
+    the user changed what they meant before committing either token."""
+    assert plausible_edit("a", "ef") is False
+    assert plausible_edit(".", "er") is False
+    assert plausible_edit("a", "á") is True
+    assert plausible_edit("vi", "við") is True
+
+    app, kb = _session(["Það væri gott a", "Það væri gott ",
+                        "Það væri gott e", "Það væri gott ef"])
+    events = classify(app, kb)
+    assert not events, [(e.cls, e.typo, e.intended) for e in events]
+    print("  OK  short phrase rewrite  a -> ef excluded from correction corpus")
 
 
 def test_inflection_miss():
@@ -214,6 +231,25 @@ def test_taxonomy_valid_word_overlap():
     print("  OK  taxonomy  syndur -> sýndur  =>  valid-word-overlap · accepted-gap (NONFIRE)")
 
 
+def test_taxonomy_inflection_requires_bin_evidence():
+    """Prefix shape alone stays a hint; an exact shared BÍN lemma upgrades it."""
+    ctx = FindingContext(
+        typo="framkvæla", intended="framkvæma", event_cls="INFLECTION_MISS",
+        typo_valid=False, intended_valid=True, edit_distance=1,
+    )
+    cls, status = classify_finding(ctx)
+    assert cls == "inflection-shape-hint", (cls, status)
+    assert status == "triage-uncertain"
+    proven = FindingContext(
+        typo="reykjaviks", intended="reykjavikur", event_cls="INFLECTION_MISS",
+        morphology_offer="reykjaviki", shared_bin_lemmas=("Reykjavík",),
+    )
+    cls, status = classify_finding(proven)
+    assert cls == "inflection", (cls, status)
+    assert status == "watch"
+    print("  OK  taxonomy  INFLECTION_MISS requires shared BÍN lemma")
+
+
 def test_taxonomy_compound_oov():
     """stökklrikanum -> stökkleikanum (real MISS_ABSENT in
     2026-07-16T14-59-28): intended is absent from is.lex entirely but its
@@ -225,8 +261,8 @@ def test_taxonomy_compound_oov():
     )
     cls, status = classify_finding(ctx)
     assert cls == "compound-oov", (cls, status)
-    assert status == "in-flight:#22"
-    print("  OK  taxonomy  stökklrikanum -> stökkleikanum  =>  compound-oov · in-flight:#22")
+    assert status == "watch"
+    print("  OK  taxonomy  stökklrikanum -> stökkleikanum  =>  compound-oov · watch")
 
 
 def test_taxonomy_deep_decode():
@@ -241,8 +277,8 @@ def test_taxonomy_deep_decode():
     )
     cls, status = classify_finding(ctx)
     assert cls == "deep-decode", (cls, status)
-    assert status == "in-flight:#27"
-    print("  OK  taxonomy  eotthbap -> eitthvað  =>  deep-decode · in-flight:#27")
+    assert status == "watch"
+    print("  OK  taxonomy  eotthbap -> eitthvað  =>  deep-decode · watch")
 
 
 def test_taxonomy_context_ranking():
@@ -262,8 +298,8 @@ def test_taxonomy_context_ranking():
     )
     cls, status = classify_finding(ctx)
     assert cls == "context-ranking", (cls, status)
-    assert status == "in-flight:#27"
-    print("  OK  taxonomy  gret -> gert (fabricated bar)  =>  context-ranking · in-flight:#27")
+    assert status == "watch"
+    print("  OK  taxonomy  gret -> gert (fabricated bar)  =>  context-ranking · watch")
 
 
 def test_taxonomy_proper_noun_oov():
@@ -581,12 +617,14 @@ if __name__ == "__main__":
     run()
     print("\nv2 behaviours:")
     test_erase_retype_alignment()
+    test_short_phrase_rewrite_is_not_a_correction()
     test_inflection_miss()
     test_silent_candidates()
     test_junk_tier_attestation()
     print("\nv3 behaviours (taxonomy classifier):")
     test_taxonomy_restoration_fold()
     test_taxonomy_valid_word_overlap()
+    test_taxonomy_inflection_requires_bin_evidence()
     test_taxonomy_compound_oov()
     test_taxonomy_deep_decode()
     test_taxonomy_context_ranking()

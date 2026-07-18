@@ -10,7 +10,7 @@
 //  a delimiter lands can belong to a PREVIOUS word ("Þatturinn" applied
 //  over "Lovr", six passes stale). The keyboard-side bridge stamps every
 //  suggestion with the engine's pending token at production time
-//  (`BetterKeyboardAutocompleteService.pendingTokenInfoKey`); at auto-apply
+//  (`LyklabordAutocompleteService.pendingTokenInfoKey`); at auto-apply
 //  time the action handler calls `shouldAutoApply` to verify that recorded
 //  token still matches the token the delimiter is about to commit. On
 //  mismatch the apply is skipped and the delimiter inserts plainly — the

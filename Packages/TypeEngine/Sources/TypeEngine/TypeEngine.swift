@@ -61,13 +61,17 @@ public final class TypeEngine {
         icelandic: Lexicon,
         english: Lexicon,
         morphology: BinaryLemmatizer?,
-        config: EngineConfig = EngineConfig()
+        config: EngineConfig = EngineConfig(),
+        icelandicCalibration: LexiconCalibrationProfile? = nil,
+        englishCalibration: LexiconCalibrationProfile? = nil
     ) {
         self.init(
             icelandic: icelandic,
             english: english,
             morphologyProvider: morphology,
-            config: config
+            config: config,
+            icelandicCalibration: icelandicCalibration,
+            englishCalibration: englishCalibration
         )
     }
 
@@ -77,7 +81,9 @@ public final class TypeEngine {
         icelandic: Lexicon,
         english: Lexicon,
         morphologyProvider: MorphologyProviding? = nil,
-        config: EngineConfig = EngineConfig()
+        config: EngineConfig = EngineConfig(),
+        icelandicCalibration: LexiconCalibrationProfile? = nil,
+        englishCalibration: LexiconCalibrationProfile? = nil
     ) {
         self.config = config
         let model = BlendedLanguageModel(
@@ -85,12 +91,30 @@ public final class TypeEngine {
             english: english,
             morphology: morphologyProvider,
             config: config,
+            icelandicCalibrationProfile: icelandicCalibration,
+            englishCalibrationProfile: englishCalibration,
             personal: PersonalStore()
         )
         self.model = model
         self.corrector = Corrector(model: model, config: config)
         self.predictor = Predictor(model: model, config: config)
         self.probabilityIcelandic = 0.5
+    }
+
+    /// Exact values used by the current engine. Build tooling uses this to
+    /// freeze a generation's runtime-measured calibration into sidecars.
+    public var calibrationDiagnostics: (
+        icelandicMean: Double, icelandicSigma: Double, icelandicWarmupWords: [String],
+        englishMean: Double, englishSigma: Double, englishWarmupWords: [String]
+    ) {
+        (
+            model.icelandicCalibration.meanLogFrequency,
+            model.icelandicCalibration.stdLogFrequency,
+            model.icelandicCalibration.sampleWords,
+            model.englishCalibration.meanLogFrequency,
+            model.englishCalibration.stdLogFrequency,
+            model.englishCalibration.sampleWords
+        )
     }
 
     // MARK: - Personal vocabulary (M2 learning)
@@ -441,7 +465,7 @@ public final class TypeEngine {
     public func laneDiagnostics(for word: String)
         -> (
             frequencyIS: UInt32?, frequencyEN: UInt32?, zIS: Double, zEN: Double,
-            binKnown: Bool, binCases: [String], evidence: Double
+            binKnown: Bool, binCases: [String], binLemmas: [String], evidence: Double
         )
     {
         let w = word.lowercased()
@@ -452,6 +476,7 @@ public final class TypeEngine {
             zEN: model.calibratedUnigramScore(of: w, language: .english),
             binKnown: model.morphology?.isKnown(w) == true,
             binCases: model.morphology?.nounAdjectiveCases(of: w) ?? [],
+            binLemmas: model.morphology?.lemmaCandidates(of: w) ?? [],
             evidence: model.laneEvidence(of: w)
         )
     }

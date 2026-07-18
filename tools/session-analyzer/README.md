@@ -73,7 +73,7 @@ stamped at build time via `App/BuildInfo.swift`; sessions with no manifest
 group under `unknown`). It writes, into the gitignored `sessions/` dir:
 
 - `AGGREGATE.md` — per-build totals + rates (autocorrect false-positive rate,
-  MISS_OFFERED/ABSENT, INFLECTION_MISS, SILENT_MISS, taps/session), a **weighted
+  MISS_OFFERED/ABSENT, inflection-shaped hints, SILENT_MISS, taps/session), a **weighted
   per-key tap-offset** table, a **PATTERNS** section (recurring `typo→intended`
   pairs and same-category counts = tuning candidates; singles = watch list), a
   **build-over-build trend** table (does a new build regress real-typing
@@ -96,9 +96,12 @@ Eligible (unambiguous intended word): `AUTOCORRECT_UNDONE`, `MISS_OFFERED`,
 `MISS_ABSENT` (the user produced the intended word themselves), plus
 `SILENT_MISS` **only** when the top guess is uncontested (single penalty-0 edit
 that clearly beats the runner-up). Held back to `PENDING-REVIEW` in
-`AGGREGATE.md`: `INFLECTION_MISS` (inflection backlog, not the corrector) and
+`AGGREGATE.md`: shape-only `INFLECTION_MISS` findings and
 contested `SILENT_MISS`. Nothing ambiguous enters the corpus without Jökull's
-confirmation.
+confirmation. Ordinary phrase rewrites are not correction evidence: when a
+short fragment is deleted before commit and replaced by unrelated text (the
+observed `a` then `ef` shape), the analyzer drops the pair unless the keyboard
+log proves it was an autocorrect undo.
 
 ## Privacy / git hygiene
 
@@ -126,7 +129,7 @@ like `data/eval/dev.jsonl`).
 | `AUTOCORRECT_UNDONE` | keyboard auto-applied a correction; user backspaced to restore what they typed (a false autocorrect) |
 | `MISS_OFFERED` | user backspace-retyped to a word that **was** in the bar while typing — gating too conservative |
 | `MISS_ABSENT` | user backspace-retyped to a word the bar never offered — a ranking / candidate miss |
-| `INFLECTION_MISS` | a MISS whose intended word shares a lemma-ish stem with a bar offer differing only in an inflectional ending (e.g. `Kirkjubæjarklaustri` offered, `Kirkjubæjarklaustur` wanted) — routes to the **inflection backlog**, not the corrector |
+| `INFLECTION_MISS` | raw shape detector: intended word shares a long prefix with a bar offer differing in a short ending. The taxonomy upgrades this to `inflection · watch` **only** when both forms share an exact lemma from the shipping BÍN binary; otherwise it is `inflection-shape-hint · triage-uncertain` and must not route roadmap work. |
 | `TAP_USED` | user tapped a suggestion |
 | `CLEAN` | word committed with no correction, retype, or tap |
 
@@ -153,7 +156,8 @@ report (human-in-the-loop signal, not eval candidates):
 
 Attestation is authoritative via the engine: the analyzer shells to the
 prebuilt `type-repl` binary and batches `:word <tok>` (curated `is.lex`/`en.lex`
-membership, which excludes corpus noise like `fra`/`fa`). If the binary is
+membership plus BÍN validity, cases, and exact lemma candidates from the same
+artifact the engine ships). If the binary is
 absent it falls back to plain membership in the frequency corpora
 (`data/is/unigrams.json.gz`, `data/en/en-80k.txt`) — less precise. The
 keyboard-adjacency model mirrors `SpatialModel.icelandicRows`. Build the
@@ -202,8 +206,10 @@ the latest 3 sessions, a rising/flat/falling trend (latest-3 rate vs. the
 rate over every prior session), and a `typo → intended` example. `NOVEL` and
 any recurring `fixed:*` class sort first; `slangur-intentional` and
 `valid-word-overlap` (doctrine non-fires, never gaps) are excluded from the
-ranking and reported as a separate visible count instead. This table is the
-next-wave roadmap input.
+ranking and reported as a separate visible count instead. This table is
+**triage input**, not an automatic next-wave roadmap: a finding must first be
+classified as a discovery, ranking, action-policy, or session/proxy failure.
+`triage-uncertain` explicitly marks detectors that cannot yet make that call.
 
 ### Greynir grammar-parse enrichment (v4, OPTIONAL)
 
@@ -253,7 +259,7 @@ Four report additions, all advisory (never change engine behavior):
   `TAP_USED` and any typo that's a strict prefix of intended (a mid-word tap
   fragment "not parsing" as a complete word is an artifact, not grammar
   evidence).
-- **Case government audit** (new report section): for `INFLECTION_MISS`
+- **Case government audit** (new report section): for raw `INFLECTION_MISS`
   findings, an independent BÍN case-form lookup on typed vs. intended; for
   the final text, every preposition Greynir's own parse resolves a governed
   case for, cross-checked against the following word's independent BÍN case

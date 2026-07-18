@@ -218,7 +218,7 @@ extension KeyboardAction {
             on action: KeyboardAction,
             replaced: Bool
         ) {
-            // better-keyboard fork: consume the one-keystroke "a suggestion
+            // LyklaborÃ° fork: consume the one-keystroke "a suggestion
             // tap just auto-inserted a trailing space" arm. It lives for
             // exactly one gesture, so read-and-clear it up front; the space
             // collapse below is the only thing that acts on it.
@@ -231,7 +231,7 @@ extension KeyboardAction {
             tryUpdateSpaceDragState(for: gesture, on: action)
             guard let gestureAction else { return }
 
-            // better-keyboard fork (double-space bug, KeyboardKit issue #978):
+            // LyklaborÃ° fork (double-space bug, KeyboardKit issue #978):
             // when the user taps a bar suggestion, KeyboardKit auto-inserts a
             // trailing space and marks the proxy `.autoInserted`. If the very
             // next keystroke is the user's own spacebar tap, stock KeyboardKit
@@ -272,7 +272,7 @@ extension KeyboardAction {
             tryAutolearnSuggestion(suggestion)
             keyboardContext.insertAutocompleteSuggestion(suggestion)
             handle(.release, on: .character(""))
-            // better-keyboard fork: arm the one-keystroke "auto-inserted a
+            // LyklaborÃ° fork: arm the one-keystroke "auto-inserted a
             // space" collapse (see `handle(_:on:replaced:)`). Set AFTER the
             // `.character("")` release above, which itself clears the arm.
             // Whether a space was actually inserted is re-checked at the next
@@ -499,7 +499,7 @@ extension KeyboardAction {
         /// Temporary state used to auto-ignore when correcting an autocompleted word.
         private var lastAutocorrectedWord: String?
 
-        /// better-keyboard fork: one-keystroke arm set right after a suggestion
+        /// LyklaborÃ° fork: one-keystroke arm set right after a suggestion
         /// tap auto-inserts a trailing space, so the user's immediately
         /// following spacebar tap collapses into that space instead of adding a
         /// second one (see `handle(_:on:replaced:)`).

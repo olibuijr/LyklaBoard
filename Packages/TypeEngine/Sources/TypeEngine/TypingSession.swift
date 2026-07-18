@@ -42,7 +42,7 @@ public struct RevertInstruction: Equatable, Sendable {
 ///
 /// This is the single shared implementation of the "text before cursor" →
 /// suggestions pipeline used by BOTH the keyboard extension
-/// (`BetterKeyboardAutocompleteService`) and the macOS `type-repl` harness,
+/// (`LyklabordAutocompleteService`) and the macOS `type-repl` harness,
 /// so the two always run the identical path:
 ///
 /// 1. parse the full text before the cursor into (committed context,

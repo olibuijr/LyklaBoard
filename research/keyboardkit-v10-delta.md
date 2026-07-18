@@ -8,7 +8,7 @@ treating 9.9.1 as *ours*: what to backport, what pattern to copy freely (it's
 just API shape, MIT has nothing to do with it), and what to ignore.
 
 Sources: local checkout at
-`~/Library/Developer/Xcode/DerivedData/BetterKeyboard-*/SourcePackages/checkouts/KeyboardKit`
+`~/Library/Developer/Xcode/DerivedData/Lyklabord-*/SourcePackages/checkouts/KeyboardKit`
 (`_Deprecated/`, `RELEASE_NOTES.md`), `gh api`/`gh release view` against
 `KeyboardKit/KeyboardKit` for the 10.0–10.7 release notes, `gh issue` search on
 the same repo for the risk scan.

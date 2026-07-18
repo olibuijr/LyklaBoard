@@ -2,7 +2,7 @@
 //  CalloutContextTests.swift
 //  KeyboardKit
 //
-//  Regression coverage for the better-keyboard fork's action-callout
+//  Regression coverage for the LyklaborÃ° fork's action-callout
 //  drag-out dismissal (dogfood 2026-07-16: long-pressing the bottom-row `.`
 //  key, dragging FAR OUT of the callout and releasing still committed a
 //  character, whereas letter keys dismissed cleanly).

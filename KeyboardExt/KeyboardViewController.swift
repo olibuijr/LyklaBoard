@@ -1,6 +1,6 @@
 //
 //  KeyboardViewController.swift
-//  BetterKeyboardExt
+//  LyklabordKeyboard
 //
 //  M0 spike: KeyboardKit shell wired up with a custom Icelandic QWERTY
 //  layout. Autocorrect / prediction / learning land in later milestones
@@ -22,7 +22,7 @@ import TypeEngine
 /// by design — see PLAN.md decision #4), single locale, App Group wired for
 /// the future LearningStore / dictionary sync (M2/M3).
 extension KeyboardApp {
-    static var betterKeyboard: Self {
+    static var lyklabord: Self {
         .init(
             name: "Lyklaborð",
             appGroupId: "group.is.solberg.lyklabord",
@@ -34,12 +34,16 @@ extension KeyboardApp {
 final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewDidLoad() {
+        // Wave 39 activation boundary. Capture before KeyboardKit/App Group
+        // setup so the cold report includes controller work that happens
+        // before the autocomplete service exists.
+        let activationStartedAt = AutocompleteColdStartTracker.now
         super.viewDidLoad()
 
         // Configure the settings store (App Group backed) and inject the
         // app descriptor into the keyboard state.
-        KeyboardSettings.setupStore(for: .betterKeyboard)
-        state.setup(for: .betterKeyboard)
+        KeyboardSettings.setupStore(for: .lyklabord)
+        state.setup(for: .lyklabord)
 
         // Single Icelandic layout — no locale switching (PLAN.md decision #2:
         // mixed EN/IS typing is assumed on the one Icelandic layout).
@@ -65,7 +69,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // an `@available(*, deprecated...)` attribute, so this produces no
         // compiler warnings.)
         //
-        // `BetterKeyboardLayoutService` below is our subclass of
+        // `LyklabordLayoutService` below is our subclass of
         // `DeviceBasedLayoutService` (see "Bottom-row affordances" section)
         // that adds the SwiftKey-style `.` key between space and return on
         // iPhone (PLAN.md "Bottom-row affordances"); iPad keeps KeyboardKit's
@@ -75,7 +79,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // `.keyboardCalloutActions` view modifier in
         // `viewWillSetupKeyboardView()` below — that's the current, non-
         // deprecated mechanism regardless of layout service choice.
-        services.layoutService = BetterKeyboardLayoutService(
+        services.layoutService = LyklabordLayoutService(
             alphabeticInputSet: .icelandic,
             numericInputSet: .numeric,
             symbolicInputSet: .symbolic
@@ -96,11 +100,12 @@ final class KeyboardViewController: KeyboardInputViewController {
         state.keyboardContext.settings.spaceLongPressBehavior = .moveInputCursor
 
         // M1: bilingual IS/EN autocomplete via TypeEngine. The service
-        // bootstraps itself lazily on its own utility-QoS serial queue (mmap
+        // bootstraps itself lazily on its own user-initiated serial queue (mmap
         // of bin-morph.bin + en.lex + is.lex happens off the main thread —
-        // the launch-flicker mitigation in PLAN.md; nothing heavy runs in
-        // viewDidLoad). Until the engine is ready it returns empty
-        // suggestions. Replaces the default `.disabled` service; the
+        // the launch-flicker mitigation in PLAN.md; no artifact/model work
+        // runs in viewDidLoad). Autocomplete requests serialize behind bootstrap on
+        // that queue without blocking the UI thread. Replaces the default
+        // `.disabled` service; the
         // standard KeyboardView toolbar (`toolbar: { $0.view }` below)
         // renders `AutocompleteContext.suggestions`, and the action handler
         // applies `.autocorrect` suggestions on space/delimiter.
@@ -110,8 +115,9 @@ final class KeyboardViewController: KeyboardInputViewController {
         // the engine's personal vocabulary and appends learning events to
         // learning-events.log. Both fully optional: no App Group access
         // (Full Access denied) degrades to base-model-only, no logging.
-        services.autocompleteService = BetterKeyboardAutocompleteService(
-            appGroupId: KeyboardApp.betterKeyboard.appGroupId
+        services.autocompleteService = LyklabordAutocompleteService(
+            appGroupId: KeyboardApp.lyklabord.appGroupId,
+            activationStartedAt: activationStartedAt
         )
 
         // M2 learning: KeyboardKit auto-learns a tapped `.unknown`
@@ -132,7 +138,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // dot), performs the deferred '.'-apply on the FOLLOWING delimiter,
         // executes revert-on-continuation proxy edits, and forwards
         // verbatim-suggestion taps to the session.
-        services.actionHandler = BetterKeyboardActionHandler(controller: self)
+        services.actionHandler = LyklabordActionHandler(controller: self)
     }
 
     // MARK: - Appearance
@@ -146,7 +152,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // M2: re-stat the personal model (the containing app compacts it on
         // its own schedule) — one mtime check per keyboard presentation,
         // reload only when the file actually changed.
-        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+        (services.autocompleteService as? LyklabordAutocompleteService)?
             .refreshPersonalSnapshotIfNeeded()
         // Spacebar behavior (PLAN.md "Spacebar behavior — three
         // user-selectable modes"): re-read the mode the containing app's
@@ -154,7 +160,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // presentation — the app is a different process, so a change made
         // there while the keyboard is off-screen is picked up here (without
         // Full Access the suite is unavailable and this stays at mode 1).
-        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+        (services.autocompleteService as? LyklabordAutocompleteService)?
             .refreshSpacebarMode()
     }
 
@@ -163,7 +169,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         // M2: don't lose a verbatim tap/commit buffered right before the
         // keyboard is dismissed (events normally flush on the autocomplete
         // pass after each commit; this covers the last one).
-        (services.autocompleteService as? BetterKeyboardAutocompleteService)?
+        (services.autocompleteService as? LyklabordAutocompleteService)?
             .flushPendingLearningEvents()
     }
 
@@ -175,7 +181,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     // callbacks ALSO fire after our own insertions; the session recognizes
     // those EXACTLY via its proxy-edit ledger (every proxy mutation our
     // action handler performs is recorded as an expected before→after
-    // window transform — see `BetterKeyboardActionHandler`'s ledger
+    // window transform — see `LyklabordActionHandler`'s ledger
     // section), and the window-aware note peeks at the same ledger without
     // consuming it, so it is idempotent for our own edits and only resets
     // on genuinely inconsistent windows. This forwarding remains the
@@ -193,11 +199,11 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     private func forwardTextContextChange() {
-        guard let service = services.autocompleteService as? BetterKeyboardAutocompleteService
+        guard let service = services.autocompleteService as? LyklabordAutocompleteService
         else { return }
         // Field-type gate (PLAN.md verbatim/URL layer 2): URL/email/web-
         // search fields must never auto-apply a correction.
-        service.updateFieldKind(BetterKeyboardAutocompleteService.fieldKind(for: state.keyboardContext))
+        service.updateFieldKind(LyklabordAutocompleteService.fieldKind(for: state.keyboardContext))
         service.noteTextContextChange(textDocumentProxy.documentContextBeforeInput ?? "")
     }
 
@@ -218,7 +224,7 @@ final class KeyboardViewController: KeyboardInputViewController {
                     // they're wrong for this keyboard (see
                     // `betterAccessibilityLabel(for:)` below). Everything
                     // else keeps KeyboardKit's stock label.
-                    params.view.betterKeyboardAccessibility(
+                    params.view.lyklabordAccessibility(
                         for: params.item.action,
                         context: controller.state.keyboardContext
                     )
@@ -238,7 +244,7 @@ final class KeyboardViewController: KeyboardInputViewController {
             // no network). nil when the service is unavailable ⇒ tap-only.
             .autocompleteEjectAffordance(
                 (controller.services.autocompleteService
-                    as? BetterKeyboardAutocompleteService)
+                    as? LyklabordAutocompleteService)
                     .map { service in
                         Autocomplete.EjectAffordance(
                             action: { suggestion in
@@ -329,7 +335,7 @@ private extension View {
     /// corrected label; falls through untouched when the vendored default
     /// is already right.
     @ViewBuilder
-    func betterKeyboardAccessibility(
+    func lyklabordAccessibility(
         for action: KeyboardAction,
         context: KeyboardContext
     ) -> some View {
@@ -407,7 +413,7 @@ extension Callouts.Actions {
             "d": "dð",
             "t": "tþ",
             // Bottom-row affordance #2 (PLAN.md): long-press on the new `.`
-            // key (right of the spacebar — see `BetterKeyboardIPhoneLayoutService`
+            // key (right of the spacebar — see `LyklabordIPhoneLayoutService`
             // below) shows this cluster, period nearest/first since that's
             // the char under the finger. Overrides `Callouts.Actions.base`'s
             // stock "." -> ".…" mapping.
@@ -432,7 +438,7 @@ extension Callouts.Actions {
 /// rows (which already substitute `@`/`.com`/etc. for the space slot) and
 /// the numeric/symbolic keypads (whose input sets already contain `.`/`,`)
 /// are left untouched.
-final class BetterKeyboardIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
+final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
 
     override func bottomActions(
         for context: KeyboardContext
@@ -475,7 +481,7 @@ final class BetterKeyboardIPhoneLayoutService: KeyboardLayout.iPhoneLayoutServic
 }
 
 /// Device-based layout service that routes iPhone through
-/// `BetterKeyboardIPhoneLayoutService` (adds the period key) while iPad
+/// `LyklabordIPhoneLayoutService` (adds the period key) while iPad
 /// keeps KeyboardKit's stock `iPadLayoutService`, unmodified — per PLAN.md
 /// decision #3 ("iPad functional via KeyboardKit, unoptimized").
 ///
@@ -484,9 +490,9 @@ final class BetterKeyboardIPhoneLayoutService: KeyboardLayout.iPhoneLayoutServic
 /// overrides `keyboardLayoutService(for:)` — also `open` — and substitutes
 /// our own iPhone service only for the `.phone` case, deferring to
 /// `super` (which returns the stock `iPadService`) for everything else.
-final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService {
+final class LyklabordLayoutService: KeyboardLayout.DeviceBasedLayoutService {
 
-    private lazy var betterIPhoneService: KeyboardLayoutService = BetterKeyboardIPhoneLayoutService(
+    private lazy var lyklabordIPhoneService: KeyboardLayoutService = LyklabordIPhoneLayoutService(
         alphabeticInputSet: alphabeticInputSet,
         numericInputSet: numericInputSet,
         symbolicInputSet: symbolicInputSet
@@ -496,7 +502,7 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
         for context: KeyboardContext
     ) -> KeyboardLayoutService {
         switch context.deviceTypeForKeyboard {
-        case .phone: betterIPhoneService
+        case .phone: lyklabordIPhoneService
         default: super.keyboardLayoutService(for: context)
         }
     }
@@ -555,11 +561,11 @@ final class BetterKeyboardLayoutService: KeyboardLayout.DeviceBasedLayoutService
 /// insert a space") needs no code here — the service demotes `.autocorrect`
 /// suggestions to `.regular`, so the space-commit path finds nothing to apply.
 /// The active mode is read from the App Group suite via the service
-/// (`BetterKeyboardAutocompleteService.spacebarMode`).
-final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
+/// (`LyklabordAutocompleteService.spacebarMode`).
+final class LyklabordActionHandler: KeyboardAction.StandardActionHandler {
 
-    private var betterAutocompleteService: BetterKeyboardAutocompleteService? {
-        autocompleteService as? BetterKeyboardAutocompleteService
+    private var lyklabordAutocompleteService: LyklabordAutocompleteService? {
+        autocompleteService as? LyklabordAutocompleteService
     }
 
     // MARK: - Proxy-edit ledger (azooKey pattern, research/oss-harvest.md §2)
@@ -593,7 +599,7 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         guard let before = ledgerBeforeWindow else { return }
         ledgerBeforeWindow = nil
         let after = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
-        betterAutocompleteService?.noteSelfEdit(before: before, after: after)
+        lyklabordAutocompleteService?.noteSelfEdit(before: before, after: after)
     }
 
     override func tryPerformAutocomplete(
@@ -624,7 +630,7 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         guard
             let suggestion = autocompleteContext.suggestions.first(where: { $0.isAutocorrect }),
             let pending = suggestion.additionalInfo[
-                BetterKeyboardAutocompleteService.pendingTokenInfoKey
+                LyklabordAutocompleteService.pendingTokenInfoKey
             ],
             pending.hasSuffix("."),
             keyboardContext.textDocumentProxy.documentContextBeforeInput?.hasSuffix(pending) == true
@@ -676,7 +682,7 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         // containing app has armed a recording session (single flag check on
         // the engine queue); never records anything itself.
         if gesture == .release, action == .backspace {
-            betterAutocompleteService?.noteRecordedBackspace()
+            lyklabordAutocompleteService?.noteRecordedBackspace()
         }
 
         // 3. Revert-on-continuation: before a letter/digit is inserted, the
@@ -701,20 +707,20 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
             if Keyboard.TouchEvidence.consumeCalloutSelection(matching: action) {
                 // Long-press callout character: deliberateness signal, no
                 // tap sample (the touch belongs to the base key).
-                betterAutocompleteService?.noteLongPressInsertion(character)
+                lyklabordAutocompleteService?.noteLongPressInsertion(character)
             } else if let touch = Keyboard.TouchEvidence.consumeReleaseTouch(matching: action) {
-                betterAutocompleteService?.noteKeyTap(
+                lyklabordAutocompleteService?.noteKeyTap(
                     character, dx: touch.dxNorm, dy: touch.dyNorm)
             }
             if character.isLetter || character.isNumber,
-                let revert = betterAutocompleteService?.pendingContinuationRevert(for: character)
+                let revert = lyklabordAutocompleteService?.pendingContinuationRevert(for: character)
             {
                 executeProxyEdit(revert)
             }
             // Punctuation attachment ("word . " → "word. "): the space
             // keystroke after an armed memo re-attaches the period; any
             // other keystroke discards the memo inside the session.
-            if let attach = betterAutocompleteService?.pendingPunctuationAttachment(for: character) {
+            if let attach = lyklabordAutocompleteService?.pendingPunctuationAttachment(for: character) {
                 executeProxyEdit(attach)
             }
         }
@@ -746,13 +752,13 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
     ///   "word." / "word," and mirrors "cursor after a completed word + space
     ///   would insert".
     private func shouldInsertSpacePrediction() -> Bool {
-        guard betterAutocompleteService?.spacebarMode == .alwaysInsertPrediction else { return false }
+        guard lyklabordAutocompleteService?.spacebarMode == .alwaysInsertPrediction else { return false }
         // Space-cursor drag in progress → this release is a caret move, not a
         // space insert (same probe the deferred-'.' override uses; the
         // `isSpaceCursorDrag` helper on `StandardActionHandler` is internal to
         // KeyboardKit, so we read the gesture handler directly).
         if spaceDragGestureHandler.currentDragTextPositionOffset != 0 { return false }
-        guard BetterKeyboardAutocompleteService.fieldKind(for: keyboardContext) == .standard else {
+        guard LyklabordAutocompleteService.fieldKind(for: keyboardContext) == .standard else {
             return false
         }
         let before = keyboardContext.textDocumentProxy.documentContextBeforeInput ?? ""
@@ -799,16 +805,16 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         // this call's ledger snapshot — so the revert is attributed as a
         // self-edit, never as an engine correction.
         if suggestion.isUnknown,
-            betterAutocompleteService?.noteLiteralRevertChoice(suggestion.text) == true
+            lyklabordAutocompleteService?.noteLiteralRevertChoice(suggestion.text) == true
         {
-            betterAutocompleteService?.noteRecordedLiteralRevert(suggestion.text)
+            lyklabordAutocompleteService?.noteRecordedLiteralRevert(suggestion.text)
         } else {
             if suggestion.isUnknown {
-                betterAutocompleteService?.noteVerbatimChoice(suggestion.text)
+                lyklabordAutocompleteService?.noteVerbatimChoice(suggestion.text)
             }
             // DEV-MODE recorder: log the tapped candidate as the applied
             // action of the next pass. No-op unless a session is armed.
-            betterAutocompleteService?.noteRecordedSuggestionTap(suggestion.text)
+            lyklabordAutocompleteService?.noteRecordedSuggestionTap(suggestion.text)
         }
         super.handle(suggestion)
     }
@@ -856,16 +862,16 @@ final class BetterKeyboardActionHandler: KeyboardAction.StandardActionHandler {
         guard
             AutocorrectApplyGuard.shouldAutoApply(
                 recordedPendingToken: suggestion.additionalInfo[
-                    BetterKeyboardAutocompleteService.pendingTokenInfoKey
+                    LyklabordAutocompleteService.pendingTokenInfoKey
                 ],
                 textBeforeCursor: window
             )
         else {
             // Stale suggestion: skip the apply, insert the delimiter plainly.
-            betterAutocompleteService?.noteRecordedStaleAutocorrectSkip(suggestion.text)
+            lyklabordAutocompleteService?.noteRecordedStaleAutocorrectSkip(suggestion.text)
             return
         }
-        betterAutocompleteService?.noteRecordedAutocorrectApplied(suggestion.text)
+        lyklabordAutocompleteService?.noteRecordedAutocorrectApplied(suggestion.text)
         super.tryApplyAutocorrectSuggestion(before: gesture, on: action)
     }
 }

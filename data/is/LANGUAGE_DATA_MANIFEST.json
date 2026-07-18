@@ -1,6 +1,21 @@
 {
+  "schema": "lyklabord.language-data-manifest.v1",
+  "language": "is",
   "languageDataGeneration": "bin-sigrun-2026-07-10-9c10d70d",
+  "generationFingerprint": "9c10d70d",
+  "sourceReferenceDate": "2026-07-10",
   "builtAt": "2026-07-18",
+  "freshnessPolicy": {
+    "maxSourceAgeAtBuildDays": 30,
+    "maxGenerationAgeAtCommitDays": 180
+  },
+  "requiredShippingArtifacts": [
+    "is.lex",
+    "is-calibration.json",
+    "bin-morph.bin",
+    "paradigms.bin",
+    "governors.json.gz"
+  ],
   "source": {
     "name": "BÍN/DIM Sigrúnarsnið (SHsnid.csv)",
     "url": "https://bin.arnastofnun.is/django/api/nidurhal/?file=SHsnid.csv.zip",
@@ -32,6 +47,19 @@
     }
   },
   "artifacts": {
+    "is-calibration.json": {
+      "formatVersion": 1,
+      "bytes": 884,
+      "sha256": "209bcf7eb020f17f0b7371f2633daa660061c3debcf277194859ec41b80de46f",
+      "addK": 0.5
+    },
+    "is.lex": {
+      "formatVersion": 2,
+      "bytes": 9658112,
+      "sha256": "bbc3ed07f88afc290be1aa7abb46a84fd9bf79e9ee6106793c884a81ca29e93a",
+      "unigrams": 242835,
+      "bigrams": 380092
+    },
     "bin-morph.bin": {
       "formatVersion": 2,
       "bytes": 115189168,

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  "Byrjun" tab: the enable-the-keyboard walkthrough plus a try-it text
 //  field. Built for the least technical user we can imagine, on an iPhone

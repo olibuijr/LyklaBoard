@@ -5,20 +5,25 @@ import TypeEngine
 // `type-eval scorecard [--heldout]` — the unified per-commit scorecard.
 //
 // Runs: micro-eval + corpus dev (+ REPORT-ONLY heldout with --heldout) +
-// the scenario suites (via the type-repl binary) + the latency bench (also
+// the scenario suites + timed last-mile embedder replay + latency bench (via
 // type-repl), assembles ONE deterministic JSON (timestamp = git HEAD commit
 // time, commit = HEAD hash — no Date.now, so re-running on the same commit
 // reproduces the line byte-for-byte), appends it to scores/history.jsonl,
 // prints it to stdout, and exits non-zero if any hard gate fails.
 //
 // Hard gates (PLAN.md eval studio):
-//   falseAutocorrect   micro-eval overall false-autocorrect count == 0
-//   validWordSafety    micro-eval valid-word safety passes
+//   curatedSafety      micro false-autocorrect == 0 + valid-word safety
+//   corpusRegression   dev+safety top-1/top-3 floors and false-ac ceilings
+//   languageArtifacts  generation freshness/cohort/bytes/SHA-256 manifest
+//   artifactRuntime    fresh-process load < 500 ms, peak footprint < 50 MiB
 //   benchWorstLineMs   type-repl bench worst keystroke < 30 ms
 //   scenarioPass       every scenario in every suite passes (100%)
+//   lastMileReplay     final-text cases + host request/action latency budgets
 
 func runScorecardCommand(_ args: [String]) {
     let includeHeldout = args.contains("--heldout")
+    let updateCorpusBaseline = args.contains("--update-corpus-baseline")
+    let recordHistory = !args.contains("--no-history")
     // `--note <text>`: a short human annotation carried in the committed
     // history line (e.g. the wave the entry gates). Deterministic — the
     // caller supplies it, nothing wall-clock enters the JSON.
@@ -37,6 +42,20 @@ func runScorecardCommand(_ args: [String]) {
     let commit = git(["-C", repoRoot.path, "rev-parse", "HEAD"], default: "unknown")
     let timestamp = git(
         ["-C", repoRoot.path, "show", "-s", "--format=%cI", "HEAD"], default: "unknown")
+    let referenceDate = ISO8601DateFormatter().date(from: timestamp) ?? .distantPast
+
+    // --- Shipping artifact cohort ---------------------------------------
+    stderr("auditing language artifact manifests…")
+    let artifactAudit = LanguageArtifactAudit.run(
+        repoRoot: repoRoot, referenceDate: referenceDate)
+    for failure in artifactAudit.failures { stderr("  FAIL \(failure)") }
+    if artifactAudit.passed {
+        stderr(
+            "  \(artifactAudit.verifiedFileCount) files verified; generations "
+                + artifactAudit.generations.keys.sorted().map {
+                    "\($0)=\(artifactAudit.generations[$0]!)"
+                }.joined(separator: ", "))
+    }
 
     // --- Micro-eval -------------------------------------------------------
     stderr("running micro-eval…")
@@ -57,6 +76,11 @@ func runScorecardCommand(_ args: [String]) {
     engine.warmUp()
     let dev = CorpusEval.run(engine: engine, pairs: loadSplit("dev", repoRoot), split: "dev")
     printCorpusResult(dev)
+    stderr("running corpus safety…")
+    let safety = CorpusEval.run(
+        engine: engine, pairs: loadSplit("safety", repoRoot), split: "safety")
+    print("")
+    printCorpusResult(safety, label: "corpus safety")
     // Compounds slice (wave 31): real iceErrorCorpus compound errors —
     // tracked in the scorecard line (not a hard gate) so the structural
     // gaps (missing-hyphen, cross-token joins) stay visible per commit.
@@ -74,8 +98,55 @@ func runScorecardCommand(_ args: [String]) {
         printCorpusResult(heldout!, label: "corpus heldout [REPORT-ONLY]")
     }
 
+    // --- Baseline-relative real-artifact gate ---------------------------
+    let currentSuites = [
+        "dev": CorpusSuiteSnapshot(dev),
+        "safety": CorpusSuiteSnapshot(safety),
+    ]
+    let corpusBaselineURL = repoRoot.appendingPathComponent("scores/corpus-baseline-v1.json")
+    if updateCorpusBaseline {
+        do {
+            try writeCorpusBaseline(currentSuites, to: corpusBaselineURL)
+            stderr("updated corpus baseline at \(corpusBaselineURL.path)")
+        } catch {
+            stderr("cannot update corpus baseline: \(error)")
+            exit(2)
+        }
+    }
+    let corpusFailures: [String]
+    do {
+        let baseline = try JSONDecoder().decode(
+            CorpusBaselineDocument.self, from: Data(contentsOf: corpusBaselineURL))
+        corpusFailures = CorpusBaselineGate.failures(
+            current: currentSuites, baseline: baseline)
+    } catch {
+        corpusFailures = ["cannot load scores/corpus-baseline-v1.json: \(error)"]
+    }
+    for failure in corpusFailures { stderr("  corpus gate FAIL: \(failure)") }
+
     // --- Scenario suites + bench (type-repl) ------------------------------
     let repl = typeReplBinary(packageDir: packageDir)
+
+    // Fresh-process host proxy for the language stack's open/parse cost and
+    // physical footprint. This is a regression alarm, not an iOS jetsam
+    // certification (the physical Wave 39 cohort owns device cold-start).
+    // No retry: the first process is the number.
+    stderr("running process-cold artifact runtime probe…")
+    let artifactProbe = runCaptured(
+        "/usr/bin/time", ["-l", repl.path, "artifact-probe"], cwd: packageDir)
+    let artifactOpenMs = parseArtifactLoadMs(artifactProbe.err)
+    let artifactPeakBytes = parsePeakFootprintBytes(artifactProbe.err)
+    let artifactOpenThresholdMs = 500.0
+    let artifactPeakThresholdBytes = 50 * 1024 * 1024
+    let artifactRuntimePass = artifactProbe.code == 0
+        && artifactOpenMs > 0 && artifactOpenMs < artifactOpenThresholdMs
+        && artifactPeakBytes > 0 && artifactPeakBytes < artifactPeakThresholdBytes
+    stderr(
+        String(
+            format: "  load %.1f ms; peak footprint %.1f MiB (gate %@)",
+            artifactOpenMs, Double(artifactPeakBytes) / 1_048_576,
+            artifactRuntimePass ? "pass" : "FAIL"))
+
     stderr("running scenario suites via \(repl.lastPathComponent)…")
     var scenarioPassed = 0
     var scenarioTotal = 0
@@ -90,6 +161,27 @@ func runScorecardCommand(_ args: [String]) {
         stderr("  \(suite): \(passed)/\(total) (exit \(code))")
     }
     let scenarioPass = scenarioOK && scenarioTotal > 0 && scenarioPassed == scenarioTotal
+
+    // Timed last-mile replay: unlike stateless corpus evaluation and the
+    // synchronous scenarios, this drives a separately published bar over a
+    // real serial session queue. It gates final proxy text for delimiter
+    // apply, stale delivery, fast queueing, and backspace/revert. Behavior is
+    // deterministic and belongs in the committed scorecard; volatile host
+    // timings are enforced on the exit code but omitted from the JSON line.
+    stderr("running timed last-mile replay…")
+    let (lastMileOut, lastMileCode) = run(
+        repl.path, ["last-mile"], cwd: packageDir)
+    let lastMile = parseLastMileReport(lastMileOut)
+    let lastMileBehaviorPass = lastMile?.behaviorPass == true
+        && lastMile!.passedCases == lastMile!.totalCases
+        && lastMile!.totalCases > 0
+    let lastMilePerformancePass = lastMile?.performancePass == true
+        && lastMileCode == 0
+    stderr(String(
+        format: "  last-mile: %d/%d; request p95 %.2f ms; fast drain %.2f ms; gate %@",
+        lastMile?.passedCases ?? 0, lastMile?.totalCases ?? 0,
+        lastMile?.requestP95Ms ?? 0, lastMile?.backlogDrainMs ?? 0,
+        lastMileBehaviorPass && lastMilePerformancePass ? "pass" : "FAIL"))
 
     // Bench is wall-clock — a cold-cache first run can spike past the
     // ceiling (measured 48 ms once, ~4 ms steady). Retry once and take the
@@ -110,26 +202,55 @@ func runScorecardCommand(_ args: [String]) {
     // history line is reproducible given the commit. The latency gate is
     // enforced on the EXIT CODE (for CI) but its volatile measurement is not
     // recorded in the line — see scores/README.md.
-    let deterministicPass = (falseAutocorrect == 0) && validWordSafety && scenarioPass
-    let exitPass = deterministicPass && benchPass
+    let curatedSafetyPass = falseAutocorrect == 0 && validWordSafety
+    let corpusRegressionPass = corpusFailures.isEmpty
+    let deterministicPass = curatedSafetyPass && corpusRegressionPass
+        && artifactAudit.passed && scenarioPass && lastMileBehaviorPass
+    let exitPass = deterministicPass && artifactRuntimePass && benchPass
+        && lastMilePerformancePass
 
     // --- JSON (deterministic given the commit) ----------------------------
     var json: [String: Any] = [
-        "version": "v0",
+        "version": "v1",
         "commit": commit,
         "timestamp": timestamp,
         "corpus": corpusJSON(dev),
+        "safety": corpusJSON(safety),
         "compounds": corpusJSON(compounds),
         "microEval": [
             "n": micro.overall.total,
             "top1": micro.overall.top1,
             "top3": micro.overall.top3,
-            "falseAutocorrect": falseAutocorrect,
-            "validWordSafety": validWordSafety,
+            "curatedSafety": [
+                "falseAutoApplies": falseAutocorrect,
+                "validWordSafety": validWordSafety,
+            ] as [String: Any],
         ] as [String: Any],
         "hardGates": [
-            "falseAutocorrect": ["required": 0, "actual": falseAutocorrect, "pass": falseAutocorrect == 0],
-            "validWordSafety": ["pass": validWordSafety],
+            "curatedSafety": [
+                "requiredFalseAutoApplies": 0,
+                "actualFalseAutoApplies": falseAutocorrect,
+                "validWordSafety": validWordSafety,
+                "pass": curatedSafetyPass,
+            ] as [String: Any],
+            "corpusRegression": [
+                "baseline": "scores/corpus-baseline-v1.json",
+                "failures": corpusFailures,
+                "pass": corpusRegressionPass,
+            ] as [String: Any],
+            "languageArtifacts": [
+                "failures": artifactAudit.failures,
+                "generations": artifactAudit.generations,
+                "sourceAgeDays": artifactAudit.sourceAgeDays,
+                "verifiedFiles": artifactAudit.verifiedFileCount,
+                "pass": artifactAudit.passed,
+            ] as [String: Any],
+            // Threshold specs only. Fresh-process timing/footprint are host-
+            // volatile and enforced on the exit code, like the bench below.
+            "artifactRuntime": [
+                "loadThresholdMs": artifactOpenThresholdMs,
+                "peakFootprintThresholdBytes": artifactPeakThresholdBytes,
+            ] as [String: Any],
             // Threshold spec only — the measured value is wall-clock volatile
             // and enforced on the exit code, kept out of the committed line.
             "benchWorstLineMs": ["threshold": 30],
@@ -137,6 +258,20 @@ func runScorecardCommand(_ args: [String]) {
                 "required": "100%", "passed": scenarioPassed, "total": scenarioTotal,
                 "pass": scenarioPass,
             ],
+            "lastMileReplay": [
+                "required": "100% final-text cases",
+                "passed": lastMile?.passedCases ?? 0,
+                "total": lastMile?.totalCases ?? 0,
+                "sessionProxyFailures": max(
+                    (lastMile?.totalCases ?? 0) - (lastMile?.passedCases ?? 0), 0),
+                "behaviorPass": lastMileBehaviorPass,
+                // Threshold specs only; measurements are host-volatile and
+                // enforced on the scorecard exit code.
+                "requestP95ThresholdMs": 60.0,
+                "requestMaxThresholdMs": 120.0,
+                "backlogDrainThresholdMs": 100.0,
+                "actionP95ThresholdMs": 5.0,
+            ] as [String: Any],
         ] as [String: Any],
         "pass": deterministicPass,
     ]
@@ -154,7 +289,11 @@ func runScorecardCommand(_ args: [String]) {
     print(line)
 
     // --- Append to committed history --------------------------------------
-    appendHistory(line: line, repoRoot: repoRoot)
+    if recordHistory {
+        appendHistory(line: line, repoRoot: repoRoot)
+    } else {
+        stderr("history append skipped (--no-history)")
+    }
 
     // Human note: the (non-deterministic) measured worst keystroke, kept OUT
     // of the JSON so the committed history line stays reproducible.
@@ -173,12 +312,37 @@ func corpusJSON(_ result: CorpusResult) -> [String: Any] {
     for (name, tally) in result.byCategory { categories[name] = tallyJSON(tally) }
     var langs: [String: Any] = [:]
     for (name, tally) in result.byLang { langs[name] = tallyJSON(tally) }
+    func stagesJSON(_ tally: CorpusStageTally) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: CorpusOutcomeStage.allCases.map { ($0.rawValue, tally[$0]) })
+    }
+    var stageCategories: [String: Any] = [:]
+    for (name, tally) in result.stagesByCategory {
+        stageCategories[name] = stagesJSON(tally)
+    }
+    var stageLangs: [String: Any] = [:]
+    for (name, tally) in result.stagesByLang { stageLangs[name] = stagesJSON(tally) }
     return [
         "split": result.split,
         "overall": tallyJSON(result.overall),
         "categories": categories,
         "byLang": langs,
+        "stages": [
+            "overall": stagesJSON(result.stagesOverall),
+            "categories": stageCategories,
+            "byLang": stageLangs,
+        ] as [String: Any],
     ]
+}
+
+func writeCorpusBaseline(
+    _ suites: [String: CorpusSuiteSnapshot], to url: URL
+) throws {
+    let document = CorpusBaselineDocument(suites: suites)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    var data = try encoder.encode(document)
+    data.append(0x0A)
+    try data.write(to: url, options: .atomic)
 }
 
 func loadSplit(_ split: String, _ repoRoot: URL) -> [CorpusPair] {
@@ -242,6 +406,31 @@ func run(_ launchPath: String, _ args: [String], cwd: URL?) -> (out: String, cod
     return (String(decoding: data, as: UTF8.self), process.terminationStatus)
 }
 
+func runCaptured(
+    _ launchPath: String, _ args: [String], cwd: URL?
+) -> (out: String, err: String, code: Int32) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: launchPath)
+    process.arguments = args
+    if let cwd { process.currentDirectoryURL = cwd }
+    let outPipe = Pipe()
+    let errPipe = Pipe()
+    process.standardOutput = outPipe
+    process.standardError = errPipe
+    do {
+        try process.run()
+    } catch {
+        return ("", "\(error)", -1)
+    }
+    let out = outPipe.fileHandleForReading.readDataToEndOfFile()
+    let err = errPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return (
+        String(decoding: out, as: UTF8.self),
+        String(decoding: err, as: UTF8.self),
+        process.terminationStatus)
+}
+
 /// Build (if needed) and locate the type-repl binary in the same build
 /// configuration as this process — simplest reliable way to drive the
 /// scenario runner + bench without an in-process port.
@@ -273,6 +462,36 @@ func parseScenarioTotals(_ output: String) -> (passed: Int, total: Int) {
     return (0, 0)
 }
 
+struct LastMileReport {
+    let passedCases: Int
+    let totalCases: Int
+    let behaviorPass: Bool
+    let performancePass: Bool
+    let requestP95Ms: Double
+    let backlogDrainMs: Double
+}
+
+func parseLastMileReport(_ output: String) -> LastMileReport? {
+    for line in output.split(separator: "\n").reversed() {
+        guard line.first == "{",
+            let data = String(line).data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let metrics = object["metrics"] as? [String: Any],
+            let passed = (object["passedCases"] as? NSNumber)?.intValue,
+            let total = (object["totalCases"] as? NSNumber)?.intValue,
+            let behavior = (object["behaviorPass"] as? NSNumber)?.boolValue,
+            let performance = (object["performancePass"] as? NSNumber)?.boolValue,
+            let requestP95 = (metrics["requestP95Ms"] as? NSNumber)?.doubleValue,
+            let drain = (metrics["backlogDrainMs"] as? NSNumber)?.doubleValue
+        else { continue }
+        return LastMileReport(
+            passedCases: passed, totalCases: total,
+            behaviorPass: behavior, performancePass: performance,
+            requestP95Ms: requestP95, backlogDrainMs: drain)
+    }
+    return nil
+}
+
 /// Max "<int> us" over the whole bench report → milliseconds. The bench
 /// prints several worst-case keystroke latencies (main text max, edits2,
 /// beam, accent-naked, governor-context); the gate is the worst of them all.
@@ -287,4 +506,25 @@ func parseBenchWorstMs(_ output: String) -> Double {
         }
     }
     return worstUs / 1000
+}
+
+func parseArtifactLoadMs(_ stderr: String) -> Double {
+    guard let line = stderr.split(separator: "\n").first(where: {
+        $0.contains("loaded artifacts in")
+    }), let marker = line.range(of: "loaded artifacts in ")
+    else { return 0 }
+    let tail = line[marker.upperBound...]
+    guard let token = tail.split(separator: " ").first else { return 0 }
+    return Double(token.replacingOccurrences(of: ",", with: ".")) ?? 0
+}
+
+func parsePeakFootprintBytes(_ stderr: String) -> Int {
+    for line in stderr.split(separator: "\n") where line.contains("peak memory footprint") {
+        if let token = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).first,
+            let bytes = Int(token)
+        {
+            return bytes
+        }
+    }
+    return 0
 }

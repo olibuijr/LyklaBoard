@@ -1,0 +1,17 @@
+{
+  "schema": "lyklabord.lexicon-calibration.v1",
+  "languageDataGeneration": "symspell-2026-07-15-f84bfae-fd892a1",
+  "addK": 0.5,
+  "meanLogFrequency": 13.787326898028358,
+  "stdLogFrequency": 2.6302778650525012,
+  "warmupWords": [
+    "aa", "aaron", "aaa", "aachen", "aah", "aardvark", "aardvarks", "aaliyah",
+    "aesthetic", "aerial", "aesthetics", "aerobic", "aerospace", "aerosol", "aeronautics", "aegean",
+    "aeration", "aeneas", "aerodynamic", "aegis", "air", "aid", "aim", "aircraft",
+    "aids", "aims", "aimed", "airport", "aided", "ai", "airplane", "airlines",
+    "aortic", "aorta", "aol", "aortas", "authority", "author", "august", "authorities",
+    "authors", "audience", "australia", "australian", "au", "aunt", "austria", "authorized",
+    "aye", "ayala", "ayrshire", "ayers", "ayatollah", "ayurveda", "ayes", "aymara",
+    "ayah", "ayyubid", "ayatollahs", "ayahs", "ahead", "ah", "ahmad", "ahmed"
+  ]
+}

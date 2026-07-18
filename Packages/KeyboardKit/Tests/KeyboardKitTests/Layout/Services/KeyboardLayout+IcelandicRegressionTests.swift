@@ -2,7 +2,7 @@
 //  KeyboardLayout+IcelandicRegressionTests.swift
 //  KeyboardKit
 //
-//  Regression test for the better-keyboard fork: verifies that
+//  Regression test for the LyklaborÃ° fork: verifies that
 //  `KeyboardLayout.DeviceBasedLayoutService`, configured with the
 //  Icelandic input set exactly as `KeyboardExt/KeyboardViewController.swift`
 //  wires it up via `services.layoutService`, produces a FULL keyboard

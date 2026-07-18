@@ -3,7 +3,7 @@
 # replay-run.sh — orchestrate the last-mile replay rig (PLAN.md pyramid tier 3).
 #
 # Boots a named simulator, installs the Lyklaborð keyboard (via the main
-# BetterKeyboard app) + the ReplayHost app, records video, runs the XCUITest
+# Lyklabord app) + the ReplayHost app, records video, runs the XCUITest
 # that replays a timed typing trace through the real keyboard, then scores the
 # transcript with replay-report.py. Headless-friendly; no host-Mac input.
 #
@@ -48,7 +48,7 @@ cd "$ROOT"
 TRACE="${1:-ReplayRig/traces/tsi-en-sample.json}"
 SIM_NAME="${SIM_NAME:-ReplayRig}"
 SIM_DEVICE="${SIM_DEVICE:-iPhone 16 Pro}"
-PROJECT="BetterKeyboard.xcodeproj"
+PROJECT="Lyklabord.xcodeproj"
 DD="$ROOT/ReplayRig/.derived"
 RESULTS_DIR="$ROOT/ReplayRig/traces/results"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -72,13 +72,13 @@ xcrun simctl boot "$UDID" 2>/dev/null || true
 xcrun simctl bootstatus "$UDID" -b || true
 
 echo "== 2. Build keyboard app + rig =="
-xcodebuild build -scheme BetterKeyboard -project "$PROJECT" \
+xcodebuild build -scheme Lyklabord -project "$PROJECT" \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
 xcodebuild build-for-testing -scheme ReplayRig -project "$PROJECT" \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
 
 echo "== 3. Install apps (keyboard reaches the host system-wide) =="
-APP_MAIN="$(find "$DD/Build/Products" -maxdepth 2 -name 'BetterKeyboard.app' | head -1)"
+APP_MAIN="$(find "$DD/Build/Products" -maxdepth 2 -name 'Lyklabord.app' | head -1)"
 APP_HOST="$(find "$DD/Build/Products" -maxdepth 2 -name 'ReplayHost.app' | head -1)"
 [ -n "$APP_MAIN" ] && xcrun simctl install "$UDID" "$APP_MAIN"
 [ -n "$APP_HOST" ] && xcrun simctl install "$UDID" "$APP_HOST"

@@ -1,6 +1,6 @@
 //
 //  SpacebarMode.swift
-//  BetterKeyboardExt
+//  LyklabordKeyboard
 //
 //  Extension-side consumer of the spacebar-behavior setting (PLAN.md
 //  "Spacebar behavior — three user-selectable modes", SwiftKey parity per MS
@@ -34,7 +34,7 @@ enum SpacebarMode: String {
 
     /// Mode 2: space injects the primary prediction even with zero letters
     /// typed ("sentence by spacebar"). Implemented in
-    /// `BetterKeyboardActionHandler.handle(_:on:replaced:)` — on a `.space`
+    /// `LyklabordActionHandler.handle(_:on:replaced:)` — on a `.space`
     /// release with no word in progress, insert the top bar prediction
     /// before the space instead of a bare space. Needs next-word prediction
     /// to be useful; falls back to a plain space when the bar is empty.
@@ -42,7 +42,7 @@ enum SpacebarMode: String {
 
     /// Mode 3: space is always a literal space; corrections apply ONLY when
     /// the user taps the bar. Implemented in the service bridge
-    /// (`BetterKeyboardAutocompleteService.performAutocomplete`) by demoting
+    /// (`LyklabordAutocompleteService.performAutocomplete`) by demoting
     /// every `.autocorrect` suggestion to `.regular` before it reaches the
     /// context, so the bar still shows everything but nothing auto-commits
     /// on space. No action-handler change needed — with no `.autocorrect`

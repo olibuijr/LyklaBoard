@@ -1,6 +1,6 @@
 //
 //  KeycapHeroView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  The native interactive 3D hero for the "Byrjun" home screen: the Wave-6
 //  AEK II Ð keycap (our brand mark) rendered in SceneKit and spun on its

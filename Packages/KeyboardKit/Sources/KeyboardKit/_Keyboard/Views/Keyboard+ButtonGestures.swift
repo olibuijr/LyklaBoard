@@ -259,7 +259,7 @@ extension Keyboard {
                     repeatTimer: repeatTimer,
                     repeatAction: { handleRepeat(in: geo) },
                     dragAction: { handleDrag(in: geo, value: $0) },
-                    // better-keyboard fork: the drag END value is the only
+                    // LyklaborÃ° fork: the drag END value is the only
                     // place a quick tap's location is observable (its first
                     // .onChanged is consumed as the press and never reaches
                     // dragAction) — capture it for TouchEvidence. Fires
@@ -302,7 +302,7 @@ private extension Keyboard.ButtonGestures {
         dragAction?(value.startLocation, value.location)
     }
 
-    // better-keyboard fork: publish the release touch point, normalized
+    // LyklaborÃ° fork: publish the release touch point, normalized
     // within the key's full touch cell (geo covers the cell — gestures
     // attach outside the layout-item insets), for the action handler's
     // coordinate plumbing (TypeEngine touch decoding). Deliberately does

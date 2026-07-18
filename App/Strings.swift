@@ -1,6 +1,6 @@
 //
 //  Strings.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  All user-facing copy lives here (M2 app track). Icelandic-first — this is
 //  an Icelandic product — with English where it reads more naturally

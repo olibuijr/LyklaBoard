@@ -244,11 +244,11 @@ asc auth login \
 asc init --app-id <APP_ID>     # after task 3 exists; pins app context
 
 # --- 1. Upload a build to TestFlight ---
-asc builds archive --scheme BetterKeyboard --platform ios \
+asc builds archive --scheme Lyklabord --platform ios \
   --export-method app-store \
   --upload --app-id <APP_ID> --version 1.0.0 --build-number 1
 # or, from an already-exported ipa:
-asc builds upload --app-id <APP_ID> --file build/export/BetterKeyboard.ipa \
+asc builds upload --app-id <APP_ID> --file build/export/Lyklabord.ipa \
   --version 1.0.0 --build-number 1
 asc builds set-encryption-compliance --build-id <BUILD_ID> --uses-non-exempt-encryption false
 

@@ -14,6 +14,8 @@ public enum ArtifactLoader {
     public struct Paths: Sendable {
         public var english: URL
         public var icelandic: URL
+        public var englishCalibration: URL?
+        public var icelandicCalibration: URL?
         public var morphology: URL?
         public var paradigms: URL?
         public var governors: URL?
@@ -63,6 +65,8 @@ public enum ArtifactLoader {
         return Paths(
             english: root.appendingPathComponent("data/en/en.lex"),
             icelandic: root.appendingPathComponent("data/is/is.lex"),
+            englishCalibration: root.appendingPathComponent("data/en/en-calibration.json"),
+            icelandicCalibration: root.appendingPathComponent("data/is/is-calibration.json"),
             morphology: root.appendingPathComponent("data/is/bin-morph.bin"),
             paradigms: root.appendingPathComponent("data/is/paradigms.bin"),
             governors: root.appendingPathComponent("data/is/governors.json.gz")
@@ -100,6 +104,12 @@ public enum ArtifactLoader {
         let start = ContinuousClock.now
         let english = try FrequencyLexicon(contentsOf: paths.english)
         let icelandic = try FrequencyLexicon(contentsOf: paths.icelandic)
+        let englishCalibration = paths.englishCalibration.flatMap {
+            try? LexiconCalibrationProfile(contentsOf: $0)
+        }
+        let icelandicCalibration = paths.icelandicCalibration.flatMap {
+            try? LexiconCalibrationProfile(contentsOf: $0)
+        }
 
         var morphology: BinaryLemmatizer?
         if let url = paths.morphology {
@@ -107,7 +117,9 @@ public enum ArtifactLoader {
         }
 
         let engine = TypeEngine(
-            icelandic: icelandic, english: english, morphology: morphology, config: config)
+            icelandic: icelandic, english: english, morphology: morphology, config: config,
+            icelandicCalibration: icelandicCalibration,
+            englishCalibration: englishCalibration)
 
         var inflectionSummary = "off"
         if let paradigmsURL = paths.paradigms, let governorsURL = paths.governors {

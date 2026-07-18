@@ -13,7 +13,7 @@
 //  ids and nothing else on screen, so the test never has to fight layout.
 //
 //  The keyboard itself is NOT embedded here: Lyklaborð is installed
-//  system-wide by the containing BetterKeyboard app (its app-extension), enabled
+//  system-wide by the containing Lyklabord app (its app-extension), enabled
 //  once in Settings, and then available to every app — including this one. See
 //  scripts/replay-run.sh for the enablement story.
 //

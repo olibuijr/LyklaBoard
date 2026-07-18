@@ -32,7 +32,38 @@ public struct CorpusResult: Sendable {
     public let byCategory: [String: CorpusTally]
     public let byLang: [String: CorpusTally]
     public let overall: CorpusTally
+    public let stagesByCategory: [String: CorpusStageTally]
+    public let stagesByLang: [String: CorpusStageTally]
+    public let stagesOverall: CorpusStageTally
     public let runtimeSeconds: Double
+}
+
+/// The first engine boundary at which a corpus row stopped succeeding.
+/// `sessionProxyFailure` is part of the shared contract but cannot be emitted
+/// by this stateless corpus replay; Wave 41's timed embedder owns that stage.
+public enum CorpusOutcomeStage: String, CaseIterable, Codable, Sendable {
+    case success
+    case discoveryMiss
+    case rankingLoss
+    case actionPolicyAbstention
+    case actionPolicyError
+    case sessionProxyFailure
+}
+
+public struct CorpusStageTally: Sendable, Equatable {
+    public private(set) var counts: [CorpusOutcomeStage: Int] = [:]
+
+    public init() {}
+
+    public mutating func add(_ stage: CorpusOutcomeStage) {
+        counts[stage, default: 0] += 1
+    }
+
+    public mutating func add(_ other: CorpusStageTally) {
+        for (stage, count) in other.counts { counts[stage, default: 0] += count }
+    }
+
+    public subscript(_ stage: CorpusOutcomeStage) -> Int { counts[stage, default: 0] }
 }
 
 public enum CorpusEval {
@@ -51,6 +82,9 @@ public enum CorpusEval {
         var byCategory: [String: CorpusTally] = [:]
         var byLang: [String: CorpusTally] = [:]
         var overall = CorpusTally()
+        var stagesByCategory: [String: CorpusStageTally] = [:]
+        var stagesByLang: [String: CorpusStageTally] = [:]
+        var stagesOverall = CorpusStageTally()
 
         let clock = ContinuousClock()
         let elapsed = clock.measure {
@@ -59,23 +93,33 @@ public enum CorpusEval {
                 for word in pair.context { engine.confirmWord(word) }
 
                 let context = pair.context.joined(separator: " ")
+                let trace = CorrectionTrace()
                 let suggestions = engine.suggestions(
-                    context: context, currentWord: pair.typo, limit: limit)
+                    context: context, currentWord: pair.typo, limit: limit, trace: trace)
                 let texts = suggestions.map(\.text)
                 let fired = suggestions.first?.isAutocorrect == true
+                let target = pair.expectation == .preserve ? pair.typo : pair.intended
+                let stage = classifyOutcome(
+                    pair: pair,
+                    suggestions: suggestions,
+                    discoveredCandidates: trace.candidates.map(\.word)
+                )
 
                 var tally = CorpusTally()
                 tally.total = 1
-                if texts.first == pair.intended { tally.top1 = 1 }
-                if texts.contains(pair.intended) { tally.top3 = 1 }
+                if texts.first == target { tally.top1 = 1 }
+                if texts.contains(target) { tally.top3 = 1 }
                 if fired {
                     tally.autocorrectFired = 1
-                    if texts.first != pair.intended { tally.falseAutocorrect = 1 }
+                    if texts.first != target { tally.falseAutocorrect = 1 }
                 }
 
                 byCategory[pair.category, default: CorpusTally()].add(tally)
                 byLang[pair.lang, default: CorpusTally()].add(tally)
                 overall.add(tally)
+                stagesByCategory[pair.category, default: CorpusStageTally()].add(stage)
+                stagesByLang[pair.lang, default: CorpusStageTally()].add(stage)
+                stagesOverall.add(stage)
             }
         }
 
@@ -84,7 +128,37 @@ public enum CorpusEval {
             byCategory: byCategory,
             byLang: byLang,
             overall: overall,
+            stagesByCategory: stagesByCategory,
+            stagesByLang: stagesByLang,
+            stagesOverall: stagesOverall,
             runtimeSeconds: elapsed.evalMilliseconds / 1000
         )
+    }
+
+    /// Pure outcome classifier used by both the replay and focused tests.
+    /// Candidate discovery is inspected before ranking, and the action policy
+    /// is evaluated separately from bar order so roadmap work routes to the
+    /// stage that actually lost the row.
+    public static func classifyOutcome(
+        pair: CorpusPair,
+        suggestions: [Suggestion],
+        discoveredCandidates: [String]
+    ) -> CorpusOutcomeStage {
+        let texts = suggestions.map(\.text)
+        let first = suggestions.first
+        let fired = first?.isAutocorrect == true
+
+        if pair.expectation == .preserve {
+            return fired && first?.text != pair.typo ? .actionPolicyError : .success
+        }
+
+        if fired && first?.text != pair.intended { return .actionPolicyError }
+        if first?.text == pair.intended {
+            return fired ? .success : .actionPolicyAbstention
+        }
+        if texts.contains(pair.intended) || discoveredCandidates.contains(pair.intended) {
+            return .rankingLoss
+        }
+        return .discoveryMiss
     }
 }

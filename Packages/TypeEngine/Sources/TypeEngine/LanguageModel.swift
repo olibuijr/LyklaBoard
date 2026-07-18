@@ -1169,6 +1169,47 @@ enum Language {
     case english
 }
 
+/// Build-time frequency calibration shipped beside a `.lex` artifact.
+/// Production loaders use this to avoid scanning thousands of prefix buckets
+/// on every keyboard-extension activation. Tiny test lexicons omit it and
+/// retain deterministic runtime measurement.
+public struct LexiconCalibrationProfile: Codable, Equatable, Sendable {
+    public static let schema = "lyklabord.lexicon-calibration.v1"
+
+    public let schema: String
+    public let languageDataGeneration: String
+    public let addK: Double
+    public let meanLogFrequency: Double
+    public let stdLogFrequency: Double
+    public let warmupWords: [String]
+
+    public init(
+        languageDataGeneration: String,
+        addK: Double,
+        meanLogFrequency: Double,
+        stdLogFrequency: Double,
+        warmupWords: [String]
+    ) {
+        self.schema = Self.schema
+        self.languageDataGeneration = languageDataGeneration
+        self.addK = addK
+        self.meanLogFrequency = meanLogFrequency
+        self.stdLogFrequency = stdLogFrequency
+        self.warmupWords = warmupWords
+    }
+
+    public var isValid: Bool {
+        schema == Self.schema && !languageDataGeneration.isEmpty
+            && addK.isFinite && meanLogFrequency.isFinite
+            && stdLogFrequency.isFinite && stdLogFrequency >= 0.25
+            && !warmupWords.isEmpty
+    }
+
+    public init(contentsOf url: URL) throws {
+        self = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+    }
+}
+
 /// Per-lexicon frequency-distribution statistics used to calibrate
 /// cross-language comparisons.
 ///
@@ -1208,6 +1249,18 @@ struct LexiconCalibration: Sendable {
     /// scanning every two-letter range of a 300k-word table.
     private static let bucketSecond: [Character] = Array("aáeéiíoóuúyýhnrstlðgkm")
     private static let bucketLimit = 12
+
+    init(meanLogFrequency: Double, stdLogFrequency: Double, sampleWords: [String]) {
+        self.meanLogFrequency = meanLogFrequency
+        self.stdLogFrequency = stdLogFrequency
+        self.sampleWords = sampleWords
+    }
+
+    init(profile: LexiconCalibrationProfile) {
+        meanLogFrequency = profile.meanLogFrequency
+        stdLogFrequency = profile.stdLogFrequency
+        sampleWords = profile.warmupWords
+    }
 
     static func measure(_ lexicon: Lexicon, addK: Double) -> LexiconCalibration {
         var logs: [Double] = []
@@ -1305,6 +1358,8 @@ struct BlendedLanguageModel {
         english: Lexicon,
         morphology: MorphologyProviding?,
         config: EngineConfig,
+        icelandicCalibrationProfile: LexiconCalibrationProfile? = nil,
+        englishCalibrationProfile: LexiconCalibrationProfile? = nil,
         personal: PersonalStore = PersonalStore(),
         inflection: InflectionStore = InflectionStore(),
         touch: TouchModelStore = TouchModelStore()
@@ -1316,8 +1371,19 @@ struct BlendedLanguageModel {
         self.personal = personal
         self.inflection = inflection
         self.touch = touch
-        self.icelandicCalibration = LexiconCalibration.measure(icelandic, addK: config.addK)
-        self.englishCalibration = LexiconCalibration.measure(english, addK: config.addK)
+        self.icelandicCalibration = Self.calibration(
+            profile: icelandicCalibrationProfile, lexicon: icelandic, addK: config.addK)
+        self.englishCalibration = Self.calibration(
+            profile: englishCalibrationProfile, lexicon: english, addK: config.addK)
+    }
+
+    private static func calibration(
+        profile: LexiconCalibrationProfile?, lexicon: Lexicon, addK: Double
+    ) -> LexiconCalibration {
+        if let profile, profile.isValid, abs(profile.addK - addK) < 1e-12 {
+            return LexiconCalibration(profile: profile)
+        }
+        return LexiconCalibration.measure(lexicon, addK: addK)
     }
 
     func lexicon(for language: Language) -> Lexicon {

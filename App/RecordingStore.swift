@@ -1,6 +1,6 @@
 //
 //  RecordingStore.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  DEV-MODE typing-session recorder (containing-app half). Owns the recording
 //  pad's authoritative timeline and the arming handshake with the keyboard

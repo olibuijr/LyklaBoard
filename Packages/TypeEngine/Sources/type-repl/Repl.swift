@@ -98,7 +98,9 @@ struct Repl {
             print("  en.lex  f=\(fEN)  z=\(String(format: "%+.2f", d.zEN))")
             print(
                 "  BÍN     \(d.binKnown ? "known" : "-")"
-                    + (d.binCases.isEmpty ? "" : "  cases: \(d.binCases.joined(separator: " "))"))
+                    + (d.binCases.isEmpty ? "" : "  cases: \(d.binCases.joined(separator: " "))")
+                    + "  lemmas: "
+                    + (d.binLemmas.isEmpty ? "-" : d.binLemmas.joined(separator: ",")))
             print(
                 "  lane evidence log(e_IS/e_EN) = \(String(format: "%+.3f", d.evidence)) nats"
                     + (d.evidence == 0 ? " (uniform — does not move the lane)" : "")

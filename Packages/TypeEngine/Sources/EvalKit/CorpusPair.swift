@@ -12,25 +12,47 @@ import Foundation
 /// For `space_miss`, `intended` is the two-word `"word1 word2"` string; for
 /// every other category it is a single word. `seed` (and any other extra
 /// key) is ignored by the decoder.
+public enum CorpusExpectation: String, Codable, Sendable {
+    /// The typed token is an error and `intended` is the desired replacement.
+    case repair
+    /// The typed token is valid and must be preserved even when context makes
+    /// `intended` tempting. Used by clean-identity and valid-word hard negatives.
+    case preserve
+}
+
 public struct CorpusPair: Codable, Equatable, Sendable {
     public let typo: String
     public let intended: String
     public let context: [String]
     public let lang: String
     public let category: String
+    public let expectation: CorpusExpectation
 
     public init(
-        typo: String, intended: String, context: [String], lang: String, category: String
+        typo: String, intended: String, context: [String], lang: String, category: String,
+        expectation: CorpusExpectation = .repair
     ) {
         self.typo = typo
         self.intended = intended
         self.context = context
         self.lang = lang
         self.category = category
+        self.expectation = expectation
     }
 
     enum CodingKeys: String, CodingKey {
-        case typo, intended, context, lang, category
+        case typo, intended, context, lang, category, expectation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        typo = try values.decode(String.self, forKey: .typo)
+        intended = try values.decode(String.self, forKey: .intended)
+        context = try values.decode([String].self, forKey: .context)
+        lang = try values.decode(String.self, forKey: .lang)
+        category = try values.decode(String.self, forKey: .category)
+        expectation = try values.decodeIfPresent(CorpusExpectation.self, forKey: .expectation)
+            ?? .repair
     }
 }
 

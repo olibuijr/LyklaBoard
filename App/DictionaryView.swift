@@ -1,6 +1,6 @@
 //
 //  DictionaryView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  "Orðasafn" — the dictionary editor. Two sections (learned words / words
 //  the user explicitly added), a search field filtering both, swipe-to-

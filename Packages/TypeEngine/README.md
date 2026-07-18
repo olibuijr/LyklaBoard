@@ -11,6 +11,30 @@ document is the map across those details. Product history and future ideas live
 in the repository-level `PLAN.md` and `docs/WAVES.md`; neither is the authority
 for the current engine structure.
 
+## Engine laboratory
+
+Core typing work does not require the app, keyboard UI, simulator, or an
+iPhone. The package contains a production-shaped headless laboratory:
+
+- `type-repl` loads the shipping language artifacts and drives the same
+  `TypingSession` and `TypeEngine` path as the extension through
+  `ProxySimulator`;
+- scenario files reproduce complete keystroke, document-window, delimiter,
+  stale-read, cursor, touch, and revert sequences;
+- `type-repl last-mile` drives a separately published bar over the production
+  request sequencer and a real serial session queue, asserting delimiter,
+  stale-delivery, fast-input, and backspace/revert outcomes against final
+  proxy text;
+- `type-eval` measures curated safety, corpus quality, personal evidence, and
+  configuration A/B movement;
+- package tests pin narrow invariants, and `type-repl bench` measures the
+  synchronous per-keystroke hot path.
+
+The UI and real-device layers are deliberately downstream. They test the
+embedder contract, extension activation, real touch delivery, and host-app
+behavior; they are not where engine ranking or policy is tuned. See
+[`LAB.md`](LAB.md) for the repeatable development loops and evidence ladder.
+
 ## The shortest useful model
 
 Lyklaborð is a stateful, bilingual noisy-channel decoder behind a conservative
@@ -87,6 +111,7 @@ following artifacts into those interfaces:
 |---|---|---|
 | Icelandic frequency and context | `data/is/is.lex` via `Lexicon` | Attested surface vocabulary, unigram frequency, bigrams, continuations, prefix search |
 | English frequency and context | `data/en/en.lex` via `Lexicon` | Same signals for English |
+| Frequency calibration | `data/{is,en}/*-calibration.json` via `LexiconCalibrationProfile` | Generation-bound mean/σ and a bounded warm-up set; avoids recomputing stable corpus statistics on extension activation |
 | Icelandic morphology | `data/is/bin-morph.bin` via `MorphologyProviding` | Whether a form is morphologically known, lemma candidates, POS/case analyses, open-class status |
 | Paradigms | `data/is/paradigms.bin` via `ParadigmsProviding` | Forms grouped by lemma and morph feature bundle |
 | Case government | `data/is/governors.json.gz` via `GovernorsModel` | Statistical `P(case | previous word)` backoff |
@@ -234,6 +259,12 @@ For a committed word, each lexicon produces a calibrated unigram z-score.
 Calibration is essential because the Icelandic and English corpora have
 different sizes and frequency scales. Their difference becomes bounded
 emission evidence for the posterior update:
+
+Production does not estimate these stable values on the cold keyboard path.
+Each language generation ships a tiny hashed calibration sidecar containing
+the exact mean, standard deviation, add-k value, and bounded warm-up words.
+Invalid/mismatched profiles fall back to deterministic runtime measurement for
+testability; the scorecard manifest audit fails production cohort drift.
 
 ```text
 predict:  p' = (1-s)·p + s·(1-p)
@@ -484,6 +515,7 @@ swift run -c release type-eval ab --config /path/to/overrides.json
 swift run -c release type-eval personal
 swift run -c release type-eval scorecard
 swift run -c release type-repl bench
+swift run -c release type-repl last-mile
 ```
 
 The held-out corpus is report-only and is not a tuning surface. See

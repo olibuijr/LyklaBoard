@@ -2,15 +2,15 @@
 //  KeyboardAction+SpacebarModeTests.swift
 //  KeyboardKit
 //
-//  Sequencing coverage for the better-keyboard fork's PLAN.md "Spacebar
+//  Sequencing coverage for the LyklaborÃ° fork's PLAN.md "Spacebar
 //  behavior — three user-selectable modes", extending the mirror-test
 //  pattern in `KeyboardAction+SpaceSequencingTests.swift`. Everything runs
 //  through `StandardActionHandler.handle(_:on:)` — the exact entry point
 //  `Keyboard.ButtonGestures` calls for every real key release.
 //
 //  Why mirror tests: the production interceptors live in the app-extension
-//  target (`KeyboardExt/`, `BetterKeyboardActionHandler` +
-//  `BetterKeyboardAutocompleteService`), which the KeyboardKit package test
+//  target (`KeyboardExt/`, `LyklabordActionHandler` +
+//  `LyklabordAutocompleteService`), which the KeyboardKit package test
 //  target cannot import. So this file verifies the *KeyboardKit mechanisms*
 //  those modes are built on, plus a faithful local mirror of the mode-2
 //  space interception, at the same `handle(_:on:)` granularity that runs on
@@ -197,7 +197,7 @@ final class KeyboardAction_SpacebarModeTests: XCTestCase {
 
 // MARK: - Mode-2 mirror handler
 
-/// Faithful in-test reproduction of `BetterKeyboardActionHandler`'s spacebar
+/// Faithful in-test reproduction of `LyklabordActionHandler`'s spacebar
 /// mode-2 interception (`KeyboardExt/KeyboardViewController.swift`). Kept in
 /// lockstep with that production code: on a `.space` release with no word in
 /// progress, inject the top non-verbatim/non-emoji prediction before letting

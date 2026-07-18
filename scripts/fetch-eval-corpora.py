@@ -15,7 +15,7 @@ and PLAN.md:
     is a restrictive research-only grant with an explicit no-redistribution
     clause: "Members of the said research group must not copy, publish,
     communicate to the public, or otherwise give to any third party access to
-    the whole or any part of IFD." better-keyboard is a public FOSS repo —
+    the whole or any part of IFD." LyklaborÃ° is a public FOSS repo —
     committing IFD-derived sentences would violate that clause. Documented as
     an acquisition gap; NOT used. (It remains fine to use privately/locally
     for e.g. one-off frequency analysis, just not to redistribute in this repo.)
@@ -70,8 +70,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 USER_AGENT = (
-    "better-keyboard-eval-corpus/0.1 "
-    "(https://github.com/jokull/better-keyboard; research/eval dataset build; "
+    "lyklabord-eval-corpus/0.1 "
+    "(https://github.com/jokull/LyklabordApp; research/eval dataset build; "
     "contact: jokull@triptojapan.com)"
 )
 

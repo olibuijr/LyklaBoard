@@ -22,7 +22,9 @@ overrides) and calls into here.
 Status vocabulary: `fixed:<wave/commit>` (recurrence is a REGRESSION — flag
 loudly), `in-flight:<task#>` (has an owner, not yet closed), `accepted-gap`
 (known, intentionally not fixed — doctrine, not a bug), `watch` (machinery
-shipped; watching for residual misses), `not-error` (not a defect at all).
+shipped; watching for residual misses), `triage-uncertain` (the detector is
+only a routing hint and needs stronger evidence before it can own roadmap
+work), `not-error` (not a defect at all).
 """
 
 import json
@@ -62,11 +64,21 @@ CLASSES = [
     ),
     dict(
         id="inflection",
-        title="Inflection miss",
-        detect="analyze.py's own INFLECTION_MISS class — the bar offered a "
-               "different inflection of the same stem",
-        status="in-flight:#23",
-        notes="",
+        title="BÍN-proven inflection miss",
+        detect="the intended word and prefix-similar bar offer share at least "
+               "one lemma in the shipping BÍN morphology artifact",
+        status="watch",
+        notes="Evidence-backed inflection relationship. Route only after the "
+              "failure stage (discovery/ranking/action/session) is known.",
+    ),
+    dict(
+        id="inflection-shape-hint",
+        title="Inflection-shaped spelling hint",
+        detect="INFLECTION_MISS prefix/suffix shape heuristic without a shared "
+               "BÍN lemma between intended word and bar offer",
+        status="triage-uncertain",
+        notes="Do not route roadmap work from this label; it is spelling-shape "
+              "similarity only, not morphological evidence.",
     ),
     dict(
         id="space-miss",
@@ -82,8 +94,9 @@ CLASSES = [
         detect="intended length >= 8, absent from is.lex, but a trailing "
                "substring is independently attested (cheap/approximate — a "
                "triage hint, not a validity engine)",
-        status="in-flight:#22",
-        notes="",
+        status="watch",
+        notes="Compound validity/repair machinery shipped in waves 22/31; "
+              "watch residual misses without treating the old task number as open.",
     ),
     dict(
         id="restoration-fold",
@@ -99,16 +112,18 @@ CLASSES = [
         id="deep-decode",
         title="Deep decode (>= 3 substitutions)",
         detect=">= 3 character-level edits between typo and intended",
-        status="in-flight:#27",
-        notes="",
+        status="watch",
+        notes="Deep and mash-recovery decoding shipped in wave 30; residual "
+              "misses need stage evidence and an ablation before widening search.",
     ),
     dict(
         id="context-ranking",
         title="Context ranking / margin miss",
         detect="intended appeared in the recorded bar (rs or plain) but a "
                "different candidate outranked it, or the margin missed",
-        status="in-flight:#27",
-        notes="the 'gret' class.",
+        status="watch",
+        notes="Wave 27 context ranking shipped; watch the 'gret' class and "
+              "classify gold-in-pool ranking losses separately from policy abstention.",
     ),
     dict(
         id="proper-noun-oov",
@@ -277,6 +292,8 @@ class FindingContext:
     applied_kind: str = ""            # "autocorrect" | "tap" | "none" | "stale-skip"
     stale_repeat: bool = False        # applied autocorrect repeats prev committed word
     confirmed: dict = None            # confirmed-intents.jsonl record for typo, if any
+    morphology_offer: str = ""       # prefix-similar bar offer, if one was observed
+    shared_bin_lemmas: tuple = ()     # exact BÍN intersection intended <-> offer
 
 
 def classify_finding(ctx: FindingContext) -> tuple:
@@ -308,7 +325,9 @@ def classify_finding(ctx: FindingContext) -> tuple:
         return "valid-word-overlap", status_of("valid-word-overlap")
 
     if ctx.event_cls == "INFLECTION_MISS":
-        return "inflection", status_of("inflection")
+        if ctx.shared_bin_lemmas:
+            return "inflection", status_of("inflection")
+        return "inflection-shape-hint", status_of("inflection-shape-hint")
 
     if is_space_miss(typo, intended):
         return "space-miss", status_of("space-miss")

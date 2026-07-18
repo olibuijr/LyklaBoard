@@ -1,6 +1,6 @@
 //
 //  BuildInfo.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  Build-time stamp of the engine git commit, embedded into session manifests
 //  (see RecordingStore.makeManifest) so the Mac-side aggregate can group
@@ -8,7 +8,7 @@
 //
 //  ┌─ GENERATED — DO NOT EDIT BY HAND ───────────────────────────────────────┐
 //  │ The value below is rewritten on every build by the `Stamp engine commit` │
-//  │ preBuildScript declared in project.yml (BetterKeyboard target). The      │
+//  │ preBuildScript declared in project.yml (Lyklabord target). The           │
 //  │ script runs `git rev-parse --short HEAD` before the Compile Sources      │
 //  │ phase and overwrites this file IN PLACE only when the value changed, so  │
 //  │ it neither churns git on every build nor triggers needless recompiles.   │
@@ -25,5 +25,5 @@ enum BuildInfo {
     /// Short git commit of the engine/app source this binary was built from.
     /// Rewritten by the project.yml preBuildScript; "unknown" if git was
     /// unavailable at build time (e.g. a source tarball with no .git).
-    static let engineCommit = "7a6aa92+dirty"
+    static let engineCommit = "dd4afc2+dirty"
 }

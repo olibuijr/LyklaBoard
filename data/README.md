@@ -1,6 +1,6 @@
 # Language Data Artifacts
 
-This directory contains the language models and frequency tables for the better-keyboard iOS extension. All files are mmap-ed in the app bundle for efficient on-device autocorrect and prediction.
+This directory contains the language models and frequency tables for the LyklaborÃ° iOS extension. All files are mmap-ed in the app bundle for efficient on-device autocorrect and prediction.
 
 ## Icelandic (is/)
 
@@ -126,6 +126,13 @@ form + what's its lemma", not "how frequent is it"). Built by
 read by `Packages/Lexicon`'s `FrequencyLexicon` (mmap, lazy offset reads, no
 upfront parsing — same strategy as `BinaryLemmatizer`). Format is documented
 in `Packages/Lexicon/FORMAT.md`.
+
+Each shipping lexicon has a generation-bound calibration sidecar
+(`is/is-calibration.json`, `en/en-calibration.json`). It freezes the exact
+within-language log-frequency mean/σ and a 64-word warm-up set that used to be
+recomputed by scanning thousands of prefix buckets on every extension launch.
+The sidecars are required, hashed manifest artifacts; the scorecard verifies
+schema, generation, add-k compatibility, bytes, and SHA-256 before replay.
 
 Both builds drop tokens with non-letter characters (digits, punctuation) but
 now allow a single **internal** apostrophe (`'`/`'`, curly folded to

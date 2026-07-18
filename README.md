@@ -58,7 +58,7 @@ The extension reads everything from the app bundle and App Group container and n
 ```bash
 brew install xcodegen
 xcodegen generate
-xcodebuild -scheme BetterKeyboard -destination 'generic/platform=iOS Simulator' build
+xcodebuild -scheme Lyklabord -destination 'generic/platform=iOS Simulator' build
 ```
 
 Requires Xcode 26+, iOS 18 deployment target. Tests: `swift test` in each package under `Packages/`.

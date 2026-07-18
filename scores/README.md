@@ -30,10 +30,13 @@ logic in `Sources/EvalKit`). Data lives in `data/eval/` (read-only:
 
    | gate | requirement | source |
    |---|---|---|
-   | `falseAutocorrect` | **0** | micro-eval overall false-autocorrect count |
-   | `validWordSafety` | pass | micro-eval: no expected word auto-replaces when typed verbatim |
+   | `curatedSafety` | **0** false auto-applies + valid-word pass | fast curated micro invariant |
+   | `corpusRegression` | no top-1/top-3 decrease; no false-autoapply increase | committed real-artifact baseline, exact suite/category/language cohorts |
+   | `languageArtifacts` | pass | manifest generation, source age, bytes, SHA-256, required cohort |
+   | `artifactRuntime` | fresh-process load **<500 ms**, peak footprint **<50 MiB** | host regression proxy; no retry |
    | `benchWorstLineMs` | **< 30 ms** | `type-repl bench` worst keystroke |
    | `scenarioPass` | **100%** | every scenario in every suite passes |
+   | `lastMileReplay` | **100%** final-text cases; request p95 **<60 ms**, max **<120 ms**, fast drain **<100 ms**, action p95 **<5 ms** | async serial-session replay using production request/apply guards |
 
 ## Commands
 
@@ -42,12 +45,24 @@ logic in `Sources/EvalKit`). Data lives in `data/eval/` (read-only:
 
 # Replay a corpus split → per-category / per-language / overall table.
 swift run -c release --package-path Packages/TypeEngine type-eval corpus dev
+swift run -c release --package-path Packages/TypeEngine type-eval corpus safety
 swift run -c release --package-path Packages/TypeEngine type-eval corpus heldout   # REPORT-ONLY
 
 # Full scorecard: micro-eval + corpus dev + scenario suites + bench → one
 # JSON, appended to scores/history.jsonl. Non-zero exit on a failed gate.
 swift run -c release --package-path Packages/TypeEngine type-eval scorecard
 swift run -c release --package-path Packages/TypeEngine type-eval scorecard --heldout  # adds a REPORT-ONLY heldout section
+
+# Focused Wave 41 gate: fresh/deferred delimiter application, stale delivery,
+# fast-input backlog, and backspace/literal revert; assertions use final text.
+swift run -c release --package-path Packages/TypeEngine type-repl last-mile
+
+# Only when deliberately accepting a new evaluation floor/cohort. This
+# rewrites the committed baseline; an ordinary scorecard can never bless itself.
+swift run -c release --package-path Packages/TypeEngine type-eval scorecard --update-corpus-baseline --no-history
+
+# Regenerate the deterministic 600-row preserve corpus from the real artifacts.
+swift run -c release --package-path Packages/TypeEngine type-eval generate-safety
 
 # A/B: baseline vs an EngineConfig override set, on corpus dev + micro-eval.
 swift run -c release --package-path Packages/TypeEngine type-eval ab --config overrides.json
@@ -97,10 +112,28 @@ accepting a wave, exactly like a manual heldout check.
   local personal data, by design.
 
 The **micro-eval** uses small curated `DictLexicon` doubles (the
-`eval-fixture.tsv` + hand-assembled wordlists) — a fast conservatism control.
-The **corpus** eval uses the real `data/{is,en}` lexicons + BÍN morphology +
-Stage-B inflection artifacts: 3,000 pairs replayed through one reused engine
-(posterior reset + context primed per pair), ~12 s for a split.
+`eval-fixture.tsv` + hand-assembled wordlists) — a fast conservatism control
+named `curatedSafety`, not a system-wide zero-error claim. The **corpus** eval
+uses the real `data/{is,en}` lexicons + BÍN morphology + Stage-B inflection
+artifacts. `dev` has 3,000 repair rows. `safety` has 600 deterministic
+`expectation: preserve` rows: 400 clean identities and 200 valid-word hard
+negatives, balanced by language. For preserve rows, false-autoapply is the
+meaningful policy metric; top-1/top-3 are intentionally zero because the bar
+need not repeat the verbatim slot.
+
+The committed `corpus-baseline-v1.json` is a directional gate, not a target:
+for `dev` and `safety`, it requires the exact suite/category/language cohort,
+equal row counts, top-1/top-3 at least the baseline, and false-autoapplies no
+higher than baseline. The initial safety baseline records 16 restoration-policy
+fires among 200 valid-word hard negatives (15 IS, 1 EN). Those are visible
+debt and may decrease; the baseline prevents them from silently increasing.
+
+Every corpus outcome also carries one stage: `success`, `discoveryMiss`,
+`rankingLoss`, `actionPolicyAbstention`, `actionPolicyError`, or
+`sessionProxyFailure`. Stateless corpus replay cannot emit the last stage.
+Wave 41's last-mile proxy rig makes that ownership executable: any failed
+final-text case is a `sessionProxyFailure`; the current gate requires zero
+across all four cases.
 
 ### A/B override files
 
@@ -131,9 +164,12 @@ key to print the full supported list. Example:
   what the corpus measures; latency-under-budget is measured separately by the
   bench (which keeps the shipping 6 ms budgets).
 - **The committed history line records only the deterministic content**
-  (commit, timestamp, corpus + micro counts, and the falseAutocorrect /
-  validWordSafety / scenarioPass gates). The **latency gate is wall-clock
-  volatile** (a cold first run can spike; measured 48 ms once, ~4 ms steady),
+  (commit, timestamp, dev/safety/compound corpus + stage counts, micro counts,
+  artifact manifest audit, scenario gates, and last-mile final-text outcomes).
+  The **latency and fresh-process footprint gates are host-volatile**, so their
+  threshold specs are recorded while their measurements are enforced only on
+  the exit code. This includes last-mile request/action/drain timing. The bench
+  can spike on a cold first run (measured 48 ms once, ~4 ms steady),
   so its measured value is logged to stderr and enforced on the **exit code**
   (with a one-shot retry to absorb cold-cache blips) — it is deliberately
   **not** written into the line. `benchWorstLineMs` appears in the JSON as its
@@ -146,7 +182,7 @@ One JSON object per line, keys sorted (deterministic bytes). Shape:
 
 ```json
 {
-  "version": "v0",
+  "version": "v1",
   "commit": "<HEAD hash>",
   "timestamp": "<HEAD commit time, ISO 8601>",
   "corpus": {
@@ -155,17 +191,22 @@ One JSON object per line, keys sorted (deterministic bytes). Shape:
     "categories": { "<category>": { "n": ..., "top1": ..., "top3": ..., "acFired": ..., "falseAc": ... }, ... },
     "byLang":     { "is": { ... }, "en": { ... } }
   },
-  "heldout": { ...same shape..., "reportOnly": true },   // only with --scorecard --heldout
-  "microEval": { "n": 166, "top1": ..., "top3": ..., "falseAutocorrect": 0, "validWordSafety": true },
+  "safety": { ...same corpus shape, expectation=preserve... },
+  "compounds": { ...same corpus shape... },
+  "heldout": { ...same shape..., "reportOnly": true },
+  "microEval": { "n": 167, "top1": ..., "top3": ..., "curatedSafety": { "falseAutoApplies": 0, "validWordSafety": true } },
   "hardGates": {
-    "falseAutocorrect": { "required": 0, "actual": 0, "pass": true },
-    "validWordSafety":  { "pass": true },
+    "curatedSafety": { "requiredFalseAutoApplies": 0, "actualFalseAutoApplies": 0, "validWordSafety": true, "pass": true },
+    "corpusRegression": { "baseline": "scores/corpus-baseline-v1.json", "failures": [], "pass": true },
+    "languageArtifacts": { "generations": { ... }, "sourceAgeDays": { ... }, "verifiedFiles": 14, "failures": [], "pass": true },
+    "artifactRuntime": { "loadThresholdMs": 500, "peakFootprintThresholdBytes": 52428800 },
     "benchWorstLineMs": { "threshold": 30 },
-    "scenarioPass":     { "required": "100%", "passed": 137, "total": 137, "pass": true }
+    "scenarioPass":     { "required": "100%", "passed": 250, "total": 250, "pass": true },
+    "lastMileReplay":   { "required": "100% final-text cases", "passed": 4, "total": 4, "sessionProxyFailures": 0, "behaviorPass": true, "requestP95ThresholdMs": 60, "requestMaxThresholdMs": 120, "backlogDrainThresholdMs": 100, "actionP95ThresholdMs": 5 }
   },
   "pass": true
 }
 ```
 
-Counts are integers (not rates) so re-derivation is exact. `v0` is the first
-corpus-derived baseline (2026-07-16).
+Counts are integers (not rates) so re-derivation is exact. `v0` was the first
+corpus-derived baseline (2026-07-16); `v1` is Wave 40's evaluation contract.

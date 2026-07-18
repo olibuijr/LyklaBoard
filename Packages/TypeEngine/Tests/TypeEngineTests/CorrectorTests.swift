@@ -116,6 +116,16 @@ final class CorrectorTests: XCTestCase {
         XCTAssertFalse(result.suggestions.contains { $0.isAutocorrect })
     }
 
+    func testCandidateDroppingTypedQuotationMarkNeverAutocorrects() {
+        let result = makeCorrector().correct(typed: "„teh")
+        XCTAssertFalse(
+            result.suggestions.contains(where: \.isAutocorrect),
+            "a repair that drops the user's opening quote must stay offer-only"
+        )
+        XCTAssertFalse(Corrector.preservesQuotationMarks(of: "„vold", in: "völd"))
+        XCTAssertTrue(Corrector.preservesQuotationMarks(of: "„vold", in: "„cold"))
+    }
+
     // MARK: Apostrophe conservatism
 
     /// Lexicons modeling the old en.lex (apostrophe forms stripped at build

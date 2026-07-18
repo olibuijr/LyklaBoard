@@ -1,6 +1,6 @@
 //
 //  ExportDataDocument.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  Thin `FileDocument` wrapper so the "Flytja út gögnin mín" action can hand
 //  the personal-model JSON straight to SwiftUI's `.fileExporter` (Save to

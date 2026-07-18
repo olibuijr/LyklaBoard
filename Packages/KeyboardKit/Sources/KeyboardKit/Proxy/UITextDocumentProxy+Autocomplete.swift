@@ -94,7 +94,7 @@ private final class ProxyState {
 
 public extension KeyboardContext {
 
-    /// better-keyboard fork: clear the process-wide autocomplete space state.
+    /// LyklaborÃ° fork: clear the process-wide autocomplete space state.
     ///
     /// `ProxyState.spaceState` is a single static that KeyboardKit never
     /// resets on a field/context change, so a stale `.autoInserted` left by

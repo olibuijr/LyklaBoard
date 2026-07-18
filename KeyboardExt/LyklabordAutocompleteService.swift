@@ -1,6 +1,6 @@
 //
-//  BetterKeyboardAutocompleteService.swift
-//  BetterKeyboardExt
+//  LyklabordAutocompleteService.swift
+//  LyklabordKeyboard
 //
 //  M1: bridges TypeEngine (bilingual IS/EN corrector + predictor) into
 //  KeyboardKit's `AutocompleteService`. KeyboardKit calls
@@ -28,7 +28,7 @@ import Lexicon
 import os
 import TypeEngine
 
-final class BetterKeyboardAutocompleteService: AutocompleteService {
+final class LyklabordAutocompleteService: AutocompleteService {
 
     // MARK: - Cold-start observability
 
@@ -45,11 +45,21 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         subsystem: "is.solberg.lyklabord",
         category: "AutocompleteColdStart"
     )
+    /// App Group metadata reads that do not belong on either the UI thread or
+    /// the latency-sensitive engine queue. These are auxiliary settings/dev-
+    /// recorder concerns; base typing starts with safe defaults while they
+    /// resolve.
+    private static let auxiliaryStateQueue = DispatchQueue(
+        label: "is.solberg.lyklabord.auxiliary-state",
+        qos: .utility
+    )
 
     /// Captured before the bootstrap is enqueued. `init` is intentionally
     /// tiny and runs from `viewDidLoad`; all subsequent expensive work is
     /// measured from this point but remains on the engine queue.
-    private let serviceCreatedAt = CFAbsoluteTimeGetCurrent()
+    private let serviceCreatedAt: TimeInterval
+    private let coldStartTracker: AutocompleteColdStartTracker
+    private let coldStartRecorder: AutocompleteColdStartRecorder
 
     // MARK: - Threading
 
@@ -65,7 +75,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     ///   fit here because it also governed work the user is actively waiting
     ///   to see in the suggestion bar.
     private let queue = DispatchQueue(
-        label: "is.betterkeyboard.typeengine",
+        label: "is.solberg.lyklabord.typeengine",
         qos: .userInitiated
     )
 
@@ -75,7 +85,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     private var bootstrapFailed = false
     /// One-shot cold-start telemetry state, confined to `queue`.
     private var hasRecordedFirstAutocompletePass = false
-    private var hasRecordedFirstNonEmptyResult = false
+    private var hasRecordedFirstStableNonEmptyResult = false
     /// Latest known field kind, kept even while the session is still
     /// bootstrapping so it can be applied the moment the session exists.
     private var fieldKind: FieldKind = .standard
@@ -93,7 +103,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// flag check per pass gates everything; the learning event log and the
     /// personal model are completely unaffected by it. nil-safe when there is
     /// no App Group container.
-    private let recorder: SessionRecorder
+    private var recorder: SessionRecorder?
     /// mtime of the personal-model file at the last (re)load, so the
     /// viewWillAppear re-stat only re-reads a genuinely changed file.
     private var personalModelDate: Date?
@@ -124,7 +134,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// thread (`viewWillAppear`, and once at init) and read from BOTH the
     /// engine `queue` (the mode-3 autocorrect demotion in
     /// `performAutocomplete`) and the main thread (the mode-2 space
-    /// interception in `BetterKeyboardActionHandler`), so it lives under the
+    /// interception in `LyklabordActionHandler`), so it lives under the
     /// same lightweight lock as the revert/attachment memos rather than being
     /// confined to a single thread. Defaults to mode 1 — the M1 behavior —
     /// until the first read of the App Group suite (which may be unavailable
@@ -169,13 +179,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     // MARK: - Request sequencing (lock-guarded, NOT queue-confined)
 
-    /// Monotonic stamp for autocomplete requests (wave #28 delivery-side
-    /// staleness drop — see `autocomplete(_:)`). Written at request time on
-    /// the calling Task's thread and read at publish time on `queue`, hence
-    /// its own lock rather than queue confinement.
-    private let requestLock = NSLock()
-    private var requestGeneration: UInt64 = 0
-    private var latestRequestedText = ""
+    /// Monotonic request/delivery stamp (wave #28). This exact primitive is
+    /// also driven by Wave 41's timed headless last-mile gate, so the replay
+    /// exercises production sequencing rather than a second approximation.
+    private let requestSequencer = AutocompleteRequestSequencer()
 
     /// The user's current spacebar behavior (PLAN.md "Spacebar behavior").
     /// Read by the mode-3 bridge on `queue` and by the mode-2 action handler
@@ -186,13 +193,21 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         return _spacebarMode
     }
 
-    /// Re-read the spacebar mode from the App Group suite and cache it.
-    /// Called once at init and again on every `viewWillAppear` so a change
-    /// made in the containing app's settings screen (a different process)
-    /// takes effect the next time the keyboard is presented, without needing
-    /// KVO on a cross-process `UserDefaults`. Cheap (one suite read).
+    /// Re-read the spacebar mode from the App Group suite off-main and cache
+    /// it. Mode 1 is the immediate safe default until the auxiliary read
+    /// finishes. Called once at init and again on every `viewWillAppear` so a
+    /// change made in the containing app's settings screen (a different
+    /// process) takes effect without synchronous cross-process defaults work
+    /// on the keyboard's UI thread.
     func refreshSpacebarMode() {
-        let mode = SpacebarMode.current(appGroupId: appGroupId)
+        let appGroupId = appGroupId
+        Self.auxiliaryStateQueue.async { [weak self] in
+            let mode = SpacebarMode.current(appGroupId: appGroupId)
+            self?.setSpacebarMode(mode)
+        }
+    }
+
+    private func setSpacebarMode(_ mode: SpacebarMode) {
         revertMemoLock.lock()
         _spacebarMode = mode
         revertMemoLock.unlock()
@@ -201,11 +216,11 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     // MARK: - Constants
 
     /// `additionalInfo` key carrying the pending token a suggestion
-    /// replaces. `BetterKeyboardActionHandler` uses it to (a) allow the
+    /// replaces. `LyklabordActionHandler` uses it to (a) allow the
     /// deferred '.'-apply even though KeyboardKit considers the cursor "at
     /// a new word" after the dot, and (b) verify against the live proxy
     /// text that the suggestion is not stale before applying.
-    static let pendingTokenInfoKey = "is.betterkeyboard.pendingToken"
+    static let pendingTokenInfoKey = "is.solberg.lyklabord.pendingToken"
 
     /// Filenames inside the App Group container. MUST match the app-side
     /// constants in `App/AppModel.swift` (`personalModelFileName` /
@@ -217,22 +232,41 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     // MARK: - Init
 
     /// - Parameter appGroupId: the shared App Group
-    ///   (`KeyboardApp.betterKeyboard.appGroupId`, "group.is.solberg.lyklabord");
+    ///   (`KeyboardApp.lyklabord.appGroupId`, "group.is.solberg.lyklabord");
     ///   nil disables personal learning entirely (tests).
-    init(appGroupId: String? = nil) {
+    init(appGroupId: String? = nil, activationStartedAt: TimeInterval? = nil) {
+        let createdAt = AutocompleteColdStartTracker.now
+        self.serviceCreatedAt = createdAt
+        self.coldStartTracker = AutocompleteColdStartTracker(
+            serviceCreatedAt: createdAt,
+            activationStartedAt: activationStartedAt,
+            processServiceOrdinal: AutocompleteColdStartTracker.nextProcessServiceOrdinal()
+        )
+        self.coldStartRecorder = AutocompleteColdStartRecorder(appGroupId: appGroupId)
         self.appGroupId = appGroupId
-        self.recorder = SessionRecorder(appGroupId: appGroupId)
-        // Seed the spacebar mode from the App Group suite before the first
-        // keystroke (cheap; independent of the engine bootstrap). Re-read on
-        // every viewWillAppear via `refreshSpacebarMode()`.
-        refreshSpacebarMode()
+        self.recorder = nil
         // Kick the bootstrap immediately (but asynchronously, off-main) so
-        // the engine is usually ready by the first keystroke. Until it is,
-        // `autocomplete(_:)` just returns empty suggestions.
+        // the engine is usually ready by the first keystroke. Requests are
+        // serialized behind this block and measured as cold backlog.
         Self.coldStartSignposter.emitEvent("Bootstrap queued")
         Self.coldStartLogger.notice("Autocomplete bootstrap queued")
         queue.async { [weak self] in
             self?.bootstrapIfNeeded()
+        }
+        // Neither concern is needed to construct the base engine. Resolve
+        // their App Group state away from the UI and engine queues; the dev
+        // recorder remains inert until preparation finishes.
+        refreshSpacebarMode()
+        prepareSessionRecorder()
+    }
+
+    private func prepareSessionRecorder() {
+        let appGroupId = appGroupId
+        Self.auxiliaryStateQueue.async { [weak self] in
+            let recorder = SessionRecorder(appGroupId: appGroupId)
+            self?.queue.async { [weak self] in
+                self?.recorder = recorder
+            }
         }
     }
 
@@ -244,7 +278,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     func autocomplete(_ text: String) async throws -> Autocomplete.ServiceResult {
         // Delivery-side staleness drop (wave #28, defense in depth behind
-        // the apply-time token guard in `BetterKeyboardActionHandler`):
+        // the apply-time token guard in `LyklabordActionHandler`):
         // KeyboardKit spawns one unstructured Task per request, so an older
         // result can reach the main-actor `autocompleteContext` after a
         // newer one. Sequence-stamp the request now; at publish time a
@@ -253,11 +287,8 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         // without clearing the bar. The engine pass itself still runs —
         // `TypingSession` must observe every window in order; only the
         // publish is suppressed.
-        requestLock.lock()
-        requestGeneration &+= 1
-        let generation = requestGeneration
-        latestRequestedText = text
-        requestLock.unlock()
+        let ticket = requestSequencer.accept(text: text)
+        coldStartTracker.requestAccepted(generation: ticket.generation)
         return await withCheckedContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else {
@@ -266,14 +297,25 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                     )
                 }
                 let result = self.performAutocomplete(text)
-                self.requestLock.lock()
-                let superseded = AutocorrectApplyGuard.isSupersededResult(
-                    requestGeneration: generation,
-                    requestText: text,
-                    latestGeneration: self.requestGeneration,
-                    latestText: self.latestRequestedText
-                )
-                self.requestLock.unlock()
+                let superseded = self.requestSequencer.isSuperseded(ticket)
+                if !self.hasRecordedFirstStableNonEmptyResult,
+                    !superseded,
+                    !result.suggestions.isEmpty
+                {
+                    self.hasRecordedFirstStableNonEmptyResult = true
+                    let elapsedMs = (AutocompleteColdStartTracker.now - self.serviceCreatedAt) * 1000
+                    Self.coldStartSignposter.emitEvent("First stable non-empty result")
+                    Self.coldStartLogger.notice(
+                        "First stable non-empty autocomplete result completed \(elapsedMs, format: .fixed(precision: 1)) ms after service creation"
+                    )
+                }
+                if let metrics = self.coldStartTracker.requestCompleted(
+                    generation: ticket.generation,
+                    wasSuperseded: superseded,
+                    hadNonEmptySuggestions: !result.suggestions.isEmpty
+                ) {
+                    self.coldStartRecorder.record(metrics)
+                }
                 continuation.resume(
                     returning: superseded
                         ? .init(
@@ -293,7 +335,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// ledger (azooKey expected-edit pattern, research/oss-harvest.md §2):
     /// `before`/`after` are `documentContextBeforeInput` snapshotted around
     /// the proxy mutation(s) of one action-handler `handle` call — see
-    /// `BetterKeyboardActionHandler`. MUST be enqueued before the
+    /// `LyklabordActionHandler`. MUST be enqueued before the
     /// autocomplete pass that observes the edit; the action handler records
     /// from its `tryPerformAutocomplete` override, which runs before
     /// KeyboardKit's `service.autocomplete` Task can enqueue onto `queue`,
@@ -368,7 +410,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         queue.async { [weak self] in
             self?.session?.noteTap(char: character, dx: dx, dy: dy)
             // DEV-MODE recorder: no-op unless a session is armed (cached bool).
-            self?.recorder.captureTap(char: character, dx: dx, dy: dy)
+            self?.recorder?.captureTap(char: character, dx: dx, dy: dy)
         }
     }
 
@@ -376,7 +418,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// handler's `.backspace` release). No-op unless a session is armed.
     func noteRecordedBackspace() {
         queue.async { [weak self] in
-            self?.recorder.captureBackspace()
+            self?.recorder?.captureBackspace()
         }
     }
 
@@ -384,7 +426,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// the action handler (space-commit / deferred-dot). No-op unless armed.
     func noteRecordedAutocorrectApplied(_ text: String) {
         queue.async { [weak self] in
-            self?.recorder.captureApplied(.autocorrect(text))
+            self?.recorder?.captureApplied(.autocorrect(text))
         }
     }
 
@@ -394,7 +436,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// can count how often the guard fires in the wild. No-op unless armed.
     func noteRecordedStaleAutocorrectSkip(_ text: String) {
         queue.async { [weak self] in
-            self?.recorder.captureApplied(.staleSkip(text))
+            self?.recorder?.captureApplied(.staleSkip(text))
         }
     }
 
@@ -402,7 +444,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// unless a session is armed.
     func noteRecordedSuggestionTap(_ text: String) {
         queue.async { [weak self] in
-            self?.recorder.captureApplied(.suggestionTap(text))
+            self?.recorder?.captureApplied(.suggestionTap(text))
         }
     }
 
@@ -413,7 +455,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// unless a session is armed.
     func noteRecordedLiteralRevert(_ text: String) {
         queue.async { [weak self] in
-            self?.recorder.captureApplied(.literalRevert(text))
+            self?.recorder?.captureApplied(.literalRevert(text))
         }
     }
 
@@ -421,7 +463,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// deliberateness signal (lane-relaxation triple gate part 3a — the
     /// session vetoes accent folding for the pending word and never
     /// auto-applies a candidate that drops the character). Forwarded by
-    /// `BetterKeyboardActionHandler` when the vendored fork marks the
+    /// `LyklabordActionHandler` when the vendored fork marks the
     /// release as a callout selection; such characters carry NO tap sample
     /// (the finger's location belongs to the base key's gesture).
     func noteLongPressInsertion(_ character: Character) {
@@ -433,7 +475,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     /// The user tapped the verbatim (quoted `.unknown`) suggestion:
     /// remember the choice so an immediately following delimiter cannot
     /// re-correct the token (layer 1 escape hatch). Forwarded by
-    /// `BetterKeyboardActionHandler.handle(_ suggestion:)`.
+    /// `LyklabordActionHandler.handle(_ suggestion:)`.
     func noteVerbatimChoice(_ token: String) {
         queue.async { [weak self] in
             self?.session?.noteVerbatimChoice(token)
@@ -461,7 +503,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     }
 
     /// Revert-on-continuation decision (layer 4 fallback), consulted by
-    /// `BetterKeyboardActionHandler` BEFORE a letter/digit keystroke is
+    /// `LyklabordActionHandler` BEFORE a letter/digit keystroke is
     /// inserted: when the previous keystroke was a '.' that auto-replaced
     /// the pending token, the returned proxy edit undoes the replacement so
     /// URLs/domains self-heal. Synchronous by necessity (the keystroke
@@ -477,7 +519,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     }
 
     /// Punctuation-attachment decision ("word . " → "word. "), consulted by
-    /// `BetterKeyboardActionHandler` BEFORE a keystroke is inserted — same
+    /// `LyklabordActionHandler` BEFORE a keystroke is inserted — same
     /// synchronous memo-gated pattern as `pendingContinuationRevert`: the
     /// lock-guarded armed flag keeps ordinary keystrokes off the engine
     /// queue; the session consumes or discards the memo per keystroke
@@ -569,10 +611,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             personalModelDate =
                 (try? FileManager.default.attributesOfItem(
                     atPath: personalModelURL.path))?[.modificationDate] as? Date
-            NSLog("[better-keyboard] ejected personal word (tombstoned)")
+            NSLog("[LyklaborÃ°] ejected personal word (tombstoned)")
         } catch {
             NSLog(
-                "[better-keyboard] personal eject failed: %@",
+                "[LyklaborÃ°] personal eject failed: %@",
                 String(describing: error))
         }
     }
@@ -600,7 +642,8 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
     private func bootstrapIfNeeded() {
         guard session == nil, !bootstrapFailed else { return }
         let bundle = Bundle(for: Self.self)
-        let start = CFAbsoluteTimeGetCurrent()
+        let start = AutocompleteColdStartTracker.now
+        coldStartTracker.bootstrapStarted(at: start)
         let queueDelayMs = (start - serviceCreatedAt) * 1000
         Self.coldStartSignposter.emitEvent("Bootstrap started")
         Self.coldStartLogger.notice(
@@ -612,11 +655,17 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 let isURL = bundle.url(forResource: "is", withExtension: "lex")
             else {
                 bootstrapFailed = true
-                NSLog("[better-keyboard] autocomplete bootstrap FAILED: .lex artifacts missing from extension bundle")
+                NSLog("[LyklaborÃ°] autocomplete bootstrap FAILED: .lex artifacts missing from extension bundle")
                 return
             }
             let english = try FrequencyLexicon(contentsOf: enURL)
             let icelandic = try FrequencyLexicon(contentsOf: isURL)
+            let englishCalibration = bundle.url(
+                forResource: "en-calibration", withExtension: "json"
+            ).flatMap { try? LexiconCalibrationProfile(contentsOf: $0) }
+            let icelandicCalibration = bundle.url(
+                forResource: "is-calibration", withExtension: "json"
+            ).flatMap { try? LexiconCalibrationProfile(contentsOf: $0) }
 
             // BÍN morphology is optional for the engine; degrade gracefully
             // (frequency-only validation) if the binary is missing/corrupt.
@@ -624,16 +673,18 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             if let binURL = bundle.url(forResource: "lemma-is", withExtension: "bin") {
                 morphology = try? BinaryLemmatizer(contentsOf: binURL)
                 if morphology == nil {
-                    NSLog("[better-keyboard] bin-morph.bin failed to load; continuing without morphology")
+                    NSLog("[LyklaborÃ°] bin-morph.bin failed to load; continuing without morphology")
                 }
             } else {
-                NSLog("[better-keyboard] bin-morph.bin missing from extension bundle; continuing without morphology")
+                NSLog("[LyklaborÃ°] bin-morph.bin missing from extension bundle; continuing without morphology")
             }
 
             let engine = TypeEngine(
                 icelandic: icelandic,
                 english: english,
-                morphology: morphology
+                morphology: morphology,
+                icelandicCalibration: icelandicCalibration,
+                englishCalibration: englishCalibration
             )
             // Touch representative pages of the mmap-ed artifacts (spread
             // unigram/bigram/morphology lookups) so the first real
@@ -649,14 +700,15 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             let newSession = TypingSession(engine: engine)
             newSession.fieldKind = fieldKind
             session = newSession
-            let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
-            let totalMs = (CFAbsoluteTimeGetCurrent() - serviceCreatedAt) * 1000
+            coldStartTracker.engineReady()
+            let ms = (AutocompleteColdStartTracker.now - start) * 1000
+            let totalMs = (AutocompleteColdStartTracker.now - serviceCreatedAt) * 1000
             Self.coldStartSignposter.emitEvent("Engine ready")
             Self.coldStartLogger.notice(
                 "Autocomplete engine ready in \(ms, format: .fixed(precision: 1)) ms (\(totalMs, format: .fixed(precision: 1)) ms from service creation)"
             )
             NSLog(
-                "[better-keyboard] TypeEngine ready in %.1f ms (is: %d unigrams, en: %d unigrams, morphology: %@)",
+                "[LyklaborÃ°] TypeEngine ready in %.1f ms (is: %d unigrams, en: %d unigrams, morphology: %@)",
                 ms,
                 icelandic.unigramCount,
                 english.unigramCount,
@@ -670,7 +722,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
         } catch {
             bootstrapFailed = true
             Self.coldStartSignposter.emitEvent("Bootstrap failed")
-            NSLog("[better-keyboard] autocomplete bootstrap FAILED: %@", String(describing: error))
+            NSLog("[LyklaborÃ°] autocomplete bootstrap FAILED: %@", String(describing: error))
         }
     }
 
@@ -687,7 +739,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 forSecurityApplicationGroupIdentifier: appGroupId
             )
         else {
-            NSLog("[better-keyboard] App Group container unavailable; personal learning off")
+            NSLog("[LyklaborÃ°] App Group container unavailable; personal learning off")
             return
         }
         personalModelURL = container.appendingPathComponent(Self.personalModelFileName)
@@ -777,7 +829,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 (touch.stats(for: $0)?.count ?? 0) >= engine.config.touchPersonalMinSamples
             }
             NSLog(
-                "[better-keyboard] personal snapshot loaded (%d words; touch: %d keys, %.0f effective taps, %d past gate)",
+                "[LyklaborÃ°] personal snapshot loaded (%d words; touch: %d keys, %.0f effective taps, %d past gate)",
                 engine.personalSnapshotWords.count,
                 touch.keys.count,
                 touch.totalEffectiveSamples,
@@ -787,7 +839,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             // Corrupt/unreadable model: keep typing, drop personal ranking.
             engine.setPersonalVocabulary(nil)
             engine.setPersonalTouch(nil)
-            NSLog("[better-keyboard] personal model load failed: %@", String(describing: error))
+            NSLog("[LyklaborÃ°] personal model load failed: %@", String(describing: error))
         }
     }
 
@@ -815,7 +867,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             }
         } catch {
             NSLog(
-                "[better-keyboard] learning-event flush failed (%d events dropped): %@",
+                "[LyklaborÃ°] learning-event flush failed (%d events dropped): %@",
                 events.count, String(describing: error)
             )
         }
@@ -849,13 +901,13 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             guard let self else { return }
             let bundle = Bundle(for: Self.self)
             guard let paradigmsURL = bundle.url(forResource: "paradigms", withExtension: "bin") else {
-                NSLog("[better-keyboard] paradigms.bin missing from extension bundle; inflection stays off")
+                NSLog("[LyklaborÃ°] paradigms.bin missing from extension bundle; inflection stays off")
                 return
             }
             guard
                 let governorsURL = bundle.url(forResource: "governors.json", withExtension: "gz")
             else {
-                NSLog("[better-keyboard] governors.json.gz missing from extension bundle; inflection stays off")
+                NSLog("[LyklaborÃ°] governors.json.gz missing from extension bundle; inflection stays off")
                 return
             }
             let before = Self.memoryFootprintMB()
@@ -868,7 +920,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 model = InflectionModel(paradigms: paradigms, governors: governors)
             } catch {
                 NSLog(
-                    "[better-keyboard] inflection load FAILED (%@); inflection stays off",
+                    "[LyklaborÃ°] inflection load FAILED (%@); inflection stays off",
                     String(describing: error))
                 return
             }
@@ -878,7 +930,7 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 engine.setInflection(model)
                 let after = Self.memoryFootprintMB()
                 NSLog(
-                    "[better-keyboard] inflection ready in %.1f ms (%d governors; phys_footprint %.1f→%.1f MB, Δ%.1f MB)",
+                    "[LyklaborÃ°] inflection ready in %.1f ms (%d governors; phys_footprint %.1f→%.1f MB, Δ%.1f MB)",
                     loadMs, model.governors.governorCount, before, after, after - before
                 )
             }
@@ -905,13 +957,14 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
 
     private func performAutocomplete(_ text: String) -> Autocomplete.ServiceResult {
         bootstrapIfNeeded()
-        // Engine still loading (or permanently failed): stay silent. The
-        // toolbar simply shows no suggestions for the first keystroke(s).
+        // The queued bootstrap normally completed before this pass. A nil
+        // session therefore means bootstrap failed; stay silent and let the
+        // keyboard remain usable without suggestions.
         guard let session else {
             return .init(inputText: text, suggestions: [])
         }
         let suggestions = session.suggestions(for: text, limit: 3)
-        let elapsedMs = (CFAbsoluteTimeGetCurrent() - serviceCreatedAt) * 1000
+        let elapsedMs = (AutocompleteColdStartTracker.now - serviceCreatedAt) * 1000
         if !hasRecordedFirstAutocompletePass {
             hasRecordedFirstAutocompletePass = true
             Self.coldStartSignposter.emitEvent("First autocomplete pass")
@@ -919,17 +972,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
                 "First autocomplete pass completed \(elapsedMs, format: .fixed(precision: 1)) ms after service creation"
             )
         }
-        if !suggestions.isEmpty, !hasRecordedFirstNonEmptyResult {
-            hasRecordedFirstNonEmptyResult = true
-            Self.coldStartSignposter.emitEvent("First non-empty result")
-            Self.coldStartLogger.notice(
-                "First non-empty autocomplete result completed \(elapsedMs, format: .fixed(precision: 1)) ms after service creation"
-            )
-        }
         // DEV-MODE recorder: one flag check; writes a JSONL line ONLY when a
         // session is armed and the field is standard. Off by default, and
         // entirely independent of the learning event log below.
-        recorder.recordPass(
+        recorder?.recordPass(
             window: text, fieldKind: fieldKind, suggestions: suggestions,
             pIcelandic: session.probabilityIcelandic)
         setRevertMemoArmed(session.hasPendingContinuationRevert)
@@ -1021,7 +1067,7 @@ private extension String {
 
 // MARK: - Field-kind mapping (UIKit/KeyboardKit → TypeEngine)
 
-extension BetterKeyboardAutocompleteService {
+extension LyklabordAutocompleteService {
 
     /// TypeEngine field kind for the active keyboard context, combining
     /// KeyboardKit's own keyboard type with the host field's `UIKeyboardType`

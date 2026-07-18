@@ -1,12 +1,12 @@
 # Rename to Lyklaborð; identifiers; MIT license with separate data licenses
 
-Status: Accepted
-Date: 2026-07-15
+Status: Amended
+Date: 2026-07-15; amended 2026-07-18
 
 ## Context
 
-The project was developed under the working name "better-keyboard," with
-bundle identifiers and an App Group under `is.betterkeyboard.*`. Before M2
+The project was developed under a temporary working identity, with legacy
+bundle identifiers and an App Group. Before M2
 (personal learning) started accumulating real user data under those
 identifiers, the project needed to settle on a real product name — changing
 identifiers after users have data tied to them is much more disruptive than
@@ -30,19 +30,20 @@ commercial forks of a free community project) for the code itself.
 - **Product name: Lyklaborð** (Icelandic for "keyboard"), chosen after
   confirming the name was unsquatted in App Store search (reservation in
   App Store Connect still pending as of this writing).
-- **Identifiers renamed** before M2 data accumulation: bundle ids
-  `is.betterkeyboard.app` → `is.solberg.lyklabord.app` and
-  `is.betterkeyboard.app.keyboard` → `is.solberg.lyklabord.app.keyboard`
+- **Identifiers renamed** before M2 data accumulation: the legacy bundle ids
+  were replaced by `is.solberg.lyklabord` and
+  `is.solberg.lyklabord.keyboard`
   (`bundleIdPrefix: is.solberg.lyklabord` in `project.yml`); App Group
-  `group.is.betterkeyboard` → `group.is.solberg.lyklabord` (both entitlements
+  the legacy App Group → `group.is.solberg.lyklabord` (both entitlements
   files, and `KeyboardApp.appGroupId` in `KeyboardExt/KeyboardViewController.swift`);
   display names (app and extension `CFBundleDisplayName`, plus
   `KeyboardApp.name`) set to "Lyklaborð"; onboarding copy updated to match.
-- **Deliberately left unchanged**: the repo name stays `better-keyboard`,
-  and Swift types/targets/files/schemes/`PRODUCT_NAME` all stay
-  `BetterKeyboard*` — this is code identity, not user-visible surface, and
-  keeping it stable kept the rename diff mechanical rather than a
-  repo-wide rewrite.
+- **Code/project identity completed on 2026-07-18**: repository
+  `LyklabordApp`; Xcode project, scheme, target, and main product `Lyklabord`;
+  extension target/product `LyklabordKeyboard`; Swift/source symbols and files
+  use `Lyklabord*`. Internal queue names, keys, logs, scripts, and active docs
+  likewise use `lyklabord` / `is.solberg.lyklabord`. This amendment supersedes
+  the original temporary decision to retain the working code identity.
 - **Code license: MIT** — resolves the open PLAN.md question in favor of
   maximum adoption over copyleft protection against closed commercial
   forks. The vendored KeyboardKit 9.9.1 fork (ADR-0003) retains its own MIT
@@ -68,9 +69,9 @@ commercial forks of a free community project) for the code itself.
   code license does not launder the data restrictions, and this is stated
   explicitly rather than left implicit.
 - "Lyklaborð" is the user-facing and App-Store-facing identity everywhere;
-  contributors reading the repo will see `BetterKeyboard` in code/schemes
-  and should not read that as a naming inconsistency — it is a deliberate,
-  documented choice to keep code identity stable.
+  ASCII `Lyklabord` is used only where Swift/Xcode/filesystem identifiers are
+  safer without diacritics. The former working name appears only above as
+  historical migration evidence.
 - Related: ADR-0004 (BÍN data conditions this license structure encodes),
   ADR-0003 (the vendored KeyboardKit fork's own license), ADR-0010
   (eval-sentence licensing).

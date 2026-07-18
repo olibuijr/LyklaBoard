@@ -180,7 +180,7 @@ Grounded entirely in our own vendored source
 (`Packages/KeyboardKit/Sources/KeyboardKit/_Keyboard/Keyboard+StandardKeyboardBehavior.swift`,
 `.../Actions/Services/KeyboardAction+StandardActionHandler.swift`,
 `.../Proxy/UITextDocumentProxy+{Sentences,Autocomplete,Words}.swift`) plus
-`KeyboardExt/{KeyboardViewController,BetterKeyboardAutocompleteService,SpacebarMode}.swift`,
+`KeyboardExt/{KeyboardViewController,LyklabordAutocompleteService,SpacebarMode}.swift`,
 cross-referenced against the harvest above. Not fixed here — diagnosis only.
 
 ### The pipeline (mode 1, default — `completeCurrentWord`)
@@ -189,7 +189,7 @@ cross-referenced against the harvest above. Not fixed here — diagnosis only.
 in order:
 1. `tryApplyAutocorrectSuggestion(before:)` — if mid-word, inserts the
    `.autocorrect` suggestion with `tryInsertSpace: false` (our
-   `BetterKeyboardActionHandler.shouldApplyAutocorrectSuggestion` override
+   `LyklabordActionHandler.shouldApplyAutocorrectSuggestion` override
    layers the '.'-deferral rule on top of this, unrelated to spaces).
 2. `gestureAction(keyboardController)` — the actual space keystroke inserts the
    literal `" "`.
@@ -281,7 +281,7 @@ following user space is exactly the sequence issue #978 is about. Not ranking
 this separately to avoid double-counting; folded into A above.
 
 Distinct residual risk worth flagging separately: our own mode-2
-(`alwaysInsertPrediction`, `BetterKeyboardActionHandler.handle(gesture:on:
+(`alwaysInsertPrediction`, `LyklabordActionHandler.handle(gesture:on:
 replaced:)`) calls `keyboardContext.textDocumentProxy.insertText(prediction)`
 **directly**, bypassing `insertAutocompleteSuggestion` entirely — so it does
 NOT hit `tryInsertSpaceAfterAutocomplete`/`ProxyState`, and the real space
@@ -344,5 +344,5 @@ lower priority for the reported bug, but worth a scenario test regardless.
 | 1 | Harden `shouldEndCurrentSentence`/`endSentence` against the tap-then-space race | KeyboardKit issue [#978](https://github.com/KeyboardKit/KeyboardKit/issues/978) (fixed in closed-source 10.1; our 9.9.1 still has the pre-fix logic) | Yes — direct, same code, same bug class | Medium (needs careful proxy-state reasoning + scenario tests; no diff to port from, must reason it out) |
 | 2 | Expected-edit ledger (before/after snapshot matching) to replace/harden heuristic "was this my own edit" detection | azooKey `ExpectedEditTracker.swift` + `DisplayedTextManager.swift` | Yes — same problem class as `TypingSession.noteExternalTextChange`'s heuristic, described in our own `KeyboardViewController.swift` comments | Medium — small, self-contained pattern (~60 lines), well-tested reference to design against |
 | 3 | Replace/scope `ProxyState.spaceState`'s process-wide static singleton | Read of `Packages/KeyboardKit/Sources/KeyboardKit/Proxy/UITextDocumentProxy+Autocomplete.swift` (our own vendored code) | Yes — root-caused as part of Hypothesis A | Low-Medium (self-contained file, but interacts with steps 1-2) |
-| 4 | Scenario-test "tap suggestion → immediate space" for both spacebar modes | Derived from #978 + our own `SpacebarMode`/`BetterKeyboardActionHandler` code | Yes | Low (test-only) |
+| 4 | Scenario-test "tap suggestion → immediate space" for both spacebar modes | Derived from #978 + our own `SpacebarMode`/`LyklabordActionHandler` code | Yes | Low (test-only) |
 | 5 | Note KeyboardKit's own escape hatch precedent (settings toggle for double-space-to-period) | KeyboardKit issue [#936](https://github.com/KeyboardKit/KeyboardKit/issues/936) | Maybe — not a bug fix, but validates that a user-facing off-switch for this feature is a reasonable future affordance if hardening doesn't fully kill the report | Low (product decision, not urgent) |

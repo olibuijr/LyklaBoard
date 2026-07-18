@@ -257,7 +257,8 @@ def _merge_offsets(sessions: list) -> dict:
 
 def _collect_candidates(sessions: list) -> list:
     """Every corrector-class candidate across all sessions, with category +
-    provenance. INFLECTION_MISS is kept separate (inflection backlog)."""
+    provenance. INFLECTION_MISS is kept separate because its prefix/suffix
+    detector is triage-uncertain, not proof of an inflection relationship."""
     out = []
     for s in sessions:
         for e in s["events"]:
@@ -338,7 +339,8 @@ def update_personal_eval(corpus_path: str, sessions: list,
       * any silent token with a user-confirmed intent (confirmed-intents.jsonl)
         — including UNRESOLVABLE mashes the candidate scan gave up on.
     Held back to PENDING-REVIEW (returned, not written):
-      * INFLECTION_MISS — belongs in the inflection backlog, not the corrector.
+      * INFLECTION_MISS — held until taxonomy has BÍN shared-lemma evidence
+        AND failure-stage classification; prefix shape cannot route ownership.
       * SILENT_MISS with a contested/absent top guess and no confirmed intent.
     """
     if intents is None:
@@ -384,8 +386,8 @@ def update_personal_eval(corpus_path: str, sessions: list,
             elif e.cls == "INFLECTION_MISS":
                 pending.append({
                     "typo": e.typo, "intended": e.intended,
-                    "reason": "inflection backlog (bar offered wrong inflection: "
-                              f"`{e.note}`)" if e.note else "inflection backlog",
+                    "reason": "triage-uncertain prefix-similar bar offer: "
+                              f"`{e.note}`" if e.note else "triage-uncertain",
                     "session": s["sid"],
                 })
         for m in s["silent"]:
@@ -462,9 +464,10 @@ def update_personal_eval(corpus_path: str, sessions: list,
 
 
 # --------------------------------------------------------------------------
-# Top-gaps rollup (the next-wave queue) — every taxonomy-tagged finding
-# across ALL sessions, bucketed by class. This is the roadmap input, so it
-# renders as the FIRST section of AGGREGATE.md.
+# Top-gaps rollup (triage input) — every taxonomy-tagged finding across ALL
+# sessions, bucketed by class. It renders first so residuals are visible, but
+# a class/status is not roadmap authority until the actual engine stage has
+# been established.
 # --------------------------------------------------------------------------
 
 def _collect_tagged_findings(sessions: list, confirmed_intents: dict = None) -> list:
@@ -564,7 +567,7 @@ def _top_gaps(sessions: list, tagged: list) -> dict:
 
 def render_top_gaps(gaps: dict) -> list:
     L = []
-    L.append("## Top gaps (next-wave queue)")
+    L.append("## Top gaps (triage input)")
     L.append("")
     L.append(f"Latest 3 sessions: {', '.join(gaps['latest3_sessions']) or '_none_'}"
              f"  ·  prior: {len(gaps['prior_sessions'])} session(s)")

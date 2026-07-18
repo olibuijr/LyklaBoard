@@ -16,7 +16,7 @@ unlocks the PERSONAL layer:
 ```
 App (StoreKit 2)                          App Group                  Keyboard extension
 ────────────────                          ─────────                  ──────────────────
-SubscriptionManager                       UserDefaults suite         BetterKeyboardAutocompleteService
+SubscriptionManager                       UserDefaults suite         LyklabordAutocompleteService
   Transaction.currentEntitlements  ──►    plus.entitled (Bool)  ──►    isPlusEntitled(appGroupId:)
   (verified on-device, no server)         plus.expiry (epoch s)        at bootstrap + every viewWillAppear
   refreshed: launch, foreground,                                       entitled → load personal model

@@ -1160,9 +1160,11 @@ public struct Corrector {
             let lengthOK = typedChars.count >= config.minAutocorrectLength
             let costOK = best.cost.total <= config.autocorrectMaxSpatialCost
             let apostrophesOK = Self.preservesApostrophes(of: typed, in: best.word)
+            let quotationsOK = Self.preservesQuotationMarks(of: typed, in: best.word)
             let deliberateOK = Self.preservesDeliberateCharacters(
                 deliberate, of: typedChars, in: best.word)
-            let preconditionsOK = lengthOK && costOK && apostrophesOK && deliberateOK
+            let preconditionsOK =
+                lengthOK && costOK && apostrophesOK && quotationsOK && deliberateOK
             // Linking-letter yield (wave 31, the framhaldskóla class): the
             // typed word is protected ONLY by an accidental compound
             // reading (framhald+skóla), while the winner is an is.lex-
@@ -1225,6 +1227,7 @@ public struct Corrector {
                         pass: false)
                 }
                 if !apostrophesOK { trace.gate("preservesApostrophes", "candidate drops a typed apostrophe", pass: false) }
+                if !quotationsOK { trace.gate("preservesQuotationMarks", "candidate drops a typed quotation mark", pass: false) }
                 if !deliberateOK { trace.gate("preservesDeliberateCharacters", "candidate drops a long-pressed character", pass: false) }
             }
             if preconditionsOK, !effectiveProtected, best.word.contains(" ") {
@@ -2611,6 +2614,19 @@ public struct Corrector {
         guard typedCount > 0 else { return true }
         return candidate.filter { apostrophes.contains($0) }.count >= typedCount
     }
+
+    /// Quotation-mark conservatism (dogfood `„vold` -> `völd`): quoted text
+    /// is often a foreign phrase embedded in Icelandic prose, and deleting
+    /// the quote is never part of correcting the word. A candidate that drops
+    /// a quotation mark the user typed stays offer-only. The verbatim slot
+    /// remains first, so the user can always commit the exact quoted token.
+    static func preservesQuotationMarks(of typed: String, in candidate: String) -> Bool {
+        let typedCount = typed.filter { quotationMarks.contains($0) }.count
+        guard typedCount > 0 else { return true }
+        return candidate.filter { quotationMarks.contains($0) }.count >= typedCount
+    }
+
+    static let quotationMarks: Set<Character> = ["\"", "“", "”", "„", "«", "»", "‹", "›"]
 
     /// The genitive linking letters ("bandstafir" — the -s-/-ar-/-a-/-u-
     /// endings ARE genitives, see Compounds.swift): the only characters

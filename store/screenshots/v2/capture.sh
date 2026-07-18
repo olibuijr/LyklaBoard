@@ -5,7 +5,7 @@
 #
 # How it works (no GUI, no focus stealing):
 #   1. Build the app + ReplayRig test bundle for the iPhone 16 Pro Max sim.
-#   2. Install BetterKeyboard(.appex) + ReplayHost; enable the keyboard by
+#   2. Install Lyklabord(.appex) + ReplayHost; enable the keyboard by
 #      seeding com.apple.Preferences AppleKeyboards with the REAL appex bundle
 #      id `is.solberg.lyklabord.keyboard` (replay-run.sh's historical
 #      `…lyklabord.app.keyboard` was wrong — that's why the trick "never
@@ -44,13 +44,13 @@ xcrun simctl bootstatus "$UDID" -b >/dev/null
 
 echo "== build =="
 xcodegen generate >/dev/null
-xcodebuild build -scheme BetterKeyboard -project BetterKeyboard.xcodeproj \
+xcodebuild build -scheme Lyklabord -project Lyklabord.xcodeproj \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
-xcodebuild build-for-testing -scheme ReplayRig -project BetterKeyboard.xcodeproj \
+xcodebuild build-for-testing -scheme ReplayRig -project Lyklabord.xcodeproj \
   -destination "id=$UDID" -derivedDataPath "$DD" -quiet
 
 echo "== install + enable keyboard =="
-APP_MAIN="$(find "$DD/Build/Products" -maxdepth 2 -name 'BetterKeyboard.app' | head -1)"
+APP_MAIN="$(find "$DD/Build/Products" -maxdepth 2 -name 'Lyklabord.app' | head -1)"
 APP_HOST="$(find "$DD/Build/Products" -maxdepth 2 -name 'ReplayHost.app' | head -1)"
 xcrun simctl install "$UDID" "$APP_MAIN"
 xcrun simctl install "$UDID" "$APP_HOST"
@@ -74,7 +74,7 @@ for SHOT in ${SHOTS[@]}; do
   rm -f "$CAP/ready-$SHOT"
   LOG="$CAP/.xcodebuild-$SHOT.log"
   ( TEST_RUNNER_SHOT_DIR="$CAP" TEST_RUNNER_SHOT_HOLD_S=20 \
-    xcodebuild test-without-building -scheme ReplayRig -project BetterKeyboard.xcodeproj \
+    xcodebuild test-without-building -scheme ReplayRig -project Lyklabord.xcodeproj \
       -destination "id=$UDID" -derivedDataPath "$DD" \
       -only-testing:"ReplayRigUITests/ScreenshotUITests/$TESTNAME" \
       >"$LOG" 2>&1 ) &

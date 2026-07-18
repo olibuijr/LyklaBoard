@@ -10,6 +10,8 @@ enum Artifacts {
     struct Paths {
         var english: URL
         var icelandic: URL
+        var englishCalibration: URL?
+        var icelandicCalibration: URL?
         var morphology: URL?
         /// Stage-B inflection artifacts (PLAN.md "Inflection intelligence");
         /// either missing → engine runs without inflection.
@@ -44,6 +46,8 @@ enum Artifacts {
         return Paths(
             english: root.appendingPathComponent("data/en/en.lex"),
             icelandic: root.appendingPathComponent("data/is/is.lex"),
+            englishCalibration: root.appendingPathComponent("data/en/en-calibration.json"),
+            icelandicCalibration: root.appendingPathComponent("data/is/is-calibration.json"),
             morphology: root.appendingPathComponent("data/is/bin-morph.bin"),
             paradigms: root.appendingPathComponent("data/is/paradigms.bin"),
             governors: root.appendingPathComponent("data/is/governors.json.gz")
@@ -61,6 +65,12 @@ enum Artifacts {
         let start = ContinuousClock.now
         let english = try FrequencyLexicon(contentsOf: paths.english)
         let icelandic = try FrequencyLexicon(contentsOf: paths.icelandic)
+        let englishCalibration = paths.englishCalibration.flatMap {
+            try? LexiconCalibrationProfile(contentsOf: $0)
+        }
+        let icelandicCalibration = paths.icelandicCalibration.flatMap {
+            try? LexiconCalibrationProfile(contentsOf: $0)
+        }
 
         var morphology: BinaryLemmatizer?
         if morphologyEnabled, let url = paths.morphology {
@@ -75,7 +85,9 @@ enum Artifacts {
             icelandic: icelandic,
             english: english,
             morphology: morphology,
-            config: config
+            config: config,
+            icelandicCalibration: icelandicCalibration,
+            englishCalibration: englishCalibration
         )
 
         // Stage-B inflection artifacts (paradigms.bin is mmap-only —

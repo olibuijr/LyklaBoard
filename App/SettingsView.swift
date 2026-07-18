@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  "Stillingar": spacebar-mode picker (persisted to the App Group
 //  UserDefaults suite for a later keyboard-extension wave), the iCloud sync

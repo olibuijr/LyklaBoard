@@ -1,6 +1,6 @@
 //
 //  RecordingPadView.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  DEV-MODE "Upptökusvæði": the ONLY place a typing session can be recorded.
 //  Recording captures ground truth ONLY from this pad — never any third-party

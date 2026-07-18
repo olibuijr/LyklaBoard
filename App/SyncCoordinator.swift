@@ -1,6 +1,6 @@
 //
 //  SyncCoordinator.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  M2 wave 3: app-side owner of the CloudKit sync loop. Bridges `AppModel`
 //  (which owns the personal-model FILE) to `Sync.SyncEngine` (which is

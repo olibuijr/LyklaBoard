@@ -14,6 +14,14 @@ final class CorpusPairTests: XCTestCase {
         XCTAssertEqual(pair.context, ["Þessi", "rúnaröð"])
         XCTAssertEqual(pair.lang, "is")
         XCTAssertEqual(pair.category, "accent_drop")
+        XCTAssertEqual(pair.expectation, .repair)
+    }
+
+    func testPreserveExpectationDecodes() throws {
+        let line =
+            #"{"typo":"á","intended":"a","context":["hann"],"lang":"is","category":"valid_word_hard_negative","expectation":"preserve"}"#
+        let pair = try XCTUnwrap(Corpus.parseLine(line))
+        XCTAssertEqual(pair.expectation, .preserve)
     }
 
     func testSpaceMissIntendedIsTwoWords() throws {

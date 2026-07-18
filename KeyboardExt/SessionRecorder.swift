@@ -1,6 +1,6 @@
 //
 //  SessionRecorder.swift
-//  BetterKeyboardExt
+//  LyklabordKeyboard
 //
 //  DEV-MODE typing-session recorder (keyboard-extension half). Captures the
 //  ground-truth signal the headless harness and eval corpus can't: what the
@@ -42,7 +42,7 @@ import Foundation
 import TypeEngine
 
 /// Keyboard-side session recorder, owned by (and confined to the serial queue
-/// of) `BetterKeyboardAutocompleteService`. Not thread-safe on its own — every
+/// of) `LyklabordAutocompleteService`. Not thread-safe on its own — every
 /// method must be called on the engine `queue`, exactly like `TypingSession`.
 final class SessionRecorder {
 
@@ -61,7 +61,7 @@ final class SessionRecorder {
     // MARK: - Applied action (per pass)
 
     /// What the keyboard applied to the document in the interval leading up to
-    /// a pass — forwarded from `BetterKeyboardActionHandler`.
+    /// a pass — forwarded from `LyklabordActionHandler`.
     enum AppliedAction {
         case autocorrect(String)
         case suggestionTap(String)

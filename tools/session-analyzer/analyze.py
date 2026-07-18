@@ -25,9 +25,9 @@ MISS_OFFERED        user backspace-retyped to a word that WAS in the bar at
                     (gating too conservative).
 MISS_ABSENT         user backspace-retyped to a word the bar never offered
                     (a ranking / candidate-generation miss).
-INFLECTION_MISS     a MISS whose intended word shares a lemma-ish stem with a
-                    bar offer differing only in an inflectional ending — routes
-                    to the inflection backlog, not the corrector.
+INFLECTION_MISS     raw shape hint: intended shares a long prefix with a bar
+                    offer. Taxonomy calls it inflection only when both forms
+                    share a lemma in the shipping BÍN artifact.
 TAP_USED            user tapped a suggestion in the bar.
 CLEAN               a word committed with no correction, retype, or tap.
 
@@ -40,8 +40,8 @@ v2 additions
   with plausibility-based pairing, so an erase-then-retype that replaces one
   word with a LONGER stretch pairs only the aligned word (e.g. "foðu"→"góðu",
   not "foðu"→"af") and leaves the extra words as insertions.
-* INFLECTION_MISS retags split-case MISSes (shared prefix >= 60% of length,
-  differing only in a short inflectional suffix).
+* INFLECTION_MISS marks split-case-shaped MISSes (shared prefix >= 60% of
+  length, differing only in a short suffix); this alone never routes work.
 * A SILENT_MISS pass scans the FINAL committed text for uncorrected typos:
   tokens not attested in either lexicon (authoritatively via the type-repl
   `:word` command, falling back to the frequency corpora) that have a
@@ -179,6 +179,14 @@ def plausible_edit(e: str, r: str) -> bool:
     ed = edit_distance(el, rl)
     mn = min(len(el), len(rl))
     mx = max(len(el), len(rl))
+    # One- and two-character fragments are especially likely to be aborted
+    # phrase starts rather than misspellings.  A cheap edit-distance alone is
+    # not evidence here: replacing `a` with `ef` (or `.` with `er`) costs only
+    # two edits but shares no spelling signal at all.  Keep genuine short
+    # repairs (`a` -> `á`, `vi` -> `við`, one-key substitutions) while
+    # rejecting unrelated rewrites before they contaminate personal-eval.
+    if mn <= 2 and cp == 0 and ed > 1:
+        return False
     return cp >= 0.5 * mn or ed <= max(2, mx // 3)
 
 
@@ -383,8 +391,9 @@ def _inflection_offer(typo: str, intended: str, offered_bar: list) -> Optional[s
     """If the bar offered a DICTIONARY word that is the same lemma-ish stem as
     `intended` but a different inflection — a long shared prefix (>= 60% of the
     longer length AND at least `_INFLECTION_MIN_STEM` chars) with both tails a
-    short inflectional ending — return that offer. Such a MISS belongs in the
-    inflection backlog, not the corrector.
+    short inflection-shaped ending — return that offer. This is intentionally
+    only a triage hint: shared prefix does not prove shared lemma, case, or
+    ownership by the inflection engine.
 
     The `typo` (and its bar-echoed prefixes) is excluded: the bar surfaces the
     raw typed string, which is not a real inflection of the intended word."""
@@ -423,6 +432,12 @@ def classify(app: list, kb: list) -> list:
             if _autocorrect_for(kb, typo, before_t=ep.end_t, after_t=prev_t):
                 # Wrong correction is `typo`; restored original is `intended`.
                 events.append(Event("AUTOCORRECT_UNDONE", ep.t, typo, intended, context))
+                continue
+            # A backspace followed by unrelated text is an ordinary rewrite,
+            # not proof of a typo/correction pair.  Wrong autocorrect undos
+            # above remain eligible regardless of spelling similarity because
+            # the keyboard's explicit apply record is authoritative.
+            if not plausible_edit(typo, intended):
                 continue
             offered = _bar_offered(kb, typo, intended, before_t=ep.t, prefix=prefix)
             cls = "MISS_OFFERED" if offered else "MISS_ABSENT"
@@ -622,7 +637,8 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
     """Query the engine's curated lexicons for each token via `type-repl :word`.
 
     Returns (attest, source) where attest maps token → {'is': bool, 'en': bool,
-    'is_junk_tier': bool, 'is_present': bool, 'bin': bool} (present in that
+    'is_junk_tier': bool, 'is_present': bool, 'bin': bool, 'lemmas': tuple}
+    (present in that
     lexicon, plus whether the IS attestation is corpus noise rather than a
     real word — see below) and source is 'type-repl' or 'corpus' (fallback).
     The type-repl path is authoritative — it excludes corpus noise the engine
@@ -631,7 +647,8 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
     `is_present` is the RAW is.lex membership (before junk-tier filtering) —
     the taxonomy's compound-oov detector needs "absent from is.lex entirely",
     which is a different question from "is a real word" (`is`/`bin` below).
-    `bin` is raw BÍN morphological validity — the taxonomy's
+    `bin` is raw BÍN morphological validity and `lemmas` is the exact set of
+    BÍN lemma candidates returned by the shipping binary — the taxonomy's
     valid-word-overlap / proper-noun-oov detectors need this directly since
     BÍN catches real words is.lex's frequency table doesn't have a good count
     for (e.g. "syndur", BÍN-known but is.lex-absent).
@@ -665,7 +682,9 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
             is_f = re.findall(r"is\.lex\s+f=(\S+)\s+z=(\S+)", out)
             en_f = re.findall(r"en\.lex\s+f=(\S+)\s+z=(\S+)", out)
             bin_known = re.findall(r"BÍN\s+(known|-)", out)
-            if len(is_f) == len(uniq) and len(en_f) == len(uniq) and len(bin_known) == len(uniq):
+            bin_lemmas = re.findall(r"BÍN\s+(?:known|-).*?lemmas:\s*(\S+)", out)
+            if (len(is_f) == len(uniq) and len(en_f) == len(uniq)
+                    and len(bin_known) == len(uniq) and len(bin_lemmas) == len(uniq)):
                 attest = {}
                 for i, t in enumerate(uniq):
                     is_present = is_f[i][0] != "-"
@@ -678,6 +697,7 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
                         "is_junk_tier": junk_tier,
                         "is_present": is_present,
                         "bin": known,
+                        "lemmas": tuple(x for x in bin_lemmas[i].split(",") if x != "-"),
                     }
                 return attest, "type-repl"
         except Exception:
@@ -689,7 +709,8 @@ def attest_tokens(tokens: list, repo_root: str) -> tuple:
     lex = load_lexicons(repo_root)
     attest = {
         t: {"is": t.lower() in lex["is"], "en": t.lower() in lex["en"],
-            "is_junk_tier": False, "is_present": t.lower() in lex["is"], "bin": False}
+            "is_junk_tier": False, "is_present": t.lower() in lex["is"],
+            "bin": False, "lemmas": ()}
         for t in uniq
     }
     return attest, "corpus"
@@ -880,6 +901,8 @@ def taxonomy_tokens_for_session(events: list, silent: list,
             toks.add(e.typo)
         if e.intended:
             toks.add(e.intended)
+        if e.note:
+            toks.add(e.note)
     for m in silent:
         toks.add(m.token)
         intended = silent_intended(m, confirmed_intents)
@@ -928,9 +951,12 @@ def tag_findings(events: list, kb: list, silent: list, repo_root: str,
                 return seg
         return ""
 
-    def ctx_for(typo: str, intended: str, event_cls: str, bar_seen) -> "taxonomy.FindingContext":
+    def ctx_for(typo: str, intended: str, event_cls: str, bar_seen,
+                morphology_offer: str = "") -> "taxonomy.FindingContext":
         typo_l = typo.lower() if typo else typo
         ed = edit_distance(typo.lower(), intended.lower()) if typo and intended else 0
+        intended_lemmas = set(attest.get(intended, {}).get("lemmas", ()))
+        offer_lemmas = set(attest.get(morphology_offer, {}).get("lemmas", ()))
         return taxonomy.FindingContext(
             typo=typo, intended=intended, event_cls=event_cls,
             bar_seen=tuple(bar_seen or ()),
@@ -939,11 +965,13 @@ def tag_findings(events: list, kb: list, silent: list, repo_root: str,
             compound_hit=compound_hit(intended),
             edit_distance=ed,
             confirmed=confirmed_intents.get(typo_l) if typo_l else None,
+            morphology_offer=morphology_offer,
+            shared_bin_lemmas=tuple(sorted(intended_lemmas & offer_lemmas)),
         )
 
     event_tags = {}
     for e in events:
-        ctx = ctx_for(e.typo, e.intended, e.cls, e.offered_bar)
+        ctx = ctx_for(e.typo, e.intended, e.cls, e.offered_bar, e.note)
         event_tags[id(e)] = taxonomy.classify_finding(ctx)
 
     silent_tags = {}
@@ -1391,8 +1419,12 @@ def render_report(sid: str, app: list, kb: list, events: list,
         if ctx:
             lines.append(f"- context: …{ctx}")
         if e.cls == "INFLECTION_MISS" and e.note:
-            lines.append(f"- inflected bar offer (wrong case): `{e.note}` "
-                         "→ inflection backlog, not the corrector")
+            if cls == "inflection":
+                lines.append(f"- BÍN shared-lemma bar offer: `{e.note}` "
+                             "→ morphology proven; failure-stage routing still required")
+            else:
+                lines.append(f"- prefix-similar bar offer (shape only): `{e.note}` "
+                             "→ no shared BÍN lemma; do not route as inflection")
         if e.offered_bar:
             lines.append(f"- bar offered: {', '.join('`'+b+'`' for b in e.offered_bar)}")
         lines.append("")

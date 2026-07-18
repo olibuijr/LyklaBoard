@@ -1,6 +1,6 @@
 //
 //  KeyboardStatus.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  Detects whether the Lyklaborð keyboard extension is enabled in iOS
 //  Settings, so onboarding can collapse to a done-state instead of showing
@@ -25,7 +25,7 @@ import Foundation
 
 enum KeyboardStatus {
 
-    /// Must match `PRODUCT_BUNDLE_IDENTIFIER` of the BetterKeyboardExt
+    /// Must match `PRODUCT_BUNDLE_IDENTIFIER` of the LyklabordKeyboard
     /// target in `project.yml`.
     static let keyboardExtensionBundleId = "is.solberg.lyklabord.keyboard"
 

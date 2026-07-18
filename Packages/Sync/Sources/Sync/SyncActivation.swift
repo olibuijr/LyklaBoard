@@ -18,7 +18,7 @@ public enum SyncActivation {
     ///   1. Create the iCloud container `iCloud.is.solberg.lyklabord` in the
     ///      developer portal.
     ///   2. Add the CloudKit capability + container to the APP target's
-    ///      entitlements only (`App/BetterKeyboard.entitlements`) — the
+    ///      entitlements only (`App/Lyklabord.entitlements`) — the
     ///      keyboard extension NEVER gets CloudKit (architecture
     ///      invariant: the extension ships zero network code).
     ///   3. Deploy the `PersonalModelSnapshot` schema (fields below) to

@@ -1,6 +1,6 @@
 //
 //  FullAccessExplainer.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  Honest "Full Access" explainer (v1-blocker), reused in onboarding and
 //  Settings. The message we commit to: typing works fully WITHOUT Full

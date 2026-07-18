@@ -1,0 +1,17 @@
+{
+  "schema": "lyklabord.lexicon-calibration.v1",
+  "languageDataGeneration": "bin-sigrun-2026-07-10-9c10d70d",
+  "addK": 0.5,
+  "meanLogFrequency": 8.32596142046183,
+  "stdLogFrequency": 2.5389399297642186,
+  "warmupWords": [
+    "aacute", "aaron", "aa", "aalesund", "aalborg", "aan", "aarhus", "aaa",
+    "aachen", "aanholt", "aamodt", "aagot", "aelig", "aek", "aer", "ae",
+    "air", "airwaves", "airbus", "airways", "airlines", "aik", "aires", "airbnb",
+    "airport", "ai", "airline", "aircraft", "aol", "auk", "auðvitað", "auka",
+    "auki", "aukist", "auðvelt", "augum", "aukið", "aukning", "auknum", "austurlandi",
+    "aukast", "ayew", "ayrton", "ayman", "ayrault", "aylesbury", "ayatollah", "ayre",
+    "ayala", "ahmadinejad", "ahmed", "ahern", "ahmad", "ahmet", "ahtisaari", "ahmadi",
+    "aha", "annars", "annað", "annarra", "annan", "annar", "anna", "annarri"
+  ]
+}

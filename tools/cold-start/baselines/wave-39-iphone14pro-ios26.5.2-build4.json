@@ -1,0 +1,104 @@
+{
+  "budget": {
+    "activationToEngineReadyMs": {
+      "p50": 150,
+      "p95": 250,
+      "p99": 400
+    },
+    "backlogDrainMs": {
+      "p50": 50,
+      "p95": 150,
+      "p99": 250
+    },
+    "firstRequestToStableResultMs": {
+      "p50": 100,
+      "p95": 300,
+      "p99": 450
+    },
+    "maxQueuedWindowDepth": 8,
+    "minimumColdRuns": 20
+  },
+  "cohort": {
+    "deviceModel": [
+      "iPhone15,2"
+    ],
+    "extensionBuild": [
+      "4"
+    ],
+    "extensionVersion": [
+      "1.0"
+    ],
+    "osVersion": [
+      "Version 26.5.2 (Build 23F84)"
+    ]
+  },
+  "cohortConsistent": true,
+  "filters": {
+    "physicalDeviceOnly": true,
+    "processColdOnly": true
+  },
+  "gate": {
+    "failures": [],
+    "status": "pass"
+  },
+  "maxQueuedWindowDepth": 1,
+  "metrics": {
+    "activationToEngineReadyMs": {
+      "max": 55.85758335655555,
+      "p50": 54.15406246902421,
+      "p95": 55.8474895573454,
+      "p99": 55.85556459671352
+    },
+    "activationToServiceCreationMs": {
+      "max": 7.901000033598393,
+      "p50": 6.543041643453762,
+      "p95": 7.875033316668123,
+      "p99": 7.895806690212339
+    },
+    "activationToStableResultMs": {
+      "max": 57.201416697353125,
+      "p50": 55.483104137238115,
+      "p95": 57.15961665555369,
+      "p99": 57.19305668899324
+    },
+    "backlogDrainMs": {
+      "max": 1.4250416425056756,
+      "p50": 1.3372291869018227,
+      "p95": 1.4161354076350108,
+      "p99": 1.4232603955315426
+    },
+    "bootstrapDurationMs": {
+      "max": 49.76612498285249,
+      "p50": 47.12129166000523,
+      "p95": 49.12265831953846,
+      "p99": 49.63743165018968
+    },
+    "firstRequestToStableResultMs": {
+      "max": 28.982750023715198,
+      "p50": 22.115416679298505,
+      "p95": 27.394983303383928,
+      "p99": 28.665196679648943
+    },
+    "serviceToEngineReadyMs": {
+      "max": 49.89287495845929,
+      "p50": 47.231770848156884,
+      "p95": 49.27284167788457,
+      "p99": 49.768868302344345
+    },
+    "serviceToFirstRequestMs": {
+      "max": 28.96658336976543,
+      "p50": 26.514749974012375,
+      "p95": 27.907966697239317,
+      "p99": 28.754860035260208
+    },
+    "serviceToStableResultMs": {
+      "max": 51.20333330705762,
+      "p50": 48.572354164207354,
+      "p95": 50.69215415569488,
+      "p99": 51.10109747678507
+    }
+  },
+  "sampleCount": 20,
+  "schema": "lyklabord.cold-start-report.v1",
+  "totalInputSamples": 20
+}

@@ -1,6 +1,6 @@
 //
 //  AppModel.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  M2 app track: owns the app's copy of the personal learning store
 //  (`Learning.PersonalModel`), compacts it against the keyboard extension's
@@ -20,8 +20,8 @@ final class AppModel {
 
     // MARK: - App Group
 
-    /// Must match `App/BetterKeyboard.entitlements`,
-    /// `KeyboardExt/BetterKeyboardExt.entitlements`, and
+    /// Must match `App/Lyklabord.entitlements`,
+    /// `KeyboardExt/LyklabordKeyboard.entitlements`, and
     /// `KeyboardApp.appGroupId` in `KeyboardExt/KeyboardViewController.swift`.
     static let appGroupIdentifier = "group.is.solberg.lyklabord"
 
@@ -112,7 +112,7 @@ final class AppModel {
     /// to call repeatedly — a no-op when the log is empty/missing. Call on
     /// launch (`init` → `loadModel` does an initial load; call this too so a
     /// log written before first launch is picked up) and whenever
-    /// `scenePhase` becomes `.active` (see `BetterKeyboardApp`), so the
+    /// `scenePhase` becomes `.active` (see `LyklabordApp`), so the
     /// dictionary editor reflects typing done in other apps since the user
     /// last had this app foregrounded.
     ///

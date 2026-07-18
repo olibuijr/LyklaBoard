@@ -2,15 +2,15 @@
 //  KeyboardLayout+BottomRowAffordanceTests.swift
 //  KeyboardKit
 //
-//  Regression test for the better-keyboard fork's bottom-row affordances
+//  Regression test for the LyklaborÃ° fork's bottom-row affordances
 //  (PLAN.md "Bottom-row affordances"): a `.` key between the spacebar and
 //  return on iPhone, with a long-press callout cluster.
 //
 //  This mirrors `KeyboardLayout_IcelandicRegressionTests`: it duplicates
 //  the production types from `KeyboardExt/KeyboardViewController.swift`
-//  (`BetterKeyboardIPhoneLayoutService`, `BetterKeyboardLayoutService`, and
+//  (`LyklabordIPhoneLayoutService`, `LyklabordLayoutService`, and
 //  the "." override in `Callouts.Actions.icelandic`) locally, since that
-//  file lives in the `BetterKeyboardExt` app-extension target, which this
+//  file lives in the `LyklabordKeyboard` app-extension target, which this
 //  test target (a Swift package) cannot import. Keep both copies in sync
 //  when either changes.
 //
@@ -20,7 +20,7 @@ import XCTest
 
 // MARK: - Mirrors of KeyboardExt/KeyboardViewController.swift
 
-/// Mirrors `BetterKeyboardIPhoneLayoutService`.
+/// Mirrors `LyklabordIPhoneLayoutService`.
 class TestIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
 
     override func bottomActions(
@@ -34,10 +34,10 @@ class TestIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
     }
 }
 
-/// Mirrors `BetterKeyboardLayoutService`.
+/// Mirrors `LyklabordLayoutService`.
 class TestDeviceLayoutService: KeyboardLayout.DeviceBasedLayoutService {
 
-    private lazy var betterIPhoneService: KeyboardLayoutService = TestIPhoneLayoutService(
+    private lazy var lyklabordIPhoneService: KeyboardLayoutService = TestIPhoneLayoutService(
         alphabeticInputSet: alphabeticInputSet,
         numericInputSet: numericInputSet,
         symbolicInputSet: symbolicInputSet
@@ -47,7 +47,7 @@ class TestDeviceLayoutService: KeyboardLayout.DeviceBasedLayoutService {
         for context: KeyboardContext
     ) -> KeyboardLayoutService {
         switch context.deviceTypeForKeyboard {
-        case .phone: betterIPhoneService
+        case .phone: lyklabordIPhoneService
         default: super.keyboardLayoutService(for: context)
         }
     }

@@ -23,14 +23,246 @@ architecture in `docs/adr/`. Newest first.
   in EN. Long-press is an absolute deliberateness veto.
 - **Eval discipline**: never tune on a single report; dev corpus for tuning,
   heldout run once per wave and never tuned against; personal-eval.jsonl
-  (real confirmed typing) must never regress. False-autocorrect is the metric
-  we guard most jealously — uncorrected dogfood under-reports it, so dogfood
-  recordings are made WITH manual corrections. Gate command (local only, real
-  typing data is gitignored): `type-eval personal` against
-  `scores/personal-baseline.json`; `--update-baseline` accepts an accepted
-  wave's result as the new floor (scores/README.md "Personal-eval gate").
+  (real confirmed typing) must never regress. The zero-false-autocorrect hard
+  gate is a curated micro-safety invariant; it is NOT a claim of zero wrong
+  fires across the 3,000 generated-typo corpus. M1.5 adds baseline-relative
+  corpus false-autoapply/top-1/top-3 gates by language and material category.
+  False autocorrect remains the metric we guard most jealously — uncorrected
+  dogfood under-reports it, so dogfood recordings are made WITH manual
+  corrections. Gate command (local only, real typing data is gitignored):
+  `type-eval personal` against `scores/personal-baseline.json`;
+  `--update-baseline` accepts an accepted wave's result as the new floor
+  (scores/README.md "Personal-eval gate"). Scenarios preserve known behavior;
+  they do not certify aggregate system quality.
 - **Extension privacy**: the keyboard extension has zero network/iCloud
   entitlements, forever. Sync and export live in the containing app.
+
+## Active queue — 2026-07-18 M1.5 reset
+
+`PLAN.md` owns execution order; this section is its compact operational view.
+The lettered language-capability waves in `ICELANDIC_NLP.md` are evidence and
+dependency planning, not a competing active queue.
+
+1. **Wave 39 — cold-first-usable truth and budget (complete):** 20/20 verified
+   process-cold Release runs on physical iPhone passed the strict gate; p95
+   activation→engine-ready 55.8 ms, first-request→stable-result 27.4 ms,
+   backlog drain 1.4 ms, maximum queued depth 1. The aggregate baseline is
+   committed under `tools/cold-start/baselines/`. Bootstrap stays first,
+   off-main, and single-stage; evidence does not justify staged publication,
+   warm-up, or a fallback engine. Ranking is unchanged.
+2. **Wave 40 — evaluation contract v3 (complete):** baseline-relative
+   real-artifact quality/safety/stage gates, morphology-backed analyzer routing,
+   language-artifact manifests/runtime budgets, and generated calibration
+   sidecars are green. The clean replacement physical cohort passed 20/20;
+   activation→engine-ready p95 is 11.9 ms and first-request→stable p95 is
+   5.9 ms (both ~78% below Wave 39), with depth 1 and zero backlog drain.
+3. **Wave 41 — timed last-mile replay gate (complete):** the real session
+   queue, shared production request sequencer/apply guard, separately published
+   bar, and final proxy text gate delimiter application, stale delivery,
+   fast-input queueing, and backspace/revert. Four of four cases pass.
+4. **Wave 42 — decoder consolidation phase 1 (in progress):** candidate provenance, named
+   score contributions, trace visibility, and pass-family ablations with
+   byte-identical behavior.
+5. **Wave 43 — decoder consolidation phase 2:** extract action policy and
+   group configuration domains, again with no intended behavior movement.
+
+Only then does the active queue enter incremental token/span semantics and the
+modern mmap `context3.bin` capability wave. Continue real recordings in
+parallel; they improve the personal gate but do not block Waves 39–43.
+
+**Device verification debt (does not change the queue):** Wave 37's
+long-press-eject confirmation and Wave 36's real `„völd` literal-revert path
+remain open until their exact interactions are tested. The
+2026-07-18T00-56-44 recording exercised neither exact check. Wave 39's physical
+cohort is closed below.
+
+## 2026-07-18 — Wave 41: timed last-mile replay gate (complete)
+
+- **Trigger:** the existing `ProxySimulator` scenarios exercised session and
+  proxy semantics synchronously, while the extension publishes results from
+  unstructured autocomplete tasks. The lab could not force a fast-input queue,
+  suppress a superseded delivery, or prove that an older published bar failed
+  closed at delimiter time. Unit tests for the pure guard were necessary but
+  did not prove the composed document result.
+- **Shared production boundary:** `AutocompleteRequestSequencer` is now the
+  lock-protected monotonic request primitive used by both
+  `LyklabordAutocompleteService` and the headless runner. Every queued proxy
+  window still reaches the stateful `TypingSession` in order; only a completed
+  result superseded by different newer text is withheld from the published
+  bar. `Typist` also stamps its synchronous bar with the pending token and runs
+  delimiter apply through `AutocorrectApplyGuard`, closing the old lab-only
+  stale-apply blind spot.
+- **Timed harness:** `type-repl last-mile` loads the exact shipping artifacts,
+  confines the real session to a user-initiated serial queue, maintains a
+  separate delivery queue/bar, records request→delivery/action/backlog timing,
+  and asserts the final `ProxySimulator.document`. Its deterministic queue hold
+  models a bootstrap/busy engine without changing ordering or bypassing the
+  production sequencer.
+- **Final-text cases:** (1) fresh `teh␠` → `the␠`; (2) deferred `teh.␠` →
+  `the.␠`; (3) a held queue followed by fast `x␠` keeps `tehx␠`, records one
+  stale apply skip, suppresses at least one older delivery, and reaches queue
+  depth 2; (4) autocorrect commit → backspace → reserved `teh` literal tap
+  restores `teh␠`. A failed case is scorecard-visible
+  `sessionProxyFailure`; the hard requirement is zero.
+- **Budgets:** request→delivery p95 <60 ms and max <120 ms, forced backlog drain
+  <100 ms, action p95 <5 ms, plus 100% final-text cases. The focused Release
+  run measured 2.03/2.45 ms request p95/max, 1.23 ms drain, 0.014 ms action
+  p95, maximum queue depth 2; the full scorecard verification measured 1.42 ms
+  request p95 and 1.29 ms drain. These are host regression gates, not a
+  substitute for Wave 39/40's physical activation cohort.
+- **Gates:** last-mile 4/4; scorecard v1 PASS (250/250 scenarios, 9.09 ms worst
+  line, artifact load 149.1 ms / 14.4 MiB); TypeEngine/EvalKit 472/472; generic
+  Release iOS app + extension build green. Wave 40's replacement physical
+  cohort also passed before this ledger close, preserving execution order.
+- **Accepted-wave follow-through:** the one allowed report-only heldout run
+  passed every hard gate and measured 2,289/3,000 top-1, 2,506/3,000 top-3,
+  and 159 false auto-applies (EN 1,080/1,190/108; IS 1,209/1,316/51), with
+  zero session/proxy failures. The refreshed 70-row personal gate found one
+  analyzer artifact (`a` deleted before commit, then unrelated `ef`) and one
+  real failure: quoted English `„vold` was forced to Icelandic `völd`, dropping
+  the quote. Short unrelated rewrites are no longer exported as correction
+  pairs; candidates that drop a typed quotation mark are now offer-only. The
+  exact proxy/session dogfood scenario is durable and the accepted personal
+  baseline is 32/70 top-1, 27 auto-applies, 9 false auto-applies, with no
+  regressions. Final rerun: 473/473 tests, 251/251 scenarios (dogfood 47/47),
+  scorecard PASS (artifact 158.6 ms / 14.4 MiB, last-mile 4/4, bench 17.19 ms),
+  and generic Release iOS app + extension build green. The quote branch is
+  absent from heldout by construction, so the report-only cohort was not
+  consulted a second time.
+
+## 2026-07-18 — Wave 40: evaluation contract v3 (complete)
+
+- **Trigger:** the old green scorecard only proved a tiny curated micro set,
+  scenarios, and one latency line. Real-artifact top-1/top-3 and false fires
+  could move by language/category without failing; identity and valid-word
+  preservation were absent; dogfood's prefix-shaped `INFLECTION_MISS` could
+  be mistaken for morphology evidence; artifact freshness and runtime cost
+  were prose rather than executable contracts.
+- **Corpus contract:** `CorpusPair.expectation` distinguishes repair from
+  preserve. The deterministic `type-eval generate-safety` corpus has 600
+  real-artifact assertions: 400 clean identities and 200 valid-word hard
+  negatives, balanced IS/EN. `scores/corpus-baseline-v1.json` requires exact
+  suite/category/language cohorts and row counts, top-1/top-3 no lower, and
+  false auto-applies no higher. Dev baseline: 2,338/3,000 top-1,
+  2,541/3,000 top-3, 121 false fires. Safety baseline: clean identity 0/400
+  fires; hard negatives 16/200 (15 IS, 1 EN), mainly deliberate restoration
+  policy. Those 16 are now visible reducible debt, never a silently expanding
+  allowance. Heldout remains report-only.
+- **Failure ownership:** every corpus result is exactly one of success,
+  discovery miss, ranking loss, action-policy abstention/error, or
+  session/proxy failure, with overall/category/language tallies in scorecard
+  JSON. Dev currently attributes 326 discovery, 215 ranking, 522 abstention,
+  and 121 action errors; stateless replay correctly emits zero session/proxy
+  failures, which Wave 41's last-mile rig owns.
+- **Morphology evidence:** `type-repl :word` now exposes exact lemma candidates
+  from the shipping BÍN binary. The analyzer batches those probes for intended
+  and prefix-similar offered forms. A shared lemma upgrades the taxonomy to
+  `inflection · watch`; absent an intersection, the result is
+  `inflection-shape-hint · triage-uncertain` and cannot route roadmap work.
+- **Artifact contract:** IS and EN generation manifests now enforce schema,
+  source age at build/commit, source fingerprint, required shipping cohort,
+  exact bytes, and streaming SHA-256 over 14 files. A fresh process under
+  `/usr/bin/time -l` gates production-shaped load below 500 ms and peak
+  footprint below 50 MiB, with no retry; final host verification was
+  151.1 ms / 14.4 MiB. The normal keystroke bench separately passed at
+  9.61 ms worst line.
+- **Cold-path correction:** stable per-lexicon mean/σ calibration and a bounded
+  warm-up set are now generation-bound hashed sidecars instead of ~20k prefix
+  completion probes repeated on every extension activation. Invalid profiles
+  fall back for test doubles, while production cohort drift fails the manifest
+  audit. Host artifact load fell from roughly 181 ms to 151 ms with identical
+  dev/safety/compound results and all 250 scenarios. The Release device build
+  is green and contains both sidecars.
+- **Physical transfer:** after archiving a transport-contaminated partial
+  journal (five cold/two warm presentations) and clearing it, the strict runner
+  collected a fresh 20/20 process-cold cohort with no rejected lines or
+  duplicate ids on the same iPhone15,2 / iOS 26.5.2 / app+extension 1.0 (4).
+  Activation→engine-ready p50/p95/p99/max = 9.8/11.9/13.9/14.3 ms;
+  first-request→stable = 3.7/5.9/8.2/8.7 ms; backlog drain = 0 throughout;
+  activation→stable p95 = 42.8 ms; maximum queue depth = 1. Versus Wave 39,
+  activation p95 fell 78.6% and request p95 78.4%. Durable aggregate:
+  `tools/cold-start/baselines/wave-40-calibration-iphone14pro-ios26.5.2-build4.json`.
+- **Gates:** TypeEngine/EvalKit 469/469; analyzer behavior suite green (real BÍN
+  `punktur`/`punkti` shared-lemma integration proven); scorecard v1 green;
+  curatedSafety 0 false auto-applies + valid-word pass; corpus baseline green;
+  14/14 artifacts green; 250/250 scenarios; Release physical build green;
+  strict replacement physical cohort green.
+
+## 2026-07-18 — Wave 39: cold-first-usable truth and budget
+
+- **Trigger:** bootstrap was already off-main, but neither the activation →
+  usable-bar latency nor the queue hidden behind bootstrap had physical-device
+  evidence. Retrying a surviving extension process could make a warm number
+  look cold.
+- **Instrumentation:** monotonic milestones start at controller `viewDidLoad`,
+  before KeyboardKit/App Group setup, and end only on a non-empty result that
+  survives delivery-side supersession. An explicit generation set proves the
+  entire pre-ready backlog drained. The journal contains timings/counts and
+  build/device metadata only—never proxy text, key values, suggestions, or a
+  user identifier—and writes asynchronously after result publication.
+- **Cohort hygiene:** `tools/cold-start/run-cohort.sh` dismisses the host before
+  repeatedly terminating/rechecking the extension, proves an absent process at
+  every launch boundary, and admits exactly one unique physical
+  `isProcessCold` record per iteration. It aborts on lock, malformed/warm data,
+  or a missing sample and can resume a valid partial cohort.
+- **Measured result:** Release app/extension 1.0 (4), iPhone15,2 (iPhone 14 Pro),
+  iOS 26.5.2 (23F84), 20/20 runs, one consistent cohort. Activation →
+  engine-ready p50/p95/p99/max = 54.2/55.8/55.9/55.9 ms; first request →
+  stable result = 22.1/27.4/28.7/29.0 ms; backlog drain =
+  1.3/1.4/1.4/1.4 ms; activation → stable result p95 = 57.2 ms; maximum
+  queued-window depth = 1. The strict v1 budget passed with no rejected lines
+  or duplicate run ids. Durable aggregate:
+  `tools/cold-start/baselines/wave-39-iphone14pro-ios26.5.2-build4.json`.
+- **Decision:** retain the single serial engine stage and current off-main
+  bootstrap. Do not add speculative warm-up, early partial publication, or a
+  compact fallback engine: the measured p95 has roughly 4.5× headroom against
+  the activation budget and 10.9× against the request-to-result budget. Add
+  cohorts for older supported devices when hardware exists; do not mix device,
+  OS, version, or build cohorts.
+- **Gates:** cold tracker ordering/stability/backlog executable green; reporter
+  7/7; strict physical cohort gate green; Release Simulator and physical-device
+  app builds green; installed product metadata verified as `Lyklabord.app` +
+  `LyklabordKeyboard.appex`.
+
+## 2026-07-18 — Wave 38: current BÍN cohort + reproducible provenance
+
+- **Trigger:** the architecture harvest found that both `lemma-is` and the app
+  were silently building from a preserved 2020 `SHsnid.csv`. A morphology
+  layer with no recorded snapshot/hash could make roadmap work compensate for
+  stale language data and could mix incompatible morphology, paradigms, and
+  governors.
+- **Decided:** refresh the entire compatible language cohort from one current
+  permitted BÍN/DIM Sigrúnarsnið snapshot before designing morphology v3. The
+  exact source and every output live in
+  `data/is/LANGUAGE_DATA_MANIFEST.json` under generation
+  `bin-sigrun-2026-07-10-9c10d70d`; source SHA-256
+  `9c10d70d73c03168f05f152616b8cafa6e4275e7db8701338f5f3c48a45b7ab6`,
+  7,425,931 records, maximum BÍN id 569,933. The old cohort was preserved for
+  comparison rather than overwritten without provenance.
+- **Artifacts:** full morphology v2 is 115,189,168 bytes with 3,698,020 forms,
+  347,926 lemmas, 5,811,045 analyses, and 414,007 bigrams; compatible core
+  tiers were rebuilt with it. `paradigms.bin` now carries 47,460 lemma groups /
+  889,605 entries / 447,316 forms; `governors.json.gz` carries 13,514
+  governors. Exact byte sizes and hashes are manifest-owned, not repeated as
+  floating prose elsewhere.
+- **Behavioral finding:** freshness changes validity and therefore policy even
+  without a ranking-code change. The new BÍN attests `fjögurhundruð` and
+  `níuhundruð`; their standard split forms remain bar offers but valid-form
+  protection now correctly prevents forced replacement. Recent vocabulary
+  probes including `spjallmenni`, `hlaðvarpsþáttur`, `rafskúta`, `rafmynt`,
+  `streymisveita`, and `kórónuveira` moved from unknown to known.
+- **Gates:** LemmaCore 20/20, Lexicon 38/38, TypeEngine 454/454; scenario suites
+  core 158/158, dogfood 46/46, inflect 13/13, touch 11/11, compounds 22/22;
+  scorecard 250/250 scenarios with curated micro false-ac 0 and valid-word
+  safety green; simulator app build green. The built extension's full
+  morphology/paradigm/governor hashes matched the manifest. Swift mmap probes
+  kept full-morphology open near 1–2 ms with roughly +0.25–0.28 MB physical
+  footprint; the background gzipped-governor parse remains the known artifact
+  cost and motivates, but does not jump ahead of, M1.5.
+- **Close condition:** the cohort is refreshed and reproducible. Automated
+  source-age/cohort enforcement remains Wave 40 evaluation infrastructure;
+  richer morphology formats remain deferred until TypeEngine has a measured
+  question the current reader cannot answer.
 
 ## 2026-07-17 — Wave 37: long-press a learned suggestion to eject it
 
@@ -84,7 +316,7 @@ architecture in `docs/adr/`. Newest first.
   `Strings` is a separate target).
 - **Eject → tombstone → snapshot refresh (reuses `PersonalModel.remove`, no
   new deletion path)**: the confirm routes to
-  `BetterKeyboardAutocompleteService.ejectPersonalWord`, which on the engine
+  `LyklabordAutocompleteService.ejectPersonalWord`, which on the engine
   queue does a coordinated read-modify-write on the App Group model file —
   load `PersonalModel`, `remove(word:)` (drops counts + bigrams, inserts a
   permanent tombstone — deletions stick, existing behavior), save atomically —
@@ -115,8 +347,8 @@ architecture in `docs/adr/`. Newest first.
   `testVerbatimTapDoesNotOverrideTombstone`, `testRemoveTombstoneAllows…`) —
   the eject reuses that exact `remove`.
 - **Gates**: TypeEngine `swift test` 454/454 (+8 wave-37); Learning 100/100
-  (unchanged; clean rebuild after the Code/better-keyboard →
-  Code/LyklabordApp module-cache staleness). Scenario suites all green: core
+  (unchanged; clean rebuild after the checkout moved to
+  `Code/LyklabordApp`). Scenario suites all green: core
   158/158 (+5 wave-37), dogfood 46/46, inflect 13/13, touch 11/11, compounds
   22/22. Simulator build green (xcodegen + Debug/iOS-Simulator — compiles the
   KK fork for iOS; the macOS `swift build` of KeyboardKit fails only on
@@ -244,7 +476,7 @@ architecture in `docs/adr/`. Newest first.
 - **Gates**: sim build green; TypeEngine 435/435; release bench p50 1.30 ms /
   p95 3.59 ms / max 6.10 ms (first-five max 1.69 ms) — the QoS change did not
   regress per-keystroke latency. Package cache rebuilt after the repo move
-  (Code/better-keyboard → Code/LyklabordApp).
+  (the checkout moved to `Code/LyklabordApp`).
 - **Open**: real-device cold-launch measurement still owed — filter Console/
   Instruments for `AutocompleteColdStart`, measure keyboard-presentation →
   "Engine ready" → first non-empty result across several fresh extension
@@ -741,7 +973,7 @@ architecture in `docs/adr/`. Newest first.
   in), asserting no forced auto-apply; a failure is its own regression
   (false-positive class), independent of the baseline.
 - **pIS recording**: `SessionRecorder.recordPass` gained an optional
-  `pIcelandic` parameter; `BetterKeyboardAutocompleteService` threads
+  `pIcelandic` parameter; `LyklabordAutocompleteService` threads
   `session.probabilityIcelandic` (the same accessor `type-repl`'s `P(IS)`
   prints) through on every pass. Encoded as `pIS` (3 decimals) in
   `kb.jsonl`, omitted (not `null`) when absent — Swift's synthesized
@@ -762,15 +994,18 @@ architecture in `docs/adr/`. Newest first.
   192/192 scenarios; swift test green (402 tests); simulator build green
   (xcodegen + Debug/iOS-Simulator).
 
-## 2026-07-17 — Wave 29: eval-studio v2 (tooling, in flight)
+## 2026-07-17 — Wave 29 phase 1: eval-studio v2 taxonomy (completed)
 
 - **Trigger**: process review — iteration loop is dogfood recordings; needed
   context-efficient triage, compounding evaluations, roadmap from data.
 - **Decided**: findings are pre-triaged against a class taxonomy (known vs
   NOVEL); lane posterior timelines rendered per session (Love-Island
-  whiplash signature); AGGREGATE.md leads with a top-gaps table = the
-  next-wave queue. Phase 2 after wave 22: personal-eval as hard wave gate,
-  slangur registry, pIcelandic recorded per pass.
+  whiplash signature); AGGREGATE.md leads with a top-gaps table as **triage
+  input**, not an automatic next-wave queue. Phase 2 shipped above: personal-
+  eval as a hard wave gate, slangur registry, and pIcelandic recording.
+  M1.5 later clarified that a taxonomy class must identify the actual engine
+  stage before it can route roadmap work; prefix/suffix resemblance alone is
+  not proof of an inflection failure.
 
 ## 2026-07-17 — Wave 22: compound acceptance
 

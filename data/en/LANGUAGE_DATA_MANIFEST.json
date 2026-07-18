@@ -1,0 +1,56 @@
+{
+  "schema": "lyklabord.language-data-manifest.v1",
+  "language": "en",
+  "languageDataGeneration": "symspell-2026-07-15-f84bfae-fd892a1",
+  "generationFingerprint": "f84bfae-fd892a1",
+  "sourceReferenceDate": "2026-07-15",
+  "builtAt": "2026-07-16",
+  "freshnessPolicy": {
+    "maxSourceAgeAtBuildDays": 30,
+    "maxGenerationAgeAtCommitDays": 180
+  },
+  "requiredShippingArtifacts": [
+    "en.lex",
+    "en-calibration.json"
+  ],
+  "sources": {
+    "en-80k.txt": {
+      "name": "SymSpell frequency dictionary",
+      "url": "https://raw.githubusercontent.com/wolfgarbe/SymSpell/master/SymSpell/frequency_dictionary_en_82_765.txt",
+      "fetchedAt": "2026-07-15",
+      "bytes": 1282042,
+      "sha256": "f84bfae717ff3a4a3b90c824ed06ea08e4b2ed2746f7bba63d4e52f2c8bf85c3",
+      "license": "MIT; frequency data derived from Google Ngrams and Hunspell"
+    },
+    "frequency_bigramdictionary_en_243_342.txt": {
+      "name": "SymSpell bigram frequency dictionary",
+      "url": "https://raw.githubusercontent.com/wolfgarbe/SymSpell/master/SymSpell/frequency_bigramdictionary_en_243_342.txt",
+      "fetchedAt": "2026-07-15",
+      "bytes": 5137213,
+      "sha256": "fd892a160184101dd7ae807ac5a302d01fcea1c47304181a8ed7ed9c94545bcd",
+      "license": "MIT; frequency data derived from Google Ngrams"
+    }
+  },
+  "builders": {
+    "lyklabord": {
+      "repository": "https://github.com/jokull/LyklabordApp",
+      "commit": "fb4862c9fc34daa61cd8c38e4ee9d6bbba0ff9a9"
+    }
+  },
+  "artifacts": {
+    "en-calibration.json": {
+      "formatVersion": 1,
+      "bytes": 925,
+      "sha256": "5d8714cf153c53ad4ebc25277206ae4e15859c9f348174220141ea8fe553f4ce",
+      "addK": 0.5
+    },
+    "en.lex": {
+      "formatVersion": 2,
+      "bytes": 4267800,
+      "sha256": "f7b20cfc4480607170af0f1c565b0e7c480bfef2dca69c8f43ee016f8e025a50",
+      "unigrams": 80011,
+      "bigrams": 240966,
+      "contractionInventory": 52
+    }
+  }
+}

@@ -2,7 +2,7 @@
 //  KeyboardAction+SpaceSequencingTests.swift
 //  KeyboardKit
 //
-//  End-to-end coverage for the better-keyboard fork's PLAN.md "Bottom-row
+//  End-to-end coverage for the LyklaborÃ° fork's PLAN.md "Bottom-row
 //  affordances" / "Spacebar behavior" sections, driven through
 //  `KeyboardAction.StandardActionHandler.handle(_:on:)` — the same entry
 //  point `Keyboard.ButtonGestures` calls for every real key tap/release.

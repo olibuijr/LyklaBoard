@@ -46,6 +46,11 @@ final class Typist {
     private(set) var lastSuggestions: [Suggestion] = []
     /// The context window the session saw on the most recent refresh.
     private(set) var lastContextBefore = ""
+    /// Pending token stamped alongside `lastSuggestions`, matching the
+    /// extension bridge's `pendingTokenInfoKey`. Delimiter application checks
+    /// it against the live proxy through `AutocorrectApplyGuard`; the lab can
+    /// therefore never resurrect an older bar over newer text.
+    private(set) var lastSuggestionPendingToken = ""
     private(set) var lastLatencyMicros = 0.0
     private(set) var latenciesMicros: [Double] = []
     /// Set when the most recent keystroke applied an autocorrect.
@@ -114,7 +119,10 @@ final class Typist {
             TypingSession.isDelimiter(character)
             && (character != "." || appliesAutocorrectOnDot)
         if appliesAutocorrect,
-            let autocorrect = lastSuggestions.first(where: { $0.isAutocorrect })
+            let autocorrect = lastSuggestions.first(where: { $0.isAutocorrect }),
+            AutocorrectApplyGuard.shouldAutoApply(
+                recordedPendingToken: lastSuggestionPendingToken,
+                textBeforeCursor: proxy.trueContextBeforeInput)
         {
             let word = currentWord
             if !word.isEmpty, autocorrect.text != word {
@@ -253,6 +261,7 @@ final class Typist {
     func refresh() {
         let before = proxy.contextBeforeInput
         lastContextBefore = before
+        lastSuggestionPendingToken = TypingSession.splitCurrentWord(of: before).currentWord
         let trace = CorrectionTrace()
         let start = clock.now
         lastSuggestions = session.suggestions(for: before, limit: limit, trace: trace)
@@ -284,6 +293,7 @@ final class Typist {
         session.reset()
         lastSuggestions = []
         lastContextBefore = ""
+        lastSuggestionPendingToken = ""
         lastAppliedAutocorrect = nil
         lastRevert = nil
         latenciesMicros.removeAll()

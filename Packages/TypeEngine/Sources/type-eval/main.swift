@@ -6,7 +6,8 @@ import TypeEngine
 //
 //   type-eval                         micro-eval on the bundled TSV fixture
 //   type-eval <file.tsv>              micro-eval on a fixture path
-//   type-eval corpus <dev|heldout>    replay a corpus split (data/eval/*.jsonl)
+//   type-eval corpus <dev|heldout|compounds|safety>
+//                                     replay a corpus split (data/eval/*.jsonl)
 //                                     through the REAL artifacts (dev = tuning,
 //                                     heldout = REPORT-ONLY, never tune against)
 //   type-eval scorecard [--heldout]   micro-eval + corpus dev + scenario suites
@@ -25,6 +26,9 @@ import TypeEngine
 //                                     fresh checkout / CI is a clean no-op)
 //                                     + the confirmed-intentional (slangur)
 //                                     no-force-autocorrect check
+//   type-eval generate-safety [--output p]
+//                                     deterministic clean-identity + valid-word
+//                                     hard-negative corpus from dev + real artifacts
 //
 // The micro-eval uses DictLexicon doubles (curated fixture vocabulary); the
 // corpus / scorecard / A/B corpus runs use the real data/ artifacts. See
@@ -44,6 +48,9 @@ case "ab":
 
 case "personal":
     runPersonalCommand(Array(arguments.dropFirst()))
+
+case "generate-safety":
+    runGenerateSafetyCommand(Array(arguments.dropFirst()))
 
 default:
     // Legacy micro-eval: no subcommand, optional fixture-path override and

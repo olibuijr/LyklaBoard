@@ -1,6 +1,6 @@
 //
 //  SubscriptionManager.swift
-//  BetterKeyboard
+//  Lyklabord
 //
 //  StoreKit 2 wrapper for the Lyklaborð+ subscription — the app-side half
 //  of the entitlement flow. Architecture (docs/WAVES.md standing doctrine):
@@ -85,7 +85,7 @@ final class SubscriptionManager {
     private(set) var hasPendingPurchase = false
 
     /// Lifetime listener for `Transaction.updates`. The manager is created
-    /// once by `BetterKeyboardApp` and lives for the process — no deinit
+    /// once by `LyklabordApp` and lives for the process — no deinit
     /// cancellation needed (and `@Observable`'s synthesized accessors make
     /// stored-property access from a nonisolated deinit ill-formed anyway).
     @ObservationIgnored private var updatesTask: Task<Void, Never>?

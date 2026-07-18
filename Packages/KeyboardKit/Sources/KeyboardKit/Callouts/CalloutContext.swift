@@ -74,7 +74,7 @@ public extension CalloutContext {
     @discardableResult
     func handleSelectedSecondaryAction() -> Bool {
         guard let action = selectedSecondaryAction else { return false }
-        // better-keyboard fork: mark the action as callout-selected before
+        // LyklaborÃ° fork: mark the action as callout-selected before
         // it reaches the action handler — the deliberateness signal for
         // TypeEngine (long-pressed characters veto lane folding), and the
         // cue NOT to attribute the base key's touch point to this
@@ -150,7 +150,7 @@ public extension CalloutContext {
         let buttonSize = buttonFrame.size.limited(to: maxButtonSize)
         guard buttonSize.width > 1 else { return }
         let currentIndex = self.secondaryActionsIndex
-        // better-keyboard fork: when the drag lands PAST the callout's item
+        // LyklaborÃ° fork: when the drag lands PAST the callout's item
         // range, deselect (index -1) so a release commits nothing — instead
         // of upstream's clamp back to `secondaryActionStartIndex`, which
         // re-selects the base character and inserts it on release. The clamp

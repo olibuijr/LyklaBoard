@@ -6,7 +6,7 @@ func stderr(_ message: String) {
     FileHandle.standardError.write(Data("[type-eval] \(message)\n".utf8))
 }
 
-/// `type-eval corpus <dev|heldout|compounds>` — replay a corpus split
+/// `type-eval corpus <dev|heldout|compounds|safety>` — replay a corpus split
 /// through the real artifacts and print the per-category / per-language /
 /// overall table. `compounds` is the wave-31 iceErrorCorpus compound slice
 /// (data/eval/compounds.jsonl — real error→correction pairs; several of its
@@ -17,9 +17,9 @@ func stderr(_ message: String) {
 ///   --dump <failures|false-ac>   per-pair dump instead of the table
 ///   --category <name>            restrict the dump to one category
 func runCorpusCommand(_ args: [String]) {
-    guard let split = args.first, ["dev", "heldout", "compounds"].contains(split) else {
+    guard let split = args.first, ["dev", "heldout", "compounds", "safety"].contains(split) else {
         stderr(
-            "usage: type-eval corpus <dev|heldout|compounds> [--dump failures|false-ac] [--category c]"
+            "usage: type-eval corpus <dev|heldout|compounds|safety> [--dump failures|false-ac] [--category c]"
         )
         exit(2)
     }
@@ -96,7 +96,8 @@ func dumpCorpusPairs(engine: TypeEngine, pairs: [CorpusPair], mode: String, cate
         let suggestions = engine.suggestions(context: context, currentWord: pair.typo, limit: 3)
         let texts = suggestions.map(\.text)
         let fired = suggestions.first?.isAutocorrect == true
-        let top1 = texts.first == pair.intended
+        let target = pair.expectation == .preserve ? pair.typo : pair.intended
+        let top1 = texts.first == target
         switch mode {
         case "failures": if top1 { continue }
         case "false-ac": if !(fired && !top1) { continue }
@@ -110,7 +111,8 @@ func dumpCorpusPairs(engine: TypeEngine, pairs: [CorpusPair], mode: String, cate
         let tail = pair.context.suffix(3).joined(separator: " ")
         print(
             "[\(pair.category)/\(pair.lang)]\(fired ? " AC" : "") "
-                + "typo=\(pair.typo) intended=\(pair.intended) ctx=…\(tail) -> \(rendered)")
+                + "typo=\(pair.typo) target=\(target) source-intended=\(pair.intended) "
+                + "ctx=…\(tail) -> \(rendered)")
     }
 }
 
@@ -149,4 +151,8 @@ func printCorpusResult(_ result: CorpusResult, label: String? = nil) {
             + String(format: "%5d", o.total)
             + "  \(pct(o, o.top1))  \(pct(o, o.top3))"
             + "   \(pct(o, o.autocorrectFired))   \(pct(o, o.falseAutocorrect))")
+    let stageText = CorpusOutcomeStage.allCases.map {
+        "\($0.rawValue)=\(result.stagesOverall[$0])"
+    }.joined(separator: " ")
+    print("stages: \(stageText)")
 }
