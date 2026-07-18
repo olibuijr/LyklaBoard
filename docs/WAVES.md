@@ -66,18 +66,55 @@ dependency planning, not a competing active queue.
    `CorrectionTrace`; eight provider families and every exact provider are
    dev-A/B ablatable. Default suggestions, actions, scenarios, dev/heldout
    scores, and latency remain unchanged.
-5. **Wave 43 — decoder consolidation phase 2:** extract action policy and
-   group configuration domains, again with no intended behavior movement.
+5. **Wave 43 — decoder consolidation phase 2 (complete):** the post-ranking
+   action/safety decision is isolated behind an immutable policy input and an
+   action-only configuration view. Search, ranking, action, touch, lane, and
+   morphology now have read-only ownership views over the unchanged flat
+   shipping defaults. Suggestions, actions, traces, quality, and latency are
+   unchanged.
 
-Only then does the active queue enter incremental token/span semantics and the
-modern mmap `context3.bin` capability wave. Continue real recordings in
-parallel; they improve the personal gate but do not block Waves 39–43.
+The active queue now enters incremental token/span semantics and the modern
+mmap `context3.bin` capability wave. Continue real recordings in parallel;
+they improve the personal gate but do not block engine work.
 
 **Device verification debt (does not change the queue):** Wave 37's
 long-press-eject confirmation and Wave 36's real `„völd` literal-revert path
 remain open until their exact interactions are tested. The
 2026-07-18T00-56-44 recording exercised neither exact check. Wave 39's physical
 cohort is closed below.
+
+## 2026-07-18 — Wave 43: action-policy boundary and configuration domains (complete)
+
+- **Boundary:** `Corrector` finishes candidate admission, exact scoring,
+  deterministic ranking and trace-ledger assembly before constructing an
+  immutable `AutocorrectPolicyInput`. `AutocorrectPolicy` owns the existing
+  ordinary-unknown, split, protected-restoration and valid-word branches and
+  returns only the auto-apply decision; it cannot admit, reorder or rescore a
+  candidate. Trace branch names, gate order and arithmetic are unchanged.
+- **Configuration ownership:** the flat `EngineConfig` remains the only store,
+  keeps every shipping default, and remains source-compatible. `config.domains`
+  snapshots read-only search, ranking, action, touch, lane and morphology
+  views. The action implementation consumes only the action view, so a future
+  cross-layer dependency becomes a visible code change rather than another
+  implicit flat-property read.
+- **Architecture contract:** three focused tests pin domain snapshots and the
+  post-ranking ordinary/split/valid branch classification. The engine README
+  and lab now show action policy as a distinct layer and route debugging to
+  its source instead of the monolithic corrector.
+- **Behavior/latency parity:** 482/482 package tests pass. The accepted
+  scorecard remains dev 2,338/3,000 top-1, 2,541 top-3 and 121 false
+  auto-applies; safety remains 16 expected hard-negative fires; compounds
+  remain 208/233/17; all 251 scenarios and 4/4 last-mile cases pass. The final
+  Release run measured 9.68 ms worst keystroke, 4.20 ms request p95, 4.31 ms
+  backlog drain, and process-cold artifact load 163.0 ms / 14.6 MiB. The
+  70-row personal gate remains 32 top-1 / 27 auto-applied / 9 false, with all
+  3 intentional slang rows surviving unforced. Generic iPhone Release app +
+  keyboard-extension build succeeds.
+- **Heldout (single report-only run):** byte-identical at 2,289/3,000 top-1,
+  2,506 top-3 and 159 false auto-applies (EN 1,080/1,190/108; IS
+  1,209/1,316/51), with stages success 1,772, discovery 336, ranking 216,
+  action abstention 517, action error 159 and zero session/proxy failures. No
+  post-heldout behavior change or tuning was made.
 
 ## 2026-07-18 — Wave 42: candidate provenance, named signals and ablations (complete)
 

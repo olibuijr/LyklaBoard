@@ -20,7 +20,7 @@ typed characters / taps / host mutations
                     │
                     ▼
               TypeEngine
- discovery → exact scoring → ranking → action policy
+ discovery → exact scoring → ranking → AutocorrectPolicy
                     │
                     ▼
       suggestions + simulated proxy edits

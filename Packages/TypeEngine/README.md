@@ -61,8 +61,9 @@ touches + document window + field signals
  + blended language score  │
  + optional morph/personal │
              ▼             │
+      AutocorrectPolicy    │
  conservative auto-apply   │
- policy                    │
+ decision                  │
              └──────┬──────┘
                     ▼
        TypingSession bar assembly
@@ -89,7 +90,8 @@ an auto-apply threshold to solve a ranking problem. Diagnose the stage first.
 |---|---|---|
 | [`TypingSession`](Sources/TypeEngine/TypingSession.swift) | Document-window interpretation, expected-edit ledger, commit detection, current-word parsing, tap/long-press alignment, verbatim and revert state, field gates, buffered learning events | Candidate scoring, persistent storage, UI, threading |
 | [`TypeEngine`](Sources/TypeEngine/TypeEngine.swift) | Public synchronous facade, running language-lane posterior, corrector/predictor coordination, injected personal/touch/inflection snapshots | Proxy semantics, persistence, async work |
-| [`Corrector`](Sources/TypeEngine/Corrector.swift) | Candidate discovery, exact channel rescoring, ranking, confidence, auto-apply decision | Document history, suggestion-bar presentation, persistent learning |
+| [`Corrector`](Sources/TypeEngine/Corrector.swift) | Candidate discovery, exact channel rescoring, named ranking signals, deterministic ordering and confidence | Action/safety thresholds, document history, suggestion-bar presentation, persistent learning |
+| [`AutocorrectPolicy`](Sources/TypeEngine/AutocorrectPolicy.swift) | Post-ranking ordinary-repair, split, restoration and valid-word action gates | Candidate admission, score composition, or ordering |
 | [`BeamDecoder`](Sources/TypeEngine/BeamDecoder.swift) | Bounded prefix-range search through frequency lexicons | Final cost, ranking, or autocorrect authority |
 | [`BlendedLanguageModel`](Sources/TypeEngine/LanguageModel.swift) | Lexicon calibration, unigram/bigram/context scores, IS/EN blending, validity and typicality, personal boosts, shared optional stores | Search strategy and UI policy |
 | [`Predictor`](Sources/TypeEngine/Predictor.swift) | Next-word candidates after a committed context | Correction of a word in progress |
@@ -392,8 +394,13 @@ optional morph term with `:why`, `:word`, and `:bigram`.
 
 ### Auto-apply policy
 
-Ranking answers “what is the best reading?” Auto-apply answers the riskier
+Ranking answers “what is the best reading?” `AutocorrectPolicy` answers the riskier
 question “may we overwrite the literal without an explicit tap?”
+
+The boundary is mechanical and enforced: `Corrector` passes an already sorted
+`[RankedCandidate]`, immutable candidate metadata, and an action-only config
+snapshot into the policy. The policy returns one Boolean and writes diagnostic
+gates to `CorrectionTrace`; it cannot admit a candidate or mutate score/order.
 
 All branches first enforce structural preconditions such as minimum token
 length, maximum channel cost, preservation of typed apostrophes, and
@@ -421,8 +428,16 @@ decomposition. These exceptions should remain explicit and scenario-guarded.
 
 Additional policy includes context-vouched short repairs, proper-noun
 possessive protection, restoration-specific lower margins, BÍN-vacuum handling,
-and short-completion suppression. Read the `Conservatism / autocorrect
-decision` section of `Corrector.swift` before changing any threshold.
+and short-completion suppression. Read
+[`AutocorrectPolicy.swift`](Sources/TypeEngine/AutocorrectPolicy.swift) before
+changing any threshold.
+
+`EngineConfig` remains a flat, source-compatible shipping API and owns all
+defaults. `config.domains` creates read-only snapshots grouped as search,
+ranking, action, touch, lane, and morphology. These are ownership views, not a
+second store: mutate the flat config first, then take a fresh snapshot. The
+action implementation consumes only `config.domains.action`, which makes
+cross-layer threshold creep visible at compile time.
 
 If the intended candidate is top-ranked but does not auto-apply, this policy
 layer—not discovery or ranking—is the first place to inspect. `:why` prints the
@@ -493,7 +508,7 @@ evidence layer.
 |---|---|---|
 | Intended word never appears | Which discovery pass should be able to reach it, and why was that pass gated? | `Corrector`, `BeamDecoder`, artifact coverage |
 | Intended word appears below a rival | Is the difference channel cost, language calibration, bigram context, morph fit, or personal boost? | `SpatialModel`/tap provider, `LanguageModel`, `Inflection` |
-| Intended word is top but tap-only | Which auto-apply branch and gate blocked it? | Corrector conservatism; inspect `:why` |
+| Intended word is top but tap-only | Which auto-apply branch and gate blocked it? | `AutocorrectPolicy`; inspect `:why` |
 | Wrong word commits or commits twice | Was the suggestion stale, or was a host/proxy change misclassified? | `TypingSession`, expected-edit ledger, embedder apply guard |
 | Correct behavior headlessly but not on device | Do touch coordinates, field kind, window truncation/staleness, timing, or application order differ? | Session/embedding boundary; replay captured evidence |
 | Lane flips or context feels wrong | Which committed words actually updated the posterior, and what evidence did they carry? | Commit detection, `:posterior`, `:word`, calibration |
@@ -547,7 +562,7 @@ and risk of that candidate source.
 | Missing accents/apostrophes are priced like mistakes | `FoldPricing` and restoration classification |
 | Context or cross-language ranking is wrong | `BlendedLanguageModel`, calibration, bigram evidence, or lane model |
 | Wrong inflected form leads after a governor | Inflection artifact/backoff and completion scoring—not hard replacement rules |
-| Correct candidate wins but should/should not auto-apply | Explicit conservatism gate in `Corrector` |
+| Correct candidate wins but should/should not auto-apply | Explicit gate in `AutocorrectPolicy` |
 | Cursor, paste, stale read, or commit behavior is wrong | `TypingSession` and expected-edit ledger |
 | Suggestion bar rendering or proxy mutation is wrong | Keyboard embedder, outside TypeEngine |
 | Durable counts, deletion, import, or compaction is wrong | `Learning`, outside TypeEngine |
@@ -589,9 +604,11 @@ When introducing a new evidence source, prefer this shape:
 |---|---|
 | [`TypingSession.swift`](Sources/TypeEngine/TypingSession.swift) | Full text-window lifecycle, commits, bar assembly, learning and revert behavior |
 | [`TypeEngine.swift`](Sources/TypeEngine/TypeEngine.swift) | Public facade, lane updates, personal/inflection injection, diagnostics |
-| [`Corrector.swift`](Sources/TypeEngine/Corrector.swift) | Candidate passes, exact scoring, confidence and autocorrect policy |
+| [`Corrector.swift`](Sources/TypeEngine/Corrector.swift) | Candidate passes, exact scoring, deterministic ranking and confidence |
+| [`AutocorrectPolicy.swift`](Sources/TypeEngine/AutocorrectPolicy.swift) | Post-ranking action/safety branches and trace gates |
 | [`CandidateProvider.swift`](Sources/TypeEngine/CandidateProvider.swift) | Stable source provenance, common admission, rank signal ledger and ablation families |
-| [`LanguageModel.swift`](Sources/TypeEngine/LanguageModel.swift) | Tunables, validity, calibration, bilingual/context/personal scoring |
+| [`LanguageModel.swift`](Sources/TypeEngine/LanguageModel.swift) | Flat shipping tunables, validity, calibration, bilingual/context/personal scoring |
+| [`EngineConfigDomains.swift`](Sources/TypeEngine/EngineConfigDomains.swift) | Read-only search/ranking/action/touch/lane/morphology ownership views |
 | [`BeamDecoder.swift`](Sources/TypeEngine/BeamDecoder.swift) | Prefix-range spatial search and its budgets |
 | [`SpatialModel.swift`](Sources/TypeEngine/SpatialModel.swift) | Static Icelandic key geometry and edit costs |
 | [`PerTapCostProvider.swift`](Sources/TypeEngine/PerTapCostProvider.swift) | Coordinate likelihoods and adaptive personal Gaussians |
