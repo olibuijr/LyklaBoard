@@ -46,3 +46,8 @@ build/
 
 # ReplayRig test-build derived data (any suffix)
 ReplayRig/.derived*/
+
+# Keycap USDZ bake byproducts — the .usdz packs its own textures, these loose PNGs are unused
+App/Resources/keycap_albedo.png
+App/Resources/keycap_normal.png
+App/Resources/keycap_roughness.png

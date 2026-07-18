@@ -247,7 +247,7 @@ final class CompoundAnalyzer {
     /// Two duties:
     ///  * `split(of:)` refuses them — they must never earn compound
     ///    validity protection. (Mostly a structural guard today: BÍN's
-    ///    descriptive coverage actually ATTESTS 8 of the 10 as whole
+    ///    descriptive coverage now ATTESTS all 10 as whole
     ///    surface forms — margskonar carries a full indeclinable-
     ///    adjective paradigm — so lexicon validity, not compound
     ///    analysis, is what protects them from auto-replace. The
@@ -256,10 +256,9 @@ final class CompoundAnalyzer {
     ///    future variants BÍN does not carry.)
     ///  * The corrector OFFERS the canonical split form in the bar
     ///    (offer-only, wrong-form-offer semantics): one tap writes the
-    ///    standard orthography. The two forms BÍN does NOT attest
-    ///    (fjögurhundruð, níuhundruð) already auto-split via the
-    ///    ordinary space-miss machinery — the offer path only ever runs
-    ///    for words the validity veto silences.
+    ///    standard orthography. Since the 2026-07 BÍN refresh added
+    ///    fjögurhundruð and níuhundruð, all ten are protected descriptive
+    ///    forms and the correction remains explicitly user-chosen.
     static let neverCompounds: [String: String] = [
         "margskonar": "margs konar",
         "afturábak": "aftur á bak",

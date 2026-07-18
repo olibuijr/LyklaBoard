@@ -168,16 +168,15 @@ EXPECT_NO_AUTOCORRECT
 T " "
 EXPECT_LAST_COMMIT annarstaðar
 
-SCENARIO fjögurhundruð auto-splits via the ordinary space-miss machinery
-# The deny words BÍN does NOT attest are plain OOV tokens: the split
-# pass reaches "fjögur hundruð" on its own (margin inf, both halves
-# headline vocabulary) — the deny list only needs to keep the compound
-# analyzer from ever protecting the join.
+SCENARIO fjögurhundruð offers its canonical split without replacing a BÍN-valid form
+# The 2026-07 BÍN refresh added the joined number word as a descriptive
+# indeclinable numeral. The standard-orthography deny map must still offer
+# "fjögur hundruð", but the valid-form invariant makes this offer-only.
 T "keyptum við fjögurhundruð"
-EXPECT_AUTOCORRECT fjögur hundruð
+EXPECT_CONTAINS fjögur hundruð
+EXPECT_NO_AUTOCORRECT
 T " "
-# Two-word commit: the runner reports the trailing token.
-EXPECT_LAST_COMMIT hundruð
+EXPECT_LAST_COMMIT fjögurhundruð
 
 # ============================================================
 # 7. Wave 31 — linking-letter yield (the framhaldskóla class)

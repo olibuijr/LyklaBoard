@@ -113,7 +113,7 @@ DEFAULT_SRC = '/Users/jokull/Code/lemma-is/data/SHsnid.csv'
 DEFAULT_BIGRAMS = str(Path(__file__).parent.parent / 'data' / 'is' / 'bigrams.json.gz')
 DEFAULT_OUTPUT = str(Path(__file__).parent.parent / 'data' / 'is' / 'governors.json.gz')
 
-BUILD_DATE = '2026-07-15'  # fixed string per spec, not datetime.now() — keeps rebuilds diffable
+BUILD_DATE = '2026-07-18'  # fixed string per build cohort, not datetime.now() — keeps rebuilds diffable
 FORMAT_VERSION = 1
 
 ALL_CASES = ('nf', 'þf', 'þgf', 'ef')

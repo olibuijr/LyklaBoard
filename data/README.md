@@ -10,8 +10,8 @@ These are indexed trie-based binary artifacts generated from BÍN (Beygingarlýs
 
 - **lemma-is.bin** (115,189,168 bytes) — **PRIMARY**
   - Full BÍN: 3,698,020 word forms, 347,926 lemmas, format v2 with morphological data + 414,007 bigrams
-  - The original 95,416,256-byte artifact measured phys_footprint +0.28 MB after load + 1000 lookups, 124 µs/lookup, and 0.4 ms load on 2026-07-15; rerun the same gate for this refreshed artifact
-  - Ship this. mmap makes file size irrelevant to the extension memory cap; only cost is app download size
+  - Measured 2026-07-18 over three release runs: 1.03–2.17 ms mmap open, 1.6–5.8 µs/lookup over 1000 calls, and phys_footprint +0.25–0.28 MB from process start
+  - Ship this. mmap keeps untouched pages file-backed; measured residency depends on pages touched, while the larger artifact still increases app download size
 
 - **lemma-is.core.bin** (10,049,264 bytes)
   - Smaller alternative (350k forms, no morph/bigrams, v1); kept for tests and as a download-size escape hatch
@@ -106,7 +106,7 @@ See `ATTRIBUTION.md` for full credit text. In brief:
 
 ## Tiering Strategy (obsolete — kept for context)
 
-Device-based tiering was designed before the Swift mmap bench demonstrated demand-paged behavior (the original 91 MB full binary measured +0.28 MB after its fixed lookup workload). Decision 2026-07-15: **ship the full lemma-is.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests. The refreshed ~110 MB artifact must be remeasured with the same cold and lookup workloads; total file size alone is not a memory-residency measurement.
+Device-based tiering was designed before the Swift mmap bench demonstrated demand-paged behavior (the original 91 MB full binary measured +0.28 MB after its fixed lookup workload). Decision 2026-07-15: **ship the full lemma-is.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests. The refreshed ~110 MB artifact also measured +0.25–0.28 MB `phys_footprint` over the same 1000-lookup gate; total file size alone is not a memory-residency measurement.
 
 | File | Size | Contents (words / lemmas / bigrams) |
 |------|------|--------------------------------------|

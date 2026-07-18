@@ -1718,9 +1718,9 @@ public struct Corrector {
         // but the standard orthography is ALWAYS the two-word form, so
         // the bar offers the canonical split (offer-only, wrong-form-
         // offer semantics: one tap writes it, nothing auto-applies).
-        // Deny words BÍN does NOT attest (fjögurhundruð) reach here too,
-        // usually with the split already auto-applied by the space-miss
-        // machinery — the existing-index check leaves that winner alone.
+        // As of the 2026-07 BÍN refresh all current deny words are
+        // descriptively attested, including fjögurhundruð/níuhundruð, so
+        // the valid-form invariant makes the canonical correction offer-only.
         if let splitOffer = CompoundAnalyzer.neverCompounds[typed],
             !suggestions.contains(where: { $0.text == splitOffer })
         {

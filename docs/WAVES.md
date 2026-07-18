@@ -380,9 +380,12 @@ architecture in `docs/adr/`. Newest first.
   protection, e.g. for variants BÍN lacks). The user-visible half is a
   wrong-form-offer-style bar entry: the canonical split ("margs konar")
   is OFFERED, never auto-applied — one tap writes standard orthography.
-  The 2 non-attested deny words (fjögurhundruð, níuhundruð) already
-  auto-split via the ordinary space-miss machinery (margin inf), locked
-  by scenario. wrongly_joined eval category: 10/10 top-1, 0 false-ac.
+  At the time, the 2 non-attested deny words (fjögurhundruð,
+  níuhundruð) auto-split via the ordinary space-miss machinery (margin
+  inf), locked by scenario. The 2026-07-18 BÍN refresh now attests both;
+  the valid-form invariant therefore makes their canonical split an
+  offer-only correction, and the scenario was updated with the artifact.
+  wrongly_joined eval category at this wave: 10/10 top-1, 0 false-ac.
 - **3-modifier decision — cap stays 2, measured**: the scan is
   generalized behind `compoundMaxModifiers` (A/B-able knob, recursion
   preserves wave 22's fewest-parts/shortest-first order byte-for-byte at

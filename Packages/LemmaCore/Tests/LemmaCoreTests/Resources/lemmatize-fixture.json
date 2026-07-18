@@ -79,8 +79,7 @@
   "morgunn"
  ],
  "kvöldið": [
-  "kvöld",
-  "kvölda"
+  "kvöld"
  ],
  "fórum": [
   "fara",
@@ -611,7 +610,8 @@
  ],
  "Þyngd": [
   "þyngd",
-  "þyngja"
+  "þyngja",
+  "þyngdur"
  ],
  "Afsláttur": [
   "afsláttur"
@@ -864,7 +864,8 @@
   "hafður"
  ],
  "bráðnað": [
-  "bráðna"
+  "bráðna",
+  "bráðnaður"
  ],
  "hádeginu": [
   "hádegi"
@@ -931,7 +932,8 @@
   "ákveðinn"
  ],
  "sjálfur": [
-  "sjálfur"
+  "sjálfur",
+  "sjálfa"
  ],
  "Alþingi": [
   "alþingi",
