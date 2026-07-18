@@ -97,7 +97,7 @@ final class KeyboardViewController: KeyboardInputViewController {
 
         // M1: bilingual IS/EN autocomplete via TypeEngine. The service
         // bootstraps itself lazily on its own utility-QoS serial queue (mmap
-        // of lemma-is.bin + en.lex + is.lex happens off the main thread —
+        // of bin-morph.bin + en.lex + is.lex happens off the main thread —
         // the launch-flicker mitigation in PLAN.md; nothing heavy runs in
         // viewDidLoad). Until the engine is ready it returns empty
         // suggestions. Replaces the default `.disabled` service; the

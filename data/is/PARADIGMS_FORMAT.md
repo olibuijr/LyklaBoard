@@ -8,9 +8,9 @@ collection; every lookup is a handful of offset reads plus a couple of
 binary searches over sorted byte arrays.
 
 `paradigms.bin` is the GENERATION direction of BÍN morphology (lemma -> every
-form + its grammatical feature bundle). lemma-is.bin v2 already ships the
+form + its grammatical feature bundle). bin-morph.bin v2 already ships the
 ANALYSIS direction (surface form -> lemma + morph tag); this is deliberately
-a separate artifact rather than an extra section bolted onto lemma-is.bin,
+a separate artifact rather than an extra section bolted onto bin-morph.bin,
 because it has a different scope (nouns + adjectives only, frequency-
 filtered — see "Scope" and "Size budget" below) and a different primary sort
 key need (lemma-first, not just surface-form-first).
@@ -34,8 +34,8 @@ BÍN's raw "Sigrúnarsnið" CSV, `SHsnid.csv` — semicolon-delimited, columns
 total (5,560,075 of them `kk`/`kvk`/`hk`/`lo`). This is the **same raw file**
 lemma-is's own `scripts/build-data.py` and `scripts/build-binary.py` read
 (`DATA_DIR / "SHsnid.csv"`) to build `lookup.tsv.gz`/`lemmas.txt.gz` and
-`lemma-is.bin`'s v2 morph section, respectively — i.e. this pipeline and
-lemma-is.bin both derive from the identical upstream source, just extracting
+`bin-morph.bin`'s v2 morph section, respectively — i.e. this pipeline and
+bin-morph.bin both derive from the identical upstream source, just extracting
 different columns/directions from it.
 
 It was found locally at `/Users/jokull/Code/lemma-is/data/SHsnid.csv`
@@ -185,10 +185,10 @@ itself (which always stores the packed `uint16`).
 
 Per PLAN.md's explicit instruction ("reference forms by their existing
 lemma-is string identity ... likely the surface string + lemma string since
-lemma-is.bin ids are internal"), **`paradigms.bin` shares no numeric ids with
-`lemma-is.bin`** — the join key across the two artifacts is the lemma
+bin-morph.bin ids are internal"), **`paradigms.bin` shares no numeric ids with
+`bin-morph.bin`** — the join key across the two artifacts is the lemma
 **string** (lowercased UTF-8), plus POS where ambiguity matters. This is
-robust to lemma-is.bin being rebuilt/re-versioned independently (its
+robust to bin-morph.bin being rebuilt/re-versioned independently (its
 internal lemma indices are an implementation detail of that file, not a
 stable identifier).
 

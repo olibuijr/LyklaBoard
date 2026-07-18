@@ -173,7 +173,7 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: KeyboardExt
-      - path: data/is/lemma-is.bin
+      - path: data/is/bin-morph.bin
         buildPhase: resources
       - path: data/en/en.lex
         buildPhase: resources

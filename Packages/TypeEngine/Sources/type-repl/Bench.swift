@@ -145,7 +145,7 @@ struct Bench {
         )
 
         // Memory footprint after everything above (mmap discipline gate:
-        // paradigms.bin/lemma-is.bin resident cost is touched pages only;
+        // paradigms.bin/bin-morph.bin resident cost is touched pages only;
         // the governors table is the one deliberate dirty allocation).
         let memory = Self.memoryFootprint()
         print(

@@ -469,7 +469,7 @@ architecture in `docs/adr/`. Newest first.
 - **Artifact verification KILLED the premise** (repl `:word` probes + a
   direct scan of BÍN's SHsnid.csv, 6.3M rows): the Sigrúnarsnið BÍN
   distribution carries NO archaic eg/þu/nu/tva/sa/jeg forms at all, so
-  lemma-is.bin never knew them; is.lex's junk filter additionally dropped
+  bin-morph.bin never knew them; is.lex's junk filter additionally dropped
   their web-corpus attestations (eg 6359, sa 10516, þvi 38 in the raw
   unigrams — all absent from the shipped lexicon). The class actually
   splits three ways in the shipped chain:
@@ -625,7 +625,7 @@ architecture in `docs/adr/`. Newest first.
   "opinbeir"→opinberi displaced by "opinbera" (genuine "hinn opinbera"
   corpus usage — a toss-up we accept).
 - **BÍN casing findings**: paradigms.bin DOES carry place names and
-  patronymics, lowercased like lemma-is.bin ("kirkjubæjarklaustur" full
+  patronymics, lowercased like bin-morph.bin ("kirkjubæjarklaustur" full
   paradigm nf/þf=klaustur þgf=klaustri ef=klausturs; "þórðarson" is.lex
   f=25745 + BÍN nf/þf) — typed-capitalization transfer (TypeEngine
   leading-cap rule) covers casing end-to-end, verified in the session bars.
@@ -857,7 +857,7 @@ architecture in `docs/adr/`. Newest first.
   in-memory learned vocabulary, not code/data drift.
 - **Decided**: (1) leading-cap learned surface folds to pipeline casing when
   lowercase is common base vocab (typicality test, NOT BÍN casing —
-  lemma-is.bin lowercases everything); sentence-initial commits strip autocap
+  bin-morph.bin lowercases everything); sentence-initial commits strip autocap
   at capture. Miðeind-class OOV caps preserved. (2) implicitly-learned pure
   acute-fold twins of ≥10×-dominant base words lose the conservatism veto;
   their personal counts TRANSFER to the twin (the lazy commits were commits

@@ -8,7 +8,7 @@ final class BinaryLemmatizerTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
-        let url = Bundle.module.url(forResource: "lemma-is.core.bin", withExtension: nil)!
+        let url = Bundle.module.url(forResource: "bin-morph.core.bin", withExtension: nil)!
         lemmatizer = try! BinaryLemmatizer(contentsOf: url)
     }
 
@@ -94,7 +94,7 @@ final class BinaryLemmatizerTests: XCTestCase {
     func testMemoryFootprintAfterLoadAndLookups() {
         let before = Self.memoryFootprint()
 
-        let url = Bundle.module.url(forResource: "lemma-is.core.bin", withExtension: nil)!
+        let url = Bundle.module.url(forResource: "bin-morph.core.bin", withExtension: nil)!
         let fresh = try! BinaryLemmatizer(contentsOf: url)
 
         let afterLoad = Self.memoryFootprint()

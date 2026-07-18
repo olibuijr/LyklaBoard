@@ -23,10 +23,10 @@ morphological database, via the `lemma-is` project's Python build pipeline
 The original plan (see `research/foundation-options.md`, "Memory fit") was
 device-based tiering: ship a smaller lexicon (2–10MB) to memory-constrained
 devices and the full set only where headroom allowed. Four tiers were built
-and staged in `data/is/`: `lemma-is.bin` (full, 95,416,256 bytes / ~91MB:
+and staged in `data/is/`: `bin-morph.bin` (full, 95,416,256 bytes / ~91MB:
 3,071,066 word forms, 289,124 lemmas, format v2 with morphological data +
-414,007 bigrams), `lemma-is.core.bin` (9.2MB, 350k forms, no morph/bigrams),
-`lemma-is.core.top_200k.bin` (5.4MB), and `lemma-is.core.min_100.bin`
+414,007 bigrams), `bin-morph.core.bin` (9.2MB, 350k forms, no morph/bigrams),
+`bin-morph.core.top_200k.bin` (5.4MB), and `bin-morph.core.min_100.bin`
 (1.8MB).
 
 A Swift mmap benchmark on the actual full binary (2026-07-15) measured:
@@ -48,12 +48,12 @@ load + 3,000 mixed lookups on a rebuilt 9.21 MB file).
 
 ## Decision
 
-**Ship the full `lemma-is.bin`** (all 3.07M word forms, morphology,
+**Ship the full `bin-morph.bin`** (all 3.07M word forms, morphology,
 bigrams) on every device. mmap makes on-disk file size effectively free
 against the extension's runtime memory budget; the only real cost is app
 **download size**, which is acceptable for a free app (ADR-0001).
 
-The three smaller tiers are kept, not shipped: `lemma-is.core.bin` remains
+The three smaller tiers are kept, not shipped: `bin-morph.core.bin` remains
 useful for fast unit tests, and all three stay staged as a **download-size
 escape hatch** only, should app-bundle size ever become a problem
 independent of runtime memory.

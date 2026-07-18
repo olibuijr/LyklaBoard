@@ -46,7 +46,7 @@
 
 The single biggest accelerator. lemma-is already embeds BÍN in compact custom binaries with tiered size/recall trade-offs, plus extracted unigram and bigram frequency data — i.e., most of the Icelandic language-model groundwork for a keyboard already exists:
 
-- **Data artifacts (`data-dist/`):** `lemma-is.core.bin` 9.7MB (~18.5MB loaded, 95.996% IFD recall), tiered variants from 1.9MB (`min_100`) to 27MB (`top_1m`), plus `unigrams.json.gz` and `bigrams.json.gz` — exactly the frequency tables a next-word predictor needs.
+- **Data artifacts (`data-dist/`):** `bin-morph.core.bin` 9.7MB (~18.5MB loaded, 95.996% IFD recall), tiered variants from 1.9MB (`min_100`) to 27MB (`top_1m`), plus `unigrams.json.gz` and `bigrams.json.gz` — exactly the frequency tables a next-word predictor needs.
 - **Build pipeline (`scripts/`):** Python scripts (`build-binary.py`, `extract-unigrams.py`, `extract-bigrams.py`) that turn BÍN + corpora into the binary artifacts. Reusable to emit keyboard-tuned artifacts; only a Swift *reader* for the binary format needs porting (reader logic lives in `src/binary-lemmatizer.ts`).
 - **Linguistic machinery:** compound splitting (critical for Icelandic!), bigram + grammar-rule disambiguation, Bloom-filter lemma lookup for low memory — all TypeScript, but the algorithms port directly.
 - **Memory fit:** the core tiers (2–10MB on disk) fit comfortably inside the iOS keyboard-extension memory cap even alongside an English model.

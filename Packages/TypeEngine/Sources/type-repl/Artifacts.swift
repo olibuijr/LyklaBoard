@@ -44,7 +44,7 @@ enum Artifacts {
         return Paths(
             english: root.appendingPathComponent("data/en/en.lex"),
             icelandic: root.appendingPathComponent("data/is/is.lex"),
-            morphology: root.appendingPathComponent("data/is/lemma-is.bin"),
+            morphology: root.appendingPathComponent("data/is/bin-morph.bin"),
             paradigms: root.appendingPathComponent("data/is/paradigms.bin"),
             governors: root.appendingPathComponent("data/is/governors.json.gz")
         )
@@ -67,7 +67,7 @@ enum Artifacts {
             do {
                 morphology = try BinaryLemmatizer(contentsOf: url)
             } catch {
-                warn("lemma-is.bin failed to load (\(error)); continuing without morphology")
+                warn("bin-morph.bin failed to load (\(error)); continuing without morphology")
             }
         }
 

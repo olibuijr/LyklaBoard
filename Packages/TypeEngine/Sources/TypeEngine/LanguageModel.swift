@@ -1157,7 +1157,7 @@ public struct EngineConfig: Sendable {
     /// (Miðeind: miðeind −2.49) keep their learned capitalization —
     /// genuine proper nouns survive because their lowercase reading is
     /// never headline vocabulary. BÍN validity deliberately does NOT count
-    /// as attestation here: lemma-is.bin lowercases its keys, so it cannot
+    /// as attestation here: bin-morph.bin lowercases its keys, so it cannot
     /// distinguish Miðeind-the-name from miðeind-the-particle.
     public var personalCapArtifactMinZ: Double = -1.0
 

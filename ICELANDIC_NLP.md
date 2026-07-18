@@ -106,7 +106,7 @@ run loop
 ```text
                            OFFLINE ARTIFACT FACTORY
 
- BÍN/DIM versioned snapshot ─► morphology analysis ─┬─► lemma-is.bin / future morph.v3
+ BÍN/DIM versioned snapshot ─► morphology analysis ─┬─► bin-morph.bin / future morph.v3
                                              └─► paradigms.bin
 
  IGC + Icegrams + EN corpora ─► normalize/filter/calibrate ─► is.lex / en.lex
@@ -462,8 +462,8 @@ Current local artifacts:
 
 | Artifact | Shape | Keyboard role |
 |---|---|---|
-| `lemma-is.core.bin` | 10,049,264 bytes; v1; 350,000 forms; 99,680 lemmas; no morph/bigrams | Tests and a possible staged compact/download escape hatch; not a production fallback today |
-| `lemma-is.bin` | 115,189,168 bytes; v2; 3,698,020 forms; 347,926 lemmas; 414,007 bigrams | Production morphology source today |
+| `bin-morph.core.bin` | 10,049,264 bytes; v1; 350,000 forms; 99,680 lemmas; no morph/bigrams | Tests and a possible staged compact/download escape hatch; not a production fallback today |
+| `bin-morph.bin` | 115,189,168 bytes; v2; 3,698,020 forms; 347,926 lemmas; 414,007 bigrams | Production morphology source today |
 
 The JavaScript cold-start benchmark synchronously reads and copies the entire
 file, so its tens-of-milliseconds full-artifact results are not representative
@@ -521,9 +521,9 @@ records, maximum BÍN id 508,309, a preserved filesystem timestamp of
 2020-05-10, and SHA-256
 `3a760bc39ed2f43ee7a44e82f169494261b4139a5a2e8f3e356ada00dce4c84d`.
 A clean rebuild from that CSV plus the local frequency artifacts is byte-for-byte
-identical to both the then-current `lemma-is/data-dist/lemma-is.bin` and
+identical to both the then-current `lemma-is/data-dist/bin-morph.bin` and
 Lyklaborð's then-current bundled
-`data/is/lemma-is.bin`: SHA-256
+`data/is/bin-morph.bin`: SHA-256
 `31fa4bf8be637a6f0da85fa78ea14277d0457d947fdeb94d30733ce80155e4b9`.
 That proved the old production morphology payload came from the 2020-era CSV.
 

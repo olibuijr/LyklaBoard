@@ -23,7 +23,7 @@ let package = Package(
             name: "LemmaCoreTests",
             dependencies: ["LemmaCore"],
             resources: [
-                .copy("Resources/lemma-is.core.bin"),
+                .copy("Resources/bin-morph.core.bin"),
                 .copy("Resources/lemmatize-fixture.json"),
             ]
         ),

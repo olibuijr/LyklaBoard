@@ -8,20 +8,20 @@ This directory contains the language models and frequency tables for the better-
 
 These are indexed trie-based binary artifacts generated from BÍN (Beygingarlýsing íslensks nútímamáls) via the lemma-is project. Each maps surface forms to (lemma id, frequency, flags) tuples.
 
-- **lemma-is.bin** (115,189,168 bytes) — **PRIMARY**
+- **bin-morph.bin** (115,189,168 bytes) — **PRIMARY**
   - Full BÍN: 3,698,020 word forms, 347,926 lemmas, format v2 with morphological data + 414,007 bigrams
   - Measured 2026-07-18 over three release runs: 1.03–2.17 ms mmap open, 1.6–5.8 µs/lookup over 1000 calls, and phys_footprint +0.25–0.28 MB from process start
   - Ship this. mmap keeps untouched pages file-backed; measured residency depends on pages touched, while the larger artifact still increases app download size
 
-- **lemma-is.core.bin** (10,049,264 bytes)
+- **bin-morph.core.bin** (10,049,264 bytes)
   - Smaller alternative (350k forms, no morph/bigrams, v1); kept for tests and as a download-size escape hatch
 
-- **lemma-is.core.top_200k.bin** (5,892,036 bytes)
+- **bin-morph.core.top_200k.bin** (5,892,036 bytes)
   - Fallback tier for older/memory-constrained devices
   - Top 200k most frequent Icelandic words by corpus frequency
   - Deployment: A/B test or enable on devices with <2GB available memory
 
-- **lemma-is.core.min_100.bin** (2,012,084 bytes)
+- **bin-morph.core.min_100.bin** (2,012,084 bytes)
   - Emergency floor for extremely constrained environments
   - Minimal vocabulary covering only the most essential words (frequency ≥ 100 in corpus)
   - Deployment: Ultra-low-memory devices, if needed for v1 ship
@@ -86,7 +86,7 @@ See `ATTRIBUTION.md` for full credit text. In brief:
 ### On-Device Autocorrect
 
 1. User types a word → runs through spatial key-distance model (fat-finger compensation)
-2. Corrector stage uses SymSpell edit-distance candidates (English: en-80k.txt; Icelandic: lemma-is.core.bin)
+2. Corrector stage uses SymSpell edit-distance candidates (English: en-80k.txt; Icelandic: bin-morph.core.bin)
 3. Re-rank candidates by language model frequency and language ID estimate (per-word blending)
 4. Return top 1–3 suggestions to UI
 
@@ -106,14 +106,14 @@ See `ATTRIBUTION.md` for full credit text. In brief:
 
 ## Tiering Strategy (obsolete — kept for context)
 
-Device-based tiering was designed before the Swift mmap bench demonstrated demand-paged behavior (the original 91 MB full binary measured +0.28 MB after its fixed lookup workload). Decision 2026-07-15: **ship the full lemma-is.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests. The refreshed ~110 MB artifact also measured +0.25–0.28 MB `phys_footprint` over the same 1000-lookup gate; total file size alone is not a memory-residency measurement.
+Device-based tiering was designed before the Swift mmap bench demonstrated demand-paged behavior (the original 91 MB full binary measured +0.28 MB after its fixed lookup workload). Decision 2026-07-15: **ship the full bin-morph.bin on all devices**. The smaller tiers remain staged only as a download-size escape hatch and for fast unit tests. The refreshed ~110 MB artifact also measured +0.25–0.28 MB `phys_footprint` over the same 1000-lookup gate; total file size alone is not a memory-residency measurement.
 
 | File | Size | Contents (words / lemmas / bigrams) |
 |------|------|--------------------------------------|
-| lemma-is.bin (primary) | 109.9 MiB | 3,698,020 / 347,926 / 414,007 (v2, morph) |
-| lemma-is.core.bin | 9.6 MiB | 350,000 / 99,680 / 0 (v1) |
-| lemma-is.core.top_200k.bin | 5.6 MiB | 200,000 / 80,379 / 0 (v1) |
-| lemma-is.core.min_100.bin | 1.9 MiB | 69,155 / 32,915 / 0 (v1) |
+| bin-morph.bin (primary) | 109.9 MiB | 3,698,020 / 347,926 / 414,007 (v2, morph) |
+| bin-morph.core.bin | 9.6 MiB | 350,000 / 99,680 / 0 (v1) |
+| bin-morph.core.top_200k.bin | 5.6 MiB | 200,000 / 80,379 / 0 (v1) |
+| bin-morph.core.min_100.bin | 1.9 MiB | 69,155 / 32,915 / 0 (v1) |
 
 **Note**: mmap pages are file-backed and do not count against the extension dirty-memory (jetsam) limit. Paging is lazy and demand-driven.
 
@@ -381,7 +381,7 @@ totalUnigramTokens 52,708,346,097. Rebuild is byte-deterministic
 
 ### Ranking-noise pruning (is.lex)
 
-is.lex is **ranking-only** — validity comes from BÍN via `lemma-is.bin` in
+is.lex is **ranking-only** — validity comes from BÍN via `bin-morph.bin` in
 the engine, so aggressive pruning here is safe (a pruned word just stops
 being suggested/ranked, it doesn't become "invalid"). Two prunes now run via
 `--bin-lookup`/`--bin-lemmas` (pointing at lemma-is's
@@ -468,9 +468,9 @@ artifacts below are its input contract.
 
 Generation direction: lemma → every inflected surface form + its feature
 bundle (case/number/definiteness for nouns; case/number/gender/degree/
-strength for adjectives). The mirror image of lemma-is.bin v2's analysis
+strength for adjectives). The mirror image of bin-morph.bin v2's analysis
 direction (surface form → lemma + tag). Full binary layout, join-key
-contract with lemma-is.bin, and worked examples: `data/is/PARADIGMS_FORMAT.md`.
+contract with bin-morph.bin, and worked examples: `data/is/PARADIGMS_FORMAT.md`.
 
 - **Scope (v1)**: nouns + adjectives only (verbs are a later wave); lemma
   must have unigram frequency ≥ 10 in `unigrams.json.gz` (39,826 lemma
@@ -489,10 +489,10 @@ contract with lemma-is.bin, and worked examples: `data/is/PARADIGMS_FORMAT.md`.
   resolve correctly.
 - **Determinism**: byte-identical across re-builds from the same inputs
   (verified via `cmp`).
-- **License**: derived from BÍN, same conditions as lemma-is.bin — see
+- **License**: derived from BÍN, same conditions as bin-morph.bin — see
   `data/ATTRIBUTION.md` ("No publishing of inflection paradigms": this file
   stores per-form data for on-device ranking, same class of use as
-  lemma-is.bin's existing morph section; it is not user-facing raw paradigm
+  bin-morph.bin's existing morph section; it is not user-facing raw paradigm
   export).
 
 ### governors.json.gz (1.4 MB)
@@ -545,7 +545,7 @@ counting BÍN-tagged bigram followers.
 ### Open questions for Stage B
 
 1. Join key is the lemma **string** (lowercased), not a numeric id shared
-   with lemma-is.bin (whose ids are that file's internal implementation
+   with bin-morph.bin (whose ids are that file's internal implementation
    detail) — see PARADIGMS_FORMAT.md "Join key / lemma-group identity".
 2. Homonym noun lemmas with identical spelling *and* identical gender
    collapse into one paradigm group (BÍN's `bin_id`, which would

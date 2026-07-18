@@ -4,7 +4,7 @@
 adjectives only (v1 scope; verbs are a later wave — see PARADIGMS_FORMAT.md
 "Scope").
 
-This is the mirror image of what already ships in lemma-is.bin v2 (surface
+This is the mirror image of what already ships in bin-morph.bin v2 (surface
 form -> lemma + morph tag, the ANALYSIS direction). Stage B (the Swift
 engine, not built here) needs the other direction to answer "given this
 lemma, what are all its forms?" (inflection-aware completion/prediction) and

@@ -87,7 +87,7 @@ following artifacts into those interfaces:
 |---|---|---|
 | Icelandic frequency and context | `data/is/is.lex` via `Lexicon` | Attested surface vocabulary, unigram frequency, bigrams, continuations, prefix search |
 | English frequency and context | `data/en/en.lex` via `Lexicon` | Same signals for English |
-| Icelandic morphology | `data/is/lemma-is.bin` via `MorphologyProviding` | Whether a form is morphologically known, lemma candidates, POS/case analyses, open-class status |
+| Icelandic morphology | `data/is/bin-morph.bin` via `MorphologyProviding` | Whether a form is morphologically known, lemma candidates, POS/case analyses, open-class status |
 | Paradigms | `data/is/paradigms.bin` via `ParadigmsProviding` | Forms grouped by lemma and morph feature bundle |
 | Case government | `data/is/governors.json.gz` via `GovernorsModel` | Statistical `P(case | previous word)` backoff |
 | Personal vocabulary | `PersonalVocabulary` snapshot | User-valid words, counts, bigrams, explicit intent, tombstones |

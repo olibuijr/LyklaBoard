@@ -13,7 +13,7 @@ import TypeEngine
 // Flags (all modes):
 //   --en <path>      en.lex override        (default <repo>/data/en/en.lex)
 //   --is <path>      is.lex override        (default <repo>/data/is/is.lex)
-//   --lemma <path>   lemma-is.bin override  (default <repo>/data/is/lemma-is.bin)
+//   --lemma <path>   bin-morph.bin override  (default <repo>/data/is/bin-morph.bin)
 //   --no-morph       skip BÍN morphology
 //   --no-inflect     skip the Stage-B inflection artifacts (paradigms.bin +
 //                    governors.json.gz) — the frequency-only baseline engine

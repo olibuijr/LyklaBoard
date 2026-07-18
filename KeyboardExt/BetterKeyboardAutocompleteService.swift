@@ -624,10 +624,10 @@ final class BetterKeyboardAutocompleteService: AutocompleteService {
             if let binURL = bundle.url(forResource: "lemma-is", withExtension: "bin") {
                 morphology = try? BinaryLemmatizer(contentsOf: binURL)
                 if morphology == nil {
-                    NSLog("[better-keyboard] lemma-is.bin failed to load; continuing without morphology")
+                    NSLog("[better-keyboard] bin-morph.bin failed to load; continuing without morphology")
                 }
             } else {
-                NSLog("[better-keyboard] lemma-is.bin missing from extension bundle; continuing without morphology")
+                NSLog("[better-keyboard] bin-morph.bin missing from extension bundle; continuing without morphology")
             }
 
             let engine = TypeEngine(

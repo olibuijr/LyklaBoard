@@ -1,1 +1,1 @@
-data/is/lemma-is.bin filter=lfs diff=lfs merge=lfs -text
+data/is/bin-morph.bin filter=lfs diff=lfs merge=lfs -text

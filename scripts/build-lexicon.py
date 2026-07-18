@@ -498,7 +498,7 @@ def prune_non_bin_unigrams(unigram_counts, bin_forms, topk, high_freq_threshold)
       2. any non-BÍN word at or above `high_freq_threshold` is always kept,
          even if (1) is later tuned down and would otherwise exclude it
 
-    is.lex is RANKING-only (validity comes from BÍN via lemma-is.bin in the
+    is.lex is RANKING-only (validity comes from BÍN via bin-morph.bin in the
     engine — see PLAN.md), so this can prune aggressively: a dropped word
     just stops being ranked/suggested, it doesn't become "invalid".
 

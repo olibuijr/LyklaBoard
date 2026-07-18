@@ -27,7 +27,7 @@ import LemmaCore
 //    sjúkrahús). Verified against their shipped list: nominatives like
 //    "hestur", datives, and every definite (article-suffixed) form are
 //    excluded. We evaluate this rule against paradigms.bin, whose bundles
-//    carry the DEFINITENESS bit that lemma-is.bin v2 morph lacks
+//    carry the DEFINITENESS bit that bin-morph.bin v2 morph lacks
 //    (rule precision vs. Miðeind's list collapses 0.83 → 0.43 without it)
 //    and whose lemma-frequency floor (≥ 10) mirrors the effect of
 //    Miðeind's curation (proper-name stems and rare junk drop out).
@@ -43,7 +43,7 @@ import LemmaCore
 //    split points left to right and preferring the 1-modifier reading.
 //  * BOUND suffix forms: BÍN ships `ord.suffix.csv` — inflection templates
 //    for word-final elements that are NOT standalone words ("-leikanum",
-//    "-menningur", "-yrði"; birting='S' in BinPackage). lemma-is.bin does
+//    "-menningur", "-yrði"; birting='S' in BinPackage). bin-morph.bin does
 //    not carry them, so the distinct surface forms (≥ 3 chars, 358 of
 //    them) are embedded below. This is exactly why "stökkleikanum" is
 //    decomposable at all: "leikanum" exists only as a compound head.
@@ -56,7 +56,7 @@ import LemmaCore
 //  * No adjective STEMS as modifiers (only adjective genitives):
 //    "frá"(frár)/"villt" stems protected space-miss typos on dev.
 //  * `suffix-removals.txt` (their empirical bad-head list: forms whose
-//    every reading is archaic/poetic) is NOT ported — lemma-is.bin carries
+//    every reading is archaic/poetic) is NOT ported — bin-morph.bin carries
 //    no register marks. Compound validity feeds only the autocorrect VETO
 //    and candidate generation, never auto-apply, so the cost of a bad
 //    head is a weaker correction, not a wrong one.
@@ -65,7 +65,7 @@ import LemmaCore
 //
 // License note: the bound-suffix form list below derives from BÍN
 // (Stofnun Árna Magnússonar, CC BY-SA 4.0) via BinPackage's
-// resources/ord.suffixes.csv — same source and license as lemma-is.bin.
+// resources/ord.suffixes.csv — same source and license as bin-morph.bin.
 
 /// One legal decomposition of an out-of-vocabulary word.
 struct CompoundSplit: Equatable {
@@ -280,7 +280,7 @@ final class CompoundAnalyzer {
     /// -nætti, -rænn, -samur, -skapur, -stýra, -sær, -tugur, -verji,
     /// -yrki, -yrði, -þegi). These exist ONLY as compound heads — BÍN
     /// marks them utg=-1 ("þekkjast ekki sem sjálfstæð orð") and
-    /// lemma-is.bin omits them.
+    /// bin-morph.bin omits them.
     static let boundHeadForms: Set<String> = [
         "bera", "berana", "berann", "beranna", "berans", "beranum", "berar", "berarnir",
         "beri", "berinn", "berum", "berunum", "bura", "burana", "burann", "buranna",
