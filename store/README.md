@@ -1,7 +1,9 @@
 # store/ — App Store submission asset pack
 
 Everything needed to submit **Lyklaborð** to the App Store, generated locally.
-**Nothing here has been uploaded.**
+Binary/TestFlight releases use the reproducible API-key flow in
+[`docs/TESTFLIGHT.md`](../docs/TESTFLIGHT.md); live App Store Connect state is
+not represented by this asset directory.
 
 The project moved from an org Apple Developer team to **Jökull's personal
 team (Team ID `RDC8539AWM`)**, with new identifiers: app bundle
@@ -240,7 +242,9 @@ _The app-store-screenshots skill's Workflow 9 automates this. Requirements:_
       account holder can do this directly with no organizational-admin
       approval step — this was the slow/blocked part on the old org team;
       on the personal team it's immediate.
-- [ ] Archive in Xcode → upload build to App Store Connect.
+- [x] Headless archive/export/upload path established with cloud signing; see
+      [`docs/TESTFLIGHT.md`](../docs/TESTFLIGHT.md). It does not depend on a
+      current Xcode GUI account session or a local distribution certificate.
 - [ ] Resolve the export-compliance prompt (see C) — it recurs every build until the Info.plist key is set.
 - [ ] Internal TestFlight first (no review); then external TestFlight (needs a short Beta App Review + the same reviewer notes).
 - [ ] Verify on a real device: keyboard enable flow, Full-Access-off typing, accents/inflection/blend behaviors that the screenshots promise, SwiftKey import, and the subscription purchase/restore flow in the containing app.
