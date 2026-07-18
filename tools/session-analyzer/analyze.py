@@ -1228,13 +1228,84 @@ def lane_timeline(app: list, repo_root: str) -> tuple:
 # Reporting
 # --------------------------------------------------------------------------
 
+def _load_meta(directory: str, sid: str) -> dict:
+    path = os.path.join(directory, f"{sid}-meta.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _build_block(meta: dict, repo_root: str) -> list:
+    """A 'Build & device' block so every report says WHICH build it ran on and
+    what's in it — the single most useful thing for triage after a repo with a
+    fast wave cadence. Resolves the engine commit to its wave subject and flags
+    staleness vs the current HEAD (so a session on an old binary is obvious)."""
+    if not meta:
+        return []
+    commit = str(meta.get("engineCommit", "") or "")
+    dirty = commit.endswith("+dirty")
+    sha = commit.replace("+dirty", "")
+    subject = ""
+    staleness = ""
+    if sha and sha != "unknown":
+        try:
+            subject = subprocess.run(
+                ["git", "-C", repo_root, "log", "-1", "--format=%s", sha],
+                capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            behind = subprocess.run(
+                ["git", "-C", repo_root, "rev-list", "--count", f"{sha}..HEAD"],
+                capture_output=True, text=True, timeout=5).stdout.strip()
+            if behind == "0":
+                staleness = "= HEAD (current)"
+            elif behind.isdigit():
+                staleness = f"{behind} commit(s) behind HEAD"
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    lines = ["## Build & device", ""]
+    build_bits = [f"`{commit}`" if commit else "`?`"]
+    if subject:
+        build_bits.append(f"— {subject}")
+    if staleness:
+        build_bits.append(f"· {staleness}")
+    if dirty:
+        build_bits.append("· ⚠ +dirty (uncommitted at build; usually the "
+                          "auto-stamp itself — not necessarily a divergent build)")
+    lines.append("- engine: " + " ".join(build_bits))
+
+    app_v = meta.get("appShortVersion", "")
+    app_b = meta.get("appBuild", "")
+    dev = meta.get("deviceModel", "")
+    ios = meta.get("iosVersion", "")
+    env_bits = []
+    if app_v or app_b:
+        env_bits.append(f"app {app_v} ({app_b})".strip())
+    if dev:
+        env_bits.append(dev)
+    if ios:
+        env_bits.append(f"iOS {ios}")
+    kbsrc = meta.get("kbVersionSource", "")
+    if kbsrc:
+        env_bits.append(f"kb-src: {kbsrc}")
+    if env_bits:
+        lines.append("- device: " + "  ·  ".join(env_bits))
+    lines.append("")
+    return lines
+
+
 def render_report(sid: str, app: list, kb: list, events: list,
                   silent: list = None, silent_source: str = "",
                   event_tags: dict = None, silent_tags: dict = None,
                   stale_applies: list = None,
                   lane: list = None, lane_source: str = "",
                   confirmed_intents: dict = None,
-                  greynir: dict = None) -> str:
+                  greynir: dict = None,
+                  meta: dict = None, repo_root: str = "") -> str:
     event_tags = event_tags or {}
     silent_tags = silent_tags or {}
     stale_applies = stale_applies or []
@@ -1271,6 +1342,7 @@ def render_report(sid: str, app: list, kb: list, events: list,
     lines.append(f"- app records: {len(app)}  ·  kb passes: {len(kb)}")
     lines.append(f"- committed words (final text): {committed}")
     lines.append("")
+    lines.extend(_build_block(meta or {}, repo_root))
 
     # ---- NOVEL + regressions FIRST, so a maintainer's ~10 lines of
     # attention go where the taxonomy can't yet help. ------------------
@@ -1468,9 +1540,11 @@ def analyze_one(directory: str, sid: str, repo_root: Optional[str] = None) -> di
     lane, lane_source = lane_timeline(app, repo_root)
     greynir = greynir_enrich_session(app, events, silent, event_tags,
                                      silent_tags, confirmed_intents)
+    meta = _load_meta(directory, sid)
     report = render_report(sid, app, kb, events, silent, silent_source,
                            event_tags, silent_tags, stale_applies,
-                           lane, lane_source, confirmed_intents, greynir)
+                           lane, lane_source, confirmed_intents, greynir,
+                           meta, repo_root)
     with open(os.path.join(directory, f"{sid}-report.md"), "w", encoding="utf-8") as fh:
         fh.write(report)
     with open(os.path.join(directory, f"{sid}-candidates.jsonl"), "w", encoding="utf-8") as fh:
