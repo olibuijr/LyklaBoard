@@ -230,7 +230,18 @@ final class KeyboardViewController: KeyboardInputViewController {
                     )
                 },
                 collapsedView: { $0.view },
-                emojiKeyboard: { $0.view },
+                // Real in-keyboard emoji picker. Returning a custom view type
+                // (≠ `Emoji.KeyboardWrapper`, the empty Pro placeholder) is
+                // what flips KeyboardKit's `hasEmojiKeyboard` to true, which
+                // (a) keeps the `.keyboardType(.emojis)` key in the layout
+                // instead of stripping it and (b) shows this view when the
+                // emoji key is tapped. See `LyklabordEmojiKeyboard`.
+                emojiKeyboard: { params in
+                    LyklabordEmojiKeyboard(
+                        actionHandler: controller.services.actionHandler,
+                        style: params.style
+                    )
+                },
                 toolbar: { $0.view }
             )
             .keyboardCalloutActions { params in
@@ -445,8 +456,17 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
     ) -> KeyboardAction.Row {
         var actions = super.bottomActions(for: context)
         guard context.keyboardType == .alphabetic else { return actions }
-        guard let returnIndex = actions.firstIndex(where: { $0.isPrimaryAction }) else { return actions }
-        actions.insert(.character("."), at: returnIndex)
+        // Exactly one emoji key, on the far left of the bottom row — the
+        // bottom-left corner is where the thumb reaches for emoji. KeyboardKit's
+        // stock layout ALSO adds a `.keyboardType(.emojis)` in the globe slot
+        // whenever the input-switch (globe) key is absent, so remove any it
+        // added before inserting ours; otherwise the row shows two emoji keys.
+        actions.removeAll { $0 == .keyboardType(.emojis) }
+        actions.insert(.keyboardType(.emojis), at: 0)
+        // Period key immediately before the return key (dogfood pattern).
+        if let returnIndex = actions.firstIndex(where: { $0.isPrimaryAction }) {
+            actions.insert(.character("."), at: returnIndex)
+        }
         return actions
     }
 
@@ -469,6 +489,11 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
             switch action {
             case .character("."):
                 return .percentage(0.08)
+            case .keyboardType(.emojis):
+                // Fixed modifier-class width for the emoji key so it doesn't
+                // absorb `.available` space; the spacebar (`.available`) simply
+                // yields this slice instead of the emoji key ballooning.
+                return .percentage(0.11)
             case .primary:
                 let portrait = context.interfaceOrientation.isPortrait
                 return .percentage(portrait ? 0.19 : 0.16)
