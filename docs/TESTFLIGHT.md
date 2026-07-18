@@ -116,6 +116,10 @@ distribution certificate. Use raw `xcodebuild` for archive/export as above;
 an Xcode GUI login and a locally installed distribution certificate are not
 required.
 
+Do not create a local distribution certificate as a fallback for that error.
+It is neither required nor used by this flow; the authenticated export creates
+or selects Apple's cloud-managed signing asset.
+
 ## 5. Preserve and upload the IPA
 
 ```bash
@@ -132,6 +136,19 @@ asccli builds upload \
   --wait \
   --output table
 ```
+
+The `--wait` command is quiet while Apple processes the upload. To distinguish
+normal processing from a stalled local command, inspect the upload record in a
+second terminal:
+
+```bash
+asccli builds uploads list \
+  --app-id 6792012916 \
+  --output table
+```
+
+`PROCESSING` means Apple has the binary. The build appears in `builds list`
+after that record becomes `COMPLETE`.
 
 The app declares `ITSAppUsesNonExemptEncryption = false`, so processing should
 resolve export compliance automatically. Verify it rather than assuming:
@@ -177,8 +194,24 @@ asccli builds add-beta-group \
 ```
 
 Innri prófun is internal and becomes available without Beta App Review. Vinir
-is external; its first eligible build or materially changed build may remain
-unavailable until Apple completes Beta App Review.
+is external. Check its review state after assigning it:
+
+```bash
+asccli beta-review submissions list \
+  --build-id "$ASC_BUILD_ID" \
+  --output table
+```
+
+If no submission exists, submit the build using the app's saved beta-review
+contact details:
+
+```bash
+asccli beta-review submissions create \
+  --build-id "$ASC_BUILD_ID" \
+  --output table
+```
+
+The external group becomes usable when the submission reaches `APPROVED`.
 
 ## 7. Verify and clean up
 

@@ -245,8 +245,10 @@ _The app-store-screenshots skill's Workflow 9 automates this. Requirements:_
 - [x] Headless archive/export/upload path established with cloud signing; see
       [`docs/TESTFLIGHT.md`](../docs/TESTFLIGHT.md). It does not depend on a
       current Xcode GUI account session or a local distribution certificate.
-- [ ] Resolve the export-compliance prompt (see C) — it recurs every build until the Info.plist key is set.
-- [ ] Internal TestFlight first (no review); then external TestFlight (needs a short Beta App Review + the same reviewer notes).
+- [x] Export compliance is encoded in `App/Info.plist`; build 1.0 (7) was
+      accepted as exempt without a manual prompt.
+- [x] Build 1.0 (7) was added to internal `Innri prófun` and external `Vinir`;
+      its Beta App Review reached `APPROVED`.
 - [ ] Verify on a real device: keyboard enable flow, Full-Access-off typing, accents/inflection/blend behaviors that the screenshots promise, SwiftKey import, and the subscription purchase/restore flow in the containing app.
 - [ ] Submit for App Review with the notes from `metadata/app-review.md`.
 
