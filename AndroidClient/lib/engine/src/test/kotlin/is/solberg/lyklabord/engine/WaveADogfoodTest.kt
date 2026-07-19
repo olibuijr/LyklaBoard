@@ -1,19 +1,15 @@
 package `is`.solberg.lyklabord.engine
 
-import `is`.solberg.lyklabord.engine.config.EngineConfig
-import `is`.solberg.lyklabord.engine.lexicon.FrequencyLexicon
-import `is`.solberg.lyklabord.engine.lexicon.LexiconCalibrationProfile
-import `is`.solberg.lyklabord.engine.morph.BinaryLemmatizer
-import `is`.solberg.lyklabord.engine.morph.ParadigmsReader
-import `is`.solberg.lyklabord.engine.testsupport.RepoData
+import `is`.solberg.lyklabord.engine.testsupport.buildEngine
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 
 /**
- * Port of the upstream (iOS) engine fixes adopted from jokull/LyklabordApp:
- * Wave A dogfood fixes (issues #6 prefix-eating, #8 numeric guard, #9 patronymic
- * casing) and quoted-term relaxation (#3). These verify the fixes ported into the
- * Kotlin [TypingSession].
+ * Port of the upstream (iOS) engine test suite `WaveADogfoodTests` from
+ * jokull/LyklabordApp: Wave A dogfood fixes — issue #6 (prefix-eating), issue
+ * #8 (numeric guard), issue #9 (patronymic casing). Quoted-term relaxation (#3)
+ * has its own suite in [QuotedTermRelaxationTest]. These verify the fixes
+ * ported into the Kotlin [TypingSession].
  */
 class WaveADogfoodTest : FunSpec({
 
@@ -85,20 +81,7 @@ class WaveADogfoodTest : FunSpec({
         out.map { it.text } shouldBe listOf("jakobsdóttir")
     }
 
-    // MARK: - Issue #3: quoted-term context predicate
-
-    test("quoted-term context detects an opening double quote before the token") {
-        TypingSession.isQuotedTermContext("„") shouldBe true
-        TypingSession.isQuotedTermContext("\"") shouldBe true
-        TypingSession.isQuotedTermContext("\u201C") shouldBe true
-        TypingSession.isQuotedTermContext("sagði „") shouldBe true
-        // No quote, or a quote NOT immediately before the token: normal.
-        TypingSession.isQuotedTermContext("") shouldBe false
-        TypingSession.isQuotedTermContext("hestur ") shouldBe false
-        TypingSession.isQuotedTermContext("„orð\u201C ") shouldBe false
-    }
-
-    // MARK: - End-to-end through a session (needs the reference data tree)
+    // MARK: - Issue #8: numeric guard (end-to-end through a session)
 
     test("issue #8: a digit-leading token gets no letter suggestions") {
         val session = TypingSession(buildEngine())
@@ -107,47 +90,4 @@ class WaveADogfoodTest : FunSpec({
             suggestion.text.all { it.isDigit() || it == '.' || it == ',' || it == ':' } shouldBe true
         }
     }
-
-    test("issue #3: a quoted token is offered suggestions but never force-corrected") {
-        val session = TypingSession(buildEngine())
-        var buffer = ""
-        var bar = emptyList<Suggestion>()
-        for (ch in "„teh") {
-            buffer += ch
-            bar = session.suggestions(`for` = buffer, limit = 3)
-        }
-        // Offered (tap-only) but no auto-apply flag inside quotes.
-        bar.any { it.isAutocorrect } shouldBe false
-    }
 })
-
-/** Build the full bilingual engine from the reference data tree, mirroring CoreScenariosTest. */
-private fun buildEngine(): TypeEngine {
-    val config = EngineConfig().apply {
-        beamTimeBudget = 3600.0
-        splitTimeBudget = 3600.0
-    }
-    val engine = TypeEngine(
-        icelandic = FrequencyLexicon(RepoData.mapLE("data/is/is.lex")),
-        english = FrequencyLexicon(RepoData.mapLE("data/en/en.lex")),
-        morphologyProvider = BinaryLemmatizer(RepoData.mapLE("data/is/bin-morph.core.bin")),
-        config = config,
-        icelandicCalibration = LexiconCalibrationProfile.fromJson(
-            RepoData.file("data/is/is-calibration.json").readText(),
-        ),
-        englishCalibration = LexiconCalibrationProfile.fromJson(
-            RepoData.file("data/en/en-calibration.json").readText(),
-        ),
-    )
-    val paradigms = RepoData.file("data/is/paradigms.bin")
-    val governors = RepoData.file("data/is/governors.json.gz")
-    if (paradigms.isFile && governors.isFile) {
-        engine.setInflection(
-            InflectionModel(
-                paradigms = ParadigmsReader(RepoData.mapLE("data/is/paradigms.bin")),
-                governors = governors.inputStream().use { GovernorsModel(it) },
-            ),
-        )
-    }
-    return engine
-}
