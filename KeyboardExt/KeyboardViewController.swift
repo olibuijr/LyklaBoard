@@ -475,13 +475,19 @@ final class LyklabordIPhoneLayoutService: KeyboardLayout.iPhoneLayoutService {
     ) -> KeyboardAction.Row {
         var actions = super.bottomActions(for: context)
         guard context.keyboardType == .alphabetic else { return actions }
-        // Exactly one emoji key, on the far left of the bottom row — the
-        // bottom-left corner is where the thumb reaches for emoji. KeyboardKit's
-        // stock layout ALSO adds a `.keyboardType(.emojis)` in the globe slot
-        // whenever the input-switch (globe) key is absent, so remove any it
-        // added before inserting ours; otherwise the row shows two emoji keys.
+        // Exactly one emoji key, placed immediately to the RIGHT of the 123
+        // numeric switch in the bottom-left cluster. KeyboardKit's stock layout
+        // ALSO adds a `.keyboardType(.emojis)` in the globe slot whenever the
+        // input-switch (globe) key is absent, so remove any it added before
+        // inserting ours; otherwise the row shows two emoji keys.
         actions.removeAll { $0 == .keyboardType(.emojis) }
-        actions.insert(.keyboardType(.emojis), at: 0)
+        // Insert right after the 123 numeric switch (leftmost); fall back to the
+        // far left if the switch isn't found.
+        let numericIndex = actions.firstIndex {
+            if case .keyboardType(.numeric) = $0 { return true }
+            return false
+        }
+        actions.insert(.keyboardType(.emojis), at: numericIndex.map { $0 + 1 } ?? 0)
         // Period key immediately before the return key (dogfood pattern).
         if let returnIndex = actions.firstIndex(where: { $0.isPrimaryAction }) {
             actions.insert(.character("."), at: returnIndex)

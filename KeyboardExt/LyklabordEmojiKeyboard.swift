@@ -47,13 +47,17 @@ struct LyklabordEmojiKeyboard: View {
             needToShowAbcButton: true,      // "ABC" returns to the letter keyboard
             needToShowDeleteButton: true,   // backspace on the emoji keyboard
             didSelect: { emoji in
+                // Emoji insertion is a RELEASE action in KeyboardKit.
                 actionHandler.handle(.release, on: .emoji(KeyboardKit.Emoji(emoji)))
             },
             didPressChangeKeyboard: {
-                actionHandler.handle(.release, on: .keyboardType(.alphabetic))
+                // `.keyboardType` and `.backspace` are PRESS actions in
+                // KeyboardKit (no release action) — calling them on `.release`
+                // silently no-ops, so both use `.press`.
+                actionHandler.handle(.press, on: .keyboardType(.alphabetic))
             },
             didPressDeleteBackward: {
-                actionHandler.handle(.release, on: .backspace)
+                actionHandler.handle(.press, on: .backspace)
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
