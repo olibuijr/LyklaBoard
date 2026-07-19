@@ -113,10 +113,11 @@ class EditorInstance(context: Context) : AbstractEditorInstance(context) {
             KeyboardMode.PHONE,
             KeyboardMode.PHONE2,
             -> false
-            else -> activeState.keyVariation != KeyVariation.PASSWORD &&
-                prefs.suggestion.enabled.get()// &&
-            //!instance.inputAttributes.flagTextAutoComplete &&
-            //!instance.inputAttributes.flagTextNoSuggestions
+            // Enable the composing region for any non-password text field. Whether suggestions
+            // actually run is ANDed with nlpManager.isSuggestionOn() in determineComposingEnabled();
+            // gating here on the suggestion pref too left the composing region off while the engine
+            // still surfaced candidates, so tapping a completion appended instead of replacing.
+            else -> activeState.keyVariation != KeyVariation.PASSWORD
         }
         activeState.isIncognitoMode = when (prefs.suggestion.incognitoMode.get()) {
             IncognitoMode.FORCE_OFF -> false

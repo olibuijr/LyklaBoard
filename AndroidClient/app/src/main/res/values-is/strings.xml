@@ -17,7 +17,7 @@
     <string name="settings__keyboard__title">LyklaBoard</string>
     <string name="settings__smartbar__title">Snjallstika</string>
     <string name="settings__typing__title">Innsláttur</string>
-    <string name="settings__gestures__title">Bendingar og strokuritun</string>
+    <string name="settings__gestures__title">Bendingar og puttaskrif</string>
     <string name="settings__clipboard__title">Klippispjald</string>
     <string name="settings__media__title">Emoji</string>
     <string name="settings__other__title">Annað</string>

@@ -273,7 +273,11 @@ class TypingSession(val engine: TypeEngine) {
         literalSlotShowing = false
         if (limit <= 0) return emptyList()
         if (currentWord.isEmpty()) {
-            return engine.suggestions(context = if (context.isEmpty()) (carriedContext ?: "") else context, currentWord = "", limit = limit, trace = trace)
+            val effectiveContext = if (context.isEmpty()) (carriedContext ?: "") else context
+            return titleCaseNameSuggestions(
+                engine.suggestions(context = effectiveContext, currentWord = "", limit = limit, trace = trace),
+                effectiveContext,
+            )
         }
         val pendingDot = currentWord.endsWith('.')
         val stem = if (pendingDot) currentWord.dropLast(1) else currentWord
@@ -306,8 +310,23 @@ class TypingSession(val engine: TypeEngine) {
                 trace = trace,
             ).map { if (pendingDot) it.copy(text = it.text + ".") else it }.toMutableList()
         }
+        // Numeric guard (issue #8): a digit-leading token is a number in progress, so letter
+        // vocabulary must not compete with digits ("5" must not offer curated "5G" over "50").
+        // Only stops PROPOSING letters after digits; deliberately typed tokens like "5G" are
+        // never replaced by this filter.
+        if (stem.firstOrNull()?.isDigit() == true) {
+            engineSuggestions.removeAll { s -> !s.text.all { it.isDigit() || it == '.' || it == ',' || it == ':' } }
+        }
         if (fieldKind.suppressesAutocorrect) engineSuggestions.removeAll { it.isRestoration }
         if (fieldKind.suppressesAutocorrect || verbatimChoice == currentWord || verbatimChoice == stem) {
+            engineSuggestions = engineSuggestions.map { if (it.isAutocorrect) it.copy(isAutocorrect = false) else it }.toMutableList()
+        }
+        // Quoted-term relaxation (issue #3): a token typed immediately after an opening double
+        // quote (Icelandic „ U+201E, straight ", or curly " U+201C) is very often a deliberate
+        // foreign/technical term or a quoted sletta — offer suggestions but never force-correct.
+        // Ranking/confidence/bar are untouched; only the auto-apply flag is stripped.
+        if (isQuotedTermContext(context)) {
+            if (engineSuggestions.any { it.isAutocorrect }) trace?.note("auto-apply flag stripped: quoted term (opening quote before token)")
             engineSuggestions = engineSuggestions.map { if (it.isAutocorrect) it.copy(isAutocorrect = false) else it }.toMutableList()
         }
         engineSuggestions = engineSuggestions.map { if (!it.isVerbatim && engine.isPersonalLearnedWord(it.text)) it.markingPersonalLearned() else it }.toMutableList()
@@ -321,7 +340,7 @@ class TypingSession(val engine: TypeEngine) {
         val bar = mutableListOf<Suggestion>()
         if (engineSuggestions.firstOrNull()?.text != currentWord) bar += Suggestion(currentWord, false, 0.0, true)
         bar += engineSuggestions
-        return bar.take(limit)
+        return titleCaseNameSuggestions(bar.take(limit), context)
     }
 
     private sealed interface WindowChange {
@@ -456,7 +475,7 @@ class TypingSession(val engine: TypeEngine) {
 
     companion object {
         private const val incomingTapQueueLimit = 8
-        private val delimiterPunctuation = ".,:;!¡?¿()[]{}<>«»་།\u200B".toSet()
+        private val delimiterPunctuation = ".,:;!¡?¿()[]{}<>«»་།\u200B\"\u201E\u201C\u201D".toSet()
         val knownTLDs = setOf("is", "com", "net", "org", "io", "app", "dev", "co", "uk", "de", "dk", "no", "se", "fi", "fo", "gl", "eu", "us", "edu", "gov", "info", "me", "tv", "ai", "to", "fm", "gg", "xyz")
 
         fun isDelimiter(character: Char): Boolean = character.isWhitespace() || character == '\n' || delimiterPunctuation.contains(character)
@@ -472,6 +491,9 @@ class TypingSession(val engine: TypeEngine) {
         }
 
         fun isVerbatimClassToken(token: String): Boolean {
+            // A leading non-letter/non-digit ("/goal", "#tag", "~/path", "-flag") marks a
+            // command/tag/path-like token; "correcting" it would eat the prefix (issue #6).
+            token.firstOrNull()?.let { if (!isWordable(it)) return true }
             for (index in token.indices) {
                 val ch = token[index]
                 if ((ch == '.' || ch == '@') && index > 0 && isWordable(token[index - 1]) && index + 1 < token.length && isWordable(token[index + 1])) return true
@@ -487,9 +509,39 @@ class TypingSession(val engine: TypeEngine) {
             if (!left.all { it.isLetter() } || !right.all { it.isLetter() } || left.lowercase() == "www" || knownTLDs.contains(right.lowercase())) return null
             return left to right
         }
+        private val quotedTermOpeners = setOf('\u201E', '"', '\u201C')
+
+        /** Whether the committed context ends with an opening double quote („orð / "orð). */
+        fun isQuotedTermContext(context: String): Boolean {
+            val last = context.lastOrNull() ?: return false
+            return quotedTermOpeners.contains(last)
+        }
+
+        /** Unambiguous Icelandic patronymic/matronymic shape ("Jónsson", "Jakobsdóttir"). */
+        fun isPatronymic(word: String): Boolean {
+            val lower = word.lowercase()
+            return lower.length >= 6 && (lower.endsWith("sson") || lower.endsWith("dóttir"))
+        }
+
+        /**
+         * Title-case patronymic suggestions after a capitalized word (issue #9): "Katrín" ->
+         * suggest "Jakobsdóttir", not the corpus-lowercased "jakobsdóttir". Verbatim slots and
+         * already-cased words are left untouched.
+         */
+        fun titleCaseNameSuggestions(suggestions: List<Suggestion>, context: String): List<Suggestion> {
+            val previous = wordTokens(context).lastOrNull() ?: return suggestions
+            if (previous.firstOrNull()?.isUpperCase() != true) return suggestions
+            return suggestions.map { suggestion ->
+                if (!suggestion.isVerbatim && suggestion.text.firstOrNull()?.isLowerCase() == true && isPatronymic(suggestion.text)) {
+                    suggestion.copy(text = suggestion.text.substring(0, 1).uppercase() + suggestion.text.substring(1))
+                } else {
+                    suggestion
+                }
+            }
+        }
 
         fun trailingSegment(token: String): String {
-            val index = maxOf(token.lastIndexOf('.'), token.lastIndexOf('@'))
+            val index = token.indexOfLast { !isWordable(it) }
             return if (index < 0) token else token.substring(index + 1)
         }
 

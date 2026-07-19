@@ -46,9 +46,9 @@ throughout the app.
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/01-keyboard.png" width="30%" alt="Icelandic keyboard with live completions (hes → hestar), IS·EN bilingual spacebar" />
-  <img src="docs/screenshots/02-settings-is.png" width="30%" alt="Fully Icelandic app UI" />
-  <img src="docs/screenshots/03-settings-screen.png" width="30%" alt="LyklaBoard settings — three spacebar modes and ElevenLabs voice" />
+  <img src="docs/screenshots/01-keyboard.png" width="30%" alt="Icelandic keyboard with live completions (Sam → Saman, Samræmi) and Íslenska spacebar, typing in a real app" />
+  <img src="docs/screenshots/02-settings.png" width="30%" alt="LyklaBoard settings in Icelandic — spacebar modes and ElevenLabs voice" />
+  <img src="docs/screenshots/03-dictionary.png" width="30%" alt="On-device dictionary (Orðasafn) — words learned locally, nothing leaves the device" />
 </p>
 
 ## Build it yourself
