@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 The Lyklaborð Contributors
+ * Copyright (C) 2026 The LyklaBoard Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -588,7 +588,7 @@ fun LyklabordSettingsScreen() = FlorisScreen {
                 title = stringRes(R.string.lyklabord__voice__speak_sample),
                 summary = stringRes(R.string.lyklabord__voice__speak_sample_summary),
                 onClick = {
-                    keyboardManager.speak("Halló, þetta er Lyklaborð")
+                    keyboardManager.speak("Halló, þetta er LyklaBoard")
                 },
             )
         }

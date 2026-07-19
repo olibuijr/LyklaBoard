@@ -400,7 +400,7 @@ fun SubtypeEditorScreen(id: Long?) = FlorisScreen {
                 val nlpProviderMappings = mapOf(
                     LatinLanguageProvider.ProviderId to "Latin",
                     HanShapeBasedLanguageProvider.ProviderId to "Chinese shape-based",
-                    LyklabordNlpProvider.ProviderId to "Lyklaborð",
+                    LyklabordNlpProvider.ProviderId to "LyklaBoard",
                 )
 
                 val nlpProviderMappingIds = remember(nlpProviderMappings) {

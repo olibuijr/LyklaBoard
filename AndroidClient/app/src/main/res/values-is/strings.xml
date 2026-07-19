@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Icelandic (is) translation for the LyklaBoard app UI.
+  Strings not listed here fall back to the default (English) values.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+
+    <!-- Home screen -->
+    <string name="settings__home__title">Velkomin í {app_name}</string>
+    <string name="settings__home__ime_not_enabled">LyklaBoard er ekki virkt í kerfinu og verður því ekki í boði sem innsláttaraðferð. Smelltu hér til að laga þetta.</string>
+    <string name="settings__home__ime_not_selected">LyklaBoard er ekki valið sem sjálfgefið innsláttarforrit. Smelltu hér til að laga þetta.</string>
+
+    <!-- Navigation / screen titles -->
+    <string name="settings__title">Stillingar</string>
+    <string name="settings__localization__title">Tungumál og uppsetningar</string>
+    <string name="settings__theme__title">Þema</string>
+    <string name="settings__keyboard__title">LyklaBoard</string>
+    <string name="settings__smartbar__title">Snjallstika</string>
+    <string name="settings__typing__title">Innsláttur</string>
+    <string name="settings__gestures__title">Bendingar og strokuritun</string>
+    <string name="settings__clipboard__title">Klippispjald</string>
+    <string name="settings__media__title">Emoji</string>
+    <string name="settings__other__title">Annað</string>
+    <string name="about__title">Um forritið</string>
+    <string name="ext__home__title">Viðbætur</string>
+    <string name="lyklabord__dictionary__home_title">Orðasafn</string>
+    <string name="lyklabord__settings__home_title">LyklaBoard stillingar</string>
+
+    <!-- Common actions -->
+    <string name="action__add">Bæta við</string>
+    <string name="action__apply">Nota</string>
+    <string name="action__back_up">Afrita</string>
+    <string name="action__cancel">Hætta við</string>
+    <string name="action__create">Búa til</string>
+    <string name="action__default">Sjálfgefið</string>
+    <string name="action__delete">Eyða</string>
+    <string name="action__delete_confirm_title">Staðfesta eyðingu</string>
+    <string name="action__delete_confirm_message">Ertu viss um að þú viljir eyða \"{name}\"? Ekki er hægt að afturkalla þessa aðgerð.</string>
+    <string name="action__reset">Endurstilla</string>
+    <string name="action__reset_confirm_title">Staðfesta endurstillingu</string>
+    <string name="action__reset_confirm_message">Ertu viss um að þú viljir endurstilla \"{name}\"? Ekki er hægt að afturkalla þessa aðgerð.</string>
+    <string name="action__discard">Henda</string>
+    <string name="action__discard_confirm_title">Óvistaðar breytingar</string>
+    <string name="action__discard_confirm_message">Ertu viss um að þú viljir henda óvistuðum breytingum? Ekki er hægt að afturkalla þessa aðgerð.</string>
+    <string name="action__edit">Breyta</string>
+    <string name="action__export">Flytja út</string>
+    <string name="action__import">Flytja inn</string>
+    <string name="action__no">Nei</string>
+    <string name="action__ok">Í lagi</string>
+    <string name="action__done">Lokið</string>
+    <string name="action__restore">Endurheimta</string>
+    <string name="action__save">Vista</string>
+    <string name="action__select">Velja</string>
+    <string name="action__select_dir">Velja möppu</string>
+    <string name="action__select_file">Velja skrá</string>
+    <string name="action__yes">Já</string>
+
+    <!-- Setup wizard -->
+    <string name="setup__enable_ime__title">Virkja {app_name}</string>
+    <string name="setup__enable_ime__open_settings_btn">Opna kerfisstillingar</string>
+    <string name="setup__select_ime__title">Velja {app_name}</string>
+    <string name="setup__select_ime__description">{app_name} er nú virkt í kerfinu. Til að nota það skaltu skipta yfir í {app_name} með því að velja það í innsláttarvalinu!</string>
+    <string name="setup__select_ime__switch_keyboard_btn">Skipta um lyklaborð</string>
+    <string name="setup__grant_notification_permission__title">Leyfa tilkynningar um hrun</string>
+    <string name="setup__grant_notification_permission__btn">Veita leyfi</string>
+    <string name="setup__finish_up__title">Ljúka uppsetningu</string>
+    <string name="setup__finish_up__description_p1">{app_name} er nú virkt í kerfinu og tilbúið til að þú sérsníðir það.</string>
+    <string name="setup__finish_up__description_p2">Ef þú lendir í vandræðum, villum eða vilt koma með tillögu skaltu skoða verkefnasafnið á Um-skjánum!</string>
+    <string name="setup__finish_up__finish_btn">Byrja að sérsníða</string>
+
+    <!-- General -->
+    <string name="general__select_dropdown_value_placeholder">&#45; velja &#45;</string>
+    <string name="general__unlimited">Ótakmarkað</string>
+
+</resources>

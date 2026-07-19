@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="lyklabord__dictionary__home_title">Lyklaborð dictionary</string>
+    <string name="lyklabord__dictionary__home_title">LyklaBoard dictionary</string>
     <string name="lyklabord__dictionary__title">Orðasafn</string>
     <string name="lyklabord__dictionary__search">Leita að orði</string>
     <string name="lyklabord__dictionary__learned">Lærð orð</string>
     <string name="lyklabord__dictionary__mine">Mín orð</string>
     <string name="lyklabord__dictionary__add">Bæta við orði</string>
     <string name="lyklabord__dictionary__delete">Eyða</string>
-    <string name="lyklabord__dictionary__empty">Orðasafnið er tómt. Lyklaborðið lærir orð sem þú skrifar, eingöngu á tækinu þínu.</string>
+    <string name="lyklabord__dictionary__empty">Orðasafnið er tómt. LyklaBoard lærir orð sem þú skrifar, eingöngu á tækinu þínu.</string>
     <string name="lyklabord__dictionary__no_results">Ekkert orð fannst</string>
     <string name="lyklabord__dictionary__invalid">Þetta er ekki gilt stakt orð — engin bil eða tákn, að minnsta kosti einn bókstafur.</string>
     <string name="lyklabord__dictionary__added">„%1$s“ bætt við</string>
@@ -22,8 +22,8 @@
     <string name="lyklabord__export__done">Orðasafnið var flutt út.</string>
     <string name="lyklabord__export__failed">Ekki tókst að flytja orðasafnið út</string>
 
-    <string name="lyklabord__settings__home_title">Lyklaborð settings</string>
-    <string name="lyklabord__settings__title">Stillingar Lyklaborðs</string>
+    <string name="lyklabord__settings__home_title">LyklaBoard settings</string>
+    <string name="lyklabord__settings__title">Stillingar LyklaBoard</string>
     <string name="lyklabord__spacebar__title">Bilslá</string>
     <string name="lyklabord__spacebar__footer">Hvað gerist þegar þú ýtir á bilslána meðan þú skrifar orð.</string>
     <string name="lyklabord__spacebar__complete">Klára orð</string>
@@ -38,7 +38,7 @@
     <string name="lyklabord__voice__set">Stilltur</string>
     <string name="lyklabord__voice__not_set">Ekki stilltur</string>
     <string name="lyklabord__voice__dictation">Raddinnsláttur (hljóðnemahnappur)</string>
-    <string name="lyklabord__voice__dictation_summary">Talaðu og láttu Lyklaborð skrifa textann.</string>
+    <string name="lyklabord__voice__dictation_summary">Talaðu og láttu LyklaBoard skrifa textann.</string>
     <string name="lyklabord__voice__microphone_permission">Veita hljóðnemaleyfi</string>
     <string name="lyklabord__voice__permission_granted">Leyfi veitt</string>
     <string name="lyklabord__voice__permission_needed">Leyfi þarf</string>
@@ -59,16 +59,16 @@
     <string name="lyklabord__delete_all__confirm1_title">Eyða öllum staðbundnum gögnum?</string>
     <string name="lyklabord__delete_all__confirm1_body">Þetta fjarlægir hvert lært orð, handvirkt viðbætt orð, eyðingar og innsláttartölfræði. Ekki er hægt að afturkalla þetta.</string>
     <string name="lyklabord__delete_all__confirm2_title">Ertu alveg viss?</string>
-    <string name="lyklabord__delete_all__confirm2_body">Öllu sem Lyklaborð hefur lært á þessu tæki verður eytt varanlega.</string>
+    <string name="lyklabord__delete_all__confirm2_body">Öllu sem LyklaBoard hefur lært á þessu tæki verður eytt varanlega.</string>
     <string name="lyklabord__delete_all__confirm2_action">Eyða öllu</string>
     <string name="lyklabord__delete_all__done">Öllum staðbundnum gögnum eytt. Orðasafnið er tómt.</string>
 
-    <string name="lyklabord__about__title">Um Lyklaborð</string>
+    <string name="lyklabord__about__title">Um LyklaBoard</string>
     <string name="lyklabord__version">Útgáfa</string>
     <string name="lyklabord__privacy">Persónuverndarstefna</string>
     <string name="lyklabord__privacy__summary">Hvað er geymt á tækinu þínu, á mannamáli.</string>
     <string name="lyklabord__source">Frumkóði á GitHub</string>
-    <string name="lyklabord__source__summary">Sjáðu nákvæmlega hvað Lyklaborð gerir.</string>
+    <string name="lyklabord__source__summary">Sjáðu nákvæmlega hvað LyklaBoard gerir.</string>
 
     <string name="lyklabord__save">Vista</string>
     <string name="lyklabord__cancel">Hætta við</string>

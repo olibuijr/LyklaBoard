@@ -355,7 +355,7 @@ class KeyboardManager(context: Context) : InputKeyEventReceiver {
         }
         if (!voiceInput.isRecording) {
             if (!voiceInput.start(appContext)) {
-                appContext.showLongToastSync("Grant microphone permission in Lyklaborð settings")
+                appContext.showLongToastSync("Grant microphone permission in LyklaBoard settings")
                 return
             }
             appContext.showShortToastSync("Recording… tap mic to stop")

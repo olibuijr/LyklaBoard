@@ -235,8 +235,8 @@ dependencies {
 }
 
 fun getGitCommitHash(short: Boolean = false): Provider<String> {
-    if (!File(".git").exists()) {
-        return providers.provider { "null" }
+    if (!File(".git").exists() && !File("../.git").exists()) {
+        return providers.provider { "nogit" }
     }
 
     val execProvider = providers.exec {

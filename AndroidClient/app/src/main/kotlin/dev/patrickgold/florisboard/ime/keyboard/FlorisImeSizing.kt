@@ -126,7 +126,7 @@ fun ProvideKeyboardRowBaseHeight(content: @Composable () -> Unit) {
 
     val heights by remember {
         derivedStateOf {
-            // User keyboard-height scale (Lyklaborð): shrink/grow the whole IME.
+            // User keyboard-height scale (LyklaBoard): shrink/grow the whole IME.
             val scaledHeight = windowSpec.props.keyboardHeight * (heightFactor / 100f)
             val rowHeight = windowSpec.calcRowHeight(scaledHeight)
             val smartbarRowHeight = windowSpec.calcSmartbarRowHeight(scaledHeight)

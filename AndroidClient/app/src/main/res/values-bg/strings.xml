@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-    <string name="app_name">Lyklaborð</string>
+    <string name="app_name">LyklaBoard</string>
     <string name="key__phone_pause" comment="Label for the Pause key in the telephone keyboard layout">Пауза</string>
     <string name="key__phone_wait" comment="Label for the Wait key in the telephone keyboard layout">Изчакване</string>
     <string name="key_popup__threedots_alt" comment="Content description for the three-dots icon in a key popup">Икона с многоточие. Ако е видима, означава, че при задържане могат да бъдат използвани повече букви.</string>
@@ -117,8 +117,8 @@
     <string name="settings__default" comment="General string which is used when a preference has the default value set">По подразбиране</string>
     <string name="settings__system_default" comment="General string which is used when a preference has the system default value set">По подразбиране от системата</string>
     <string name="settings__home__title" comment="Title of the Home screen">Добре дошли във {app_name}</string>
-    <string name="settings__home__ime_not_enabled" comment="Error message shown in Home fragment when FlorisBoard is not enabled in the system">Клавиатурата Lyklaborð не е активна в системата и не е достъпна като метод за въвеждане. Докоснете тук, за да промените.</string>
-    <string name="settings__home__ime_not_selected" comment="Warning message shown in Home fragment when FlorisBoard is not selected as the default keyboard">Клавиатурата Lyklaborð не е избрана като подразбиран метод за въвеждане. Докоснете, за да направите промяната.</string>
+    <string name="settings__home__ime_not_enabled" comment="Error message shown in Home fragment when FlorisBoard is not enabled in the system">Клавиатурата LyklaBoard не е активна в системата и не е достъпна като метод за въвеждане. Докоснете тук, за да промените.</string>
+    <string name="settings__home__ime_not_selected" comment="Warning message shown in Home fragment when FlorisBoard is not selected as the default keyboard">Клавиатурата LyklaBoard не е избрана като подразбиран метод за въвеждане. Докоснете, за да направите промяната.</string>
     <string name="settings__localization__title" comment="Title of languages and Layout screen">Езици и подредби</string>
     <string name="settings__localization__display_language_names_in__label" comment="Label of Display language names in preference">Изписване на езиците на</string>
     <string name="settings__localization__display_keyboard_labels_in_subtype_language" comment="Label of Display keyboard labels in subtype language preference">Етикети на клавиатурата на езика на подредбата</string>
@@ -164,7 +164,7 @@
     <string name="pref__theme__night" comment="Label of the night group (night means dark theme)">Нощна тема</string>
     <string name="pref__theme__theme_accent_color__label" comment="Label of accent color preference in Theme">Допълнителен цвят (за теми на Material You)</string>
     <string name="settings__theme_manager__title_manage" comment="Title of the theme manager screen for managing installed and custom themes">Управление на теми</string>
-    <string name="pref__theme__source_assets" comment="Label for the theme source field">Активи на Lyklaborð</string>
+    <string name="pref__theme__source_assets" comment="Label for the theme source field">Активи на LyklaBoard</string>
     <string name="pref__theme__source_internal" comment="Label for the theme source field">Вътрешно хранилище</string>
     <string name="pref__theme__source_external" comment="Label for the theme source field">Външен доставчик</string>
     <string name="settings__theme_manager__title_day" comment="Title of the theme manager screen for day theme selection">Избор на дневна тема</string>
@@ -531,7 +531,7 @@
     <string name="pref__other__show_app_icon__summary_atleast_q" comment="Summary of Show app icon preference in Other for Android 10+">Винаги видима за Android 10+ поради ограничения на системата</string>
     <!-- About UI strings -->
     <string name="about__title" comment="Title of About activity">Относно</string>
-    <string name="about__app_icon_content_description" comment="Content description of app icon in About">Икона на приложението Lyklaborð</string>
+    <string name="about__app_icon_content_description" comment="Content description of app icon in About">Икона на приложението LyklaBoard</string>
     <string name="about__view_licenses" comment="Label of View licenses button in About">Лицензи с отворен код</string>
     <string name="about__view_privacy_policy" comment="Label of View privacy policy button in About">Политика за поверителност</string>
     <string name="about__view_source_code" comment="Label of View source code button in About">Изходен код</string>
@@ -563,7 +563,7 @@
     <string name="setup__select_ime__description">Клавиатурата на {app_name} вече е включена от системата. За да я използвате активно, превключете на {app_name}, като я изберете в диалоговия прозорец с методи за въвеждане!</string>
     <string name="setup__select_ime__switch_keyboard_btn">Смяна на клавиатура</string>
     <string name="setup__grant_notification_permission__title">Разрешаване на известия при срив</string>
-    <string name="setup__grant_notification_permission__description">От Андроид 13 нататък, приложенията трябва да поискат разрешение да изпращат известия. Във Lyklaborð те се използват само за отваряне на екран в случай на срив.
+    <string name="setup__grant_notification_permission__description">От Андроид 13 нататък, приложенията трябва да поискат разрешение да изпращат известия. Във LyklaBoard те се използват само за отваряне на екран в случай на срив.
 Можете да промените разрешението по всяко време в системните настройки.</string>
     <string name="setup__grant_notification_permission__btn">Даване на разрешение</string>
     <string name="setup__finish_up__title">Завършване</string>
@@ -609,18 +609,18 @@
     <string name="backup_and_restore__restore__success">Данните са възстановени успешно!</string>
     <string name="backup_and_restore__restore__failure">Грешка при възстановяване на данни: {error_message}</string>
     <!-- Crash Dialog strings -->
-    <string name="crash_dialog__title" comment="Title of crash dialog">Отчет за грешка на Lyklaborð</string>
-    <string name="crash_dialog__description" comment="Description of crash dialog">Извинявайте за неудобството, но поради непредвидена грешка Lyklaborð се срина.</string>
-    <string name="crash_dialog__report_instructions" comment="Issue tracker report instructions for the crash dialog. The %s placeholder is the name of the crash report template and always in English/LTR.">При желание от ваша страна да съобщите за възникналата грешка първо проверете системата за дефекти в GitHub дали подобна вече не е докладвана.\nАко не е, копирайте генерирания журнал на грешката и направете нов долкад за нея, използвайки шаблона \"%s\". Попълнете описанието, стъпките за възпроизвеждане и накрая поставете копирания журнал.\nПо този начин помагате да направим приложението Lyklaborð по-стабилно за всички. Благодарим ви!</string>
+    <string name="crash_dialog__title" comment="Title of crash dialog">Отчет за грешка на LyklaBoard</string>
+    <string name="crash_dialog__description" comment="Description of crash dialog">Извинявайте за неудобството, но поради непредвидена грешка LyklaBoard се срина.</string>
+    <string name="crash_dialog__report_instructions" comment="Issue tracker report instructions for the crash dialog. The %s placeholder is the name of the crash report template and always in English/LTR.">При желание от ваша страна да съобщите за възникналата грешка първо проверете системата за дефекти в GitHub дали подобна вече не е докладвана.\nАко не е, копирайте генерирания журнал на грешката и направете нов долкад за нея, използвайки шаблона \"%s\". Попълнете описанието, стъпките за възпроизвеждане и накрая поставете копирания журнал.\nПо този начин помагате да направим приложението LyklaBoard по-стабилно за всички. Благодарим ви!</string>
     <string name="crash_dialog__copy_to_clipboard" comment="Label of Copy to clipboard button in crash dialog">Копиране в системната междинна памет</string>
     <string name="crash_dialog__copy_to_clipboard_success" comment="Label of Copy to clipboard success message in crash dialog">Копирано в системната междинна памет</string>
     <string name="crash_dialog__copy_to_clipboard_failure" comment="Label of Copy to clipboard failure message in crash dialog">Грешка при копиране в системната междинна памет</string>
     <string name="crash_dialog__open_issue_tracker" comment="Label of Open issue tracker button in crash dialog">Система за дефекти (github)</string>
     <string name="crash_dialog__close" comment="Label of Close button in crash dialog">Затваряне</string>
-    <string name="crash_notification_channel__title" comment="Title of crash notification channel">Доклади за грешки на Lyklaborð</string>
-    <string name="crash_once_notification__title" comment="Title of the notification for a single crash">Lyklaborð спря да работи…</string>
+    <string name="crash_notification_channel__title" comment="Title of crash notification channel">Доклади за грешки на LyklaBoard</string>
+    <string name="crash_once_notification__title" comment="Title of the notification for a single crash">LyklaBoard спря да работи…</string>
     <string name="crash_once_notification__body" comment="Body of the notification for a single crash">Докоснете, за да видите подробности за грешката</string>
-    <string name="crash_multiple_notification__title" comment="Title of the notification for consecutive crashes">Lyklaborð изглежда спира да работи многократно…</string>
+    <string name="crash_multiple_notification__title" comment="Title of the notification for consecutive crashes">LyklaBoard изглежда спира да работи многократно…</string>
     <string name="crash_multiple_notification__body" comment="Body of the notification for consecutive crashes">Връщане към предишна клавиатура, за да се спре безкрайния цикъл от сривове. Докоснете, за да видите подробности за грешката</string>
     <!-- Clipboard strings -->
     <string name="clipboard__header_title">Междинна памет</string>

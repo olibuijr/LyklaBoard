@@ -25,6 +25,7 @@ import dev.patrickgold.florisboard.ime.keyboard.extCorePopupMapping
 import dev.patrickgold.florisboard.ime.keyboard.extCorePunctuationRule
 import dev.patrickgold.florisboard.ime.nlp.latin.LatinLanguageProvider
 import dev.patrickgold.florisboard.ime.nlp.han.HanShapeBasedLanguageProvider
+import dev.patrickgold.florisboard.ime.nlp.LyklabordNlpProvider
 import dev.patrickgold.florisboard.lib.FlorisLocale
 import dev.patrickgold.florisboard.lib.ext.ExtensionComponentName
 import kotlinx.serialization.SerialName
@@ -58,18 +59,23 @@ data class Subtype(
 ) {
     companion object {
         /**
-         * Subtype to use when prefs do not contain any valid subtypes.
+         * Subtype to use when prefs do not contain any valid subtypes. LyklaBoard is an
+         * Icelandic keyboard, so a fresh install types Icelandic (with English as a
+         * secondary locale) out of the box, driven by the LyklaBoard NLP engine.
          */
         val DEFAULT = Subtype(
             id = -1,
-            primaryLocale = FlorisLocale.from("en", "US"),
-            secondaryLocales = emptyList(),
-            nlpProviders = SubtypeNlpProviderMap(),
+            primaryLocale = FlorisLocale.from("is", "IS"),
+            secondaryLocales = listOf(FlorisLocale.from("en", "US")),
+            nlpProviders = SubtypeNlpProviderMap(
+                spelling = LyklabordNlpProvider.ProviderId,
+                suggestion = LyklabordNlpProvider.ProviderId,
+            ),
             composer = extCoreComposer("appender"),
             currencySet = extCoreCurrencySet("dollar"),
             punctuationRule = extCorePunctuationRule("default"),
-            popupMapping = extCorePopupMapping("en"),
-            layoutMap = SubtypeLayoutMap(characters = extCoreLayout("qwerty")),
+            popupMapping = extCorePopupMapping("is"),
+            layoutMap = SubtypeLayoutMap(characters = extCoreLayout("icelandic")),
         )
     }
 

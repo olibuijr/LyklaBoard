@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 The Lyklaborð Contributors
+ * Copyright (C) 2025 The LyklaBoard Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ import `is`.solberg.lyklabord.engine.lexicon.FrequencyLexicon
 import `is`.solberg.lyklabord.engine.lexicon.LexiconCalibrationProfile
 import `is`.solberg.lyklabord.engine.morph.BinaryLemmatizer
 /**
- * FlorisBoard NLP provider backed by the Lyklaborð Icelandic/English engine.
+ * FlorisBoard NLP provider backed by the LyklaBoard Icelandic/English engine.
  *
  * Must live in [dev.patrickgold.florisboard.ime.nlp] because [NlpProvider] is a
  * sealed interface in this package; it delegates all linguistics into

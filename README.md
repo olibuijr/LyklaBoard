@@ -1,8 +1,17 @@
-# LyklaBoard
+<p align="center">
+  <img src="docs/assets/icon.png" width="160" alt="LyklaBoard — a keycap bearing the Icelandic letter Ð" />
+</p>
 
-**LyklaBoard** is a privacy-first **Icelandic + English** keyboard for **Android**, with
-morphology-aware autocorrect, next-word prediction, on-device personal learning, and
-optional ElevenLabs voice dictation / text-to-speech.
+<h1 align="center">LyklaBoard</h1>
+
+<p align="center">
+  <strong>Íslenskt lyklaborð sem skilur íslensku — líka frábæra ensku.</strong><br>
+  <em>A privacy-first Icelandic + English keyboard for Android.</em>
+</p>
+
+<p align="center">
+  Morphology-aware autocorrect · next-word prediction · on-device learning · optional ElevenLabs voice.
+</p>
 
 It is a fork that combines two projects:
 
@@ -21,6 +30,9 @@ throughout the app.
 ## Features
 
 - **Icelandic + English typing** — the `is-IS` layout with `ð æ ö þ` and long-press accents.
+- **Icelandic-first, out of the box** — a fresh install types Icelandic (English as a
+  secondary language) immediately, no subtype setup. The app interface is fully localized
+  into Icelandic (`íslenskt viðmót`).
 - **Morphology-aware autocorrect** — noisy-channel correction over the real Icelandic
   lexicon + BÍN morphology, with a verbatim (quoted-literal) escape hatch.
 - **Completion & next-word prediction** — calibrated bilingual unigram/bigram blend.
@@ -30,6 +42,14 @@ throughout the app.
 - **ElevenLabs voice (optional)** — mic-key dictation (Speech-to-Text) and read-aloud
   (Text-to-Speech) using a native Icelandic voice. **You supply your own API key** in
   settings — no key is bundled in the app.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/01-keyboard.png" width="30%" alt="Icelandic keyboard with live completions (hes → hestar), IS·EN bilingual spacebar" />
+  <img src="docs/screenshots/02-settings-is.png" width="30%" alt="Fully Icelandic app UI" />
+  <img src="docs/screenshots/03-settings-screen.png" width="30%" alt="LyklaBoard settings — three spacebar modes and ElevenLabs voice" />
+</p>
 
 ## Build it yourself
 
@@ -44,8 +64,10 @@ echo "sdk.dir=/absolute/path/to/your/Android/sdk" > local.properties
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Then enable **LyklaBoard** in Android Settings → *Languages & input → On-screen keyboards*,
-switch to it, and add the **Icelandic (Iceland)** subtype in the app's *Languages & Layouts*.
+Then enable **LyklaBoard** in Android Settings → *Languages & input → On-screen keyboards*
+and switch to it. It types **Icelandic (with English as a secondary language) out of the
+box** — no subtype setup needed. Add or change layouts anytime under the app's *Languages &
+Layouts*.
 
 ## Install a prebuilt APK
 
@@ -57,7 +79,7 @@ Grab the latest APK from the [**Releases**](../../releases) page and sideload it
 Voice features are off until you add a key:
 
 1. Get an API key from [elevenlabs.io](https://elevenlabs.io).
-2. In the app: **Lyklaborð settings → Rödd (ElevenLabs)** → paste your key (stored only on
+2. In the app: **LyklaBoard settings → Rödd (ElevenLabs)** → paste your key (stored only on
    your device, shown masked), grant the microphone permission, and pick a voice from the
    live list (populated from your ElevenLabs account).
 
@@ -67,7 +89,7 @@ The key never leaves your device and is never committed or bundled.
 
 - `AndroidClient/` — the Android app (Gradle project). This is what you build.
   - `lib/engine/` — the Kotlin typing engine (pure JVM, host-testable).
-  - `app/` — the FlorisBoard-derived IME + Lyklaborð NLP provider, voice, and settings.
+  - `app/` — the FlorisBoard-derived IME + LyklaBoard NLP provider, voice, and settings.
 - `LICENSE` — Apache License 2.0.
 
 The original iOS/Swift sources, linguistic corpora, and build tooling are **not** part of the
