@@ -1,9 +1,0 @@
-# Rebuildable intermediates (render-all.sh regenerates from captures + copy.md)
-blender/render-*.png
-blender/preview-*.png
-blender/*.blend1
-captures/.xcodebuild-*.log
-captures/ready-*
-
-# Blender scene is rebuilt by render-all.sh (--save-blend); source of truth is build_scene.py
-blender/*.blend

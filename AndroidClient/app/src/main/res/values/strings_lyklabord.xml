@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lyklabord__dictionary__home_title">Lyklaborð dictionary</string>
+    <string name="lyklabord__dictionary__title">Orðasafn</string>
+    <string name="lyklabord__dictionary__search">Leita að orði</string>
+    <string name="lyklabord__dictionary__learned">Lærð orð</string>
+    <string name="lyklabord__dictionary__mine">Mín orð</string>
+    <string name="lyklabord__dictionary__add">Bæta við orði</string>
+    <string name="lyklabord__dictionary__delete">Eyða</string>
+    <string name="lyklabord__dictionary__empty">Orðasafnið er tómt. Lyklaborðið lærir orð sem þú skrifar, eingöngu á tækinu þínu.</string>
+    <string name="lyklabord__dictionary__no_results">Ekkert orð fannst</string>
+    <string name="lyklabord__dictionary__invalid">Þetta er ekki gilt stakt orð — engin bil eða tákn, að minnsta kosti einn bókstafur.</string>
+    <string name="lyklabord__dictionary__added">„%1$s“ bætt við</string>
+    <string name="lyklabord__dictionary__deleted">„%1$s“ eytt</string>
+
+    <string name="lyklabord__import__action">Flytja inn úr SwiftKey</string>
+    <string name="lyklabord__import__done">Innflutningi lokið</string>
+    <string name="lyklabord__import__failed">Innflutningur mistókst</string>
+    <string name="lyklabord__import__unreadable">Ekki tókst að lesa skrána. Veldu vocabulary.txt úr SwiftKey.</string>
+    <string name="lyklabord__import__summary">%1$d orð flutt inn\n%2$d línum sleppt (ekki gild orð)\n%3$d orðum sleppt (áður eytt)</string>
+    <string name="lyklabord__export__action">Flytja út JSON</string>
+    <string name="lyklabord__export__done">Orðasafnið var flutt út.</string>
+    <string name="lyklabord__export__failed">Ekki tókst að flytja orðasafnið út</string>
+
+    <string name="lyklabord__settings__home_title">Lyklaborð settings</string>
+    <string name="lyklabord__settings__title">Stillingar Lyklaborðs</string>
+    <string name="lyklabord__spacebar__title">Bilslá</string>
+    <string name="lyklabord__spacebar__footer">Hvað gerist þegar þú ýtir á bilslána meðan þú skrifar orð.</string>
+    <string name="lyklabord__spacebar__complete">Klára orð</string>
+    <string name="lyklabord__spacebar__complete_summary">Bil klárar orðið sem er í vinnslu með leiðréttingartillögunni.</string>
+    <string name="lyklabord__spacebar__prediction">Setja alltaf inn tillögu</string>
+    <string name="lyklabord__spacebar__prediction_summary">Bil setur inn efstu tillöguna, jafnvel þegar ekkert orð er í vinnslu.</string>
+    <string name="lyklabord__spacebar__space">Bara bil</string>
+    <string name="lyklabord__spacebar__space_summary">Bil er alltaf bara bil. Veldu leiðréttingar úr tillögustikunni.</string>
+
+    <string name="lyklabord__voice__title">Rödd (ElevenLabs)</string>
+    <string name="lyklabord__voice__api_key">ElevenLabs API-lykill</string>
+    <string name="lyklabord__voice__set">Stilltur</string>
+    <string name="lyklabord__voice__not_set">Ekki stilltur</string>
+    <string name="lyklabord__voice__dictation">Raddinnsláttur (hljóðnemahnappur)</string>
+    <string name="lyklabord__voice__dictation_summary">Talaðu og láttu Lyklaborð skrifa textann.</string>
+    <string name="lyklabord__voice__microphone_permission">Veita hljóðnemaleyfi</string>
+    <string name="lyklabord__voice__permission_granted">Leyfi veitt</string>
+    <string name="lyklabord__voice__permission_needed">Leyfi þarf</string>
+    <string name="lyklabord__voice__tts">Lesa orð upphátt (TTS)</string>
+    <string name="lyklabord__voice__tts_summary">Les orð upphátt með ElevenLabs.</string>
+    <string name="lyklabord__voice__voice_id">Raddauðkenni ElevenLabs</string>
+    <string name="lyklabord__voice__speak_sample">Lesa sýnishorn</string>
+    <string name="lyklabord__voice__speak_sample_summary">Spilar stutt sýnishorn með valinni rödd.</string>
+    <string name="lyklabord__voice__select_voice">Velja rödd</string>
+    <string name="lyklabord__voice__loading">Sæki raddir…</string>
+    <string name="lyklabord__voice__load_error">Gat ekki sótt raddir — athugaðu API-lykilinn.</string>
+    <string name="lyklabord__voice__none">Engar raddir fundust.</string>
+    <string name="lyklabord__voice__refresh">Uppfæra</string>
+
+    <string name="lyklabord__data__title">Gögn</string>
+    <string name="lyklabord__delete_all__action">Eyða öllum staðbundnum gögnum</string>
+    <string name="lyklabord__delete_all__summary">Eyðir persónulega orðasafninu og lærdómsskránni á þessu tæki.</string>
+    <string name="lyklabord__delete_all__confirm1_title">Eyða öllum staðbundnum gögnum?</string>
+    <string name="lyklabord__delete_all__confirm1_body">Þetta fjarlægir hvert lært orð, handvirkt viðbætt orð, eyðingar og innsláttartölfræði. Ekki er hægt að afturkalla þetta.</string>
+    <string name="lyklabord__delete_all__confirm2_title">Ertu alveg viss?</string>
+    <string name="lyklabord__delete_all__confirm2_body">Öllu sem Lyklaborð hefur lært á þessu tæki verður eytt varanlega.</string>
+    <string name="lyklabord__delete_all__confirm2_action">Eyða öllu</string>
+    <string name="lyklabord__delete_all__done">Öllum staðbundnum gögnum eytt. Orðasafnið er tómt.</string>
+
+    <string name="lyklabord__about__title">Um Lyklaborð</string>
+    <string name="lyklabord__version">Útgáfa</string>
+    <string name="lyklabord__privacy">Persónuverndarstefna</string>
+    <string name="lyklabord__privacy__summary">Hvað er geymt á tækinu þínu, á mannamáli.</string>
+    <string name="lyklabord__source">Frumkóði á GitHub</string>
+    <string name="lyklabord__source__summary">Sjáðu nákvæmlega hvað Lyklaborð gerir.</string>
+
+    <string name="lyklabord__save">Vista</string>
+    <string name="lyklabord__cancel">Hætta við</string>
+    <string name="lyklabord__continue">Halda áfram</string>
+    <string name="lyklabord__ok">Í lagi</string>
+    <string name="lyklabord__done">Búið</string>
+    <string name="lyklabord__error">Villa</string>
+    <string name="lyklabord__unknown_error">Óþekkt villa</string>
+</resources>

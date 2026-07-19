@@ -51,3 +51,6 @@ ReplayRig/.derived*/
 App/Resources/keycap_albedo.png
 App/Resources/keycap_normal.png
 App/Resources/keycap_roughness.png
+
+# Research-only reference repositories
+.refrepos/
