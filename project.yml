@@ -202,6 +202,11 @@ targets:
         buildPhase: resources
       - path: data/is/governors.json.gz
         buildPhase: resources
+      # Curated supplementary vocabulary ("head of the long tail": modern
+      # brands/tech/anglicisms/colloquial BÍN can't contain). Plain text,
+      # human-maintained; loaded as free base vocabulary (not Plus-gated).
+      - path: data/is/extra-vocab.txt
+        buildPhase: resources
     info:
       path: KeyboardExt/Info.plist
       properties:

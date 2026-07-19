@@ -111,6 +111,13 @@ final class LyklabordAutocompleteService: AutocompleteService {
     /// entitlement flip (app-side purchase/expiry between presentations)
     /// forces a reload/clear even when the model file's mtime is unchanged.
     private var personalLayerEntitled: Bool?
+    /// Always-on curated supplementary vocabulary ("head of the long tail":
+    /// brands, tech, anglicisms, colloquial — ChatGPT, TikTok, deploya, Bónus).
+    /// Loaded once from the bundled `extra-vocab.txt`; free base vocabulary,
+    /// NOT gated behind Lyklaborð+, so it's composited into every personal
+    /// snapshot (and injected alone when the personal layer is off). Nil only
+    /// if the resource is missing, in which case the engine runs unchanged.
+    private var curatedVocabulary: CuratedVocabulary?
 
     // MARK: - Cross-queue fast path (lock-guarded, NOT queue-confined)
 
@@ -605,7 +612,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
             // is not tombstone-aware), THEN inject the freshly-tombstoned
             // model as the new snapshot.
             engine.forgetSessionWord(word)
-            engine.setPersonalVocabulary(PersonalSnapshot(model: model))
+            engine.setPersonalVocabulary(
+                combinedVocabulary(personal: PersonalSnapshot(model: model))
+            )
             // Keep the mtime cache honest so the next viewWillAppear re-stat
             // does not needlessly reload a file we already reflect in memory.
             personalModelDate =
@@ -692,6 +701,17 @@ final class LyklabordAutocompleteService: AutocompleteService {
             // quirk). Runs on this queue, before the session is published.
             engine.warmUp()
             self.engine = engine
+            // Curated supplementary vocabulary (free base "head of the long
+            // tail"): load once from the bundled resource and inject it as the
+            // baseline personal vocabulary. This runs BEFORE personal-learning
+            // setup so the curated layer is present even when the App Group /
+            // personal model is unavailable; `reloadPersonalSnapshotIfChanged`
+            // then composites the user's personal words on top when entitled.
+            if let extraURL = bundle.url(forResource: "extra-vocab", withExtension: "txt") {
+                curatedVocabulary = CuratedVocabulary(contentsOf: extraURL)
+                NSLog("[LyklaborÃ°] curated vocabulary loaded (%d words)", curatedVocabulary?.count ?? 0)
+            }
+            engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             // Personal learning (M2): resolve the App Group container and
             // load the personal snapshot. Fully graceful — no container,
             // no model file, or a corrupt file all degrade to a nil
@@ -776,6 +796,17 @@ final class LyklabordAutocompleteService: AutocompleteService {
         #endif
     }
 
+    /// Combine the always-on curated vocabulary with an optional personal
+    /// snapshot into the single `PersonalVocabulary` the engine consumes:
+    ///   - curated + personal → `CompositeVocabulary` (both layers)
+    ///   - curated only       → curated (personal layer off / not entitled)
+    ///   - no curated file     → personal (or nil) — original behavior preserved
+    private func combinedVocabulary(personal: PersonalVocabulary?) -> PersonalVocabulary? {
+        guard let curated = curatedVocabulary else { return personal }
+        guard let personal else { return curated }
+        return CompositeVocabulary(curated: curated, personal: personal)
+    }
+
     /// Stat the model file; (re)load and inject a fresh snapshot when its
     /// mtime differs from the last load. The app writes the file atomically
     /// and the extension loads its own exclusive `PersonalModel` copy, so a
@@ -796,7 +827,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
             personalModelDate = nil
         }
         guard entitled else {
-            engine.setPersonalVocabulary(nil)
+            // Personal layer off, but the curated layer stays on (free base).
+            engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             engine.setPersonalTouch(nil)
             return
         }
@@ -805,8 +837,8 @@ final class LyklabordAutocompleteService: AutocompleteService {
         guard modified != personalModelDate else { return }
         personalModelDate = modified
         guard modified != nil else {
-            // Model file disappeared (user reset / first run): clear.
-            engine.setPersonalVocabulary(nil)
+            // Model file disappeared (user reset / first run): curated only.
+            engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             engine.setPersonalTouch(nil)
             return
         }
@@ -814,7 +846,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
             let model = try CoordinatedFileAccess.coordinateRead(at: personalModelURL) { url in
                 try PersonalModel(contentsOf: url)
             }
-            engine.setPersonalVocabulary(PersonalSnapshot(model: model))
+            engine.setPersonalVocabulary(
+                combinedVocabulary(personal: PersonalSnapshot(model: model))
+            )
             // Personal touch model (PLAN.md "Touch decoding", stage 2):
             // extracted from the SAME model load — no extra I/O; it rides
             // this mtime re-stat path for refreshes exactly like the
@@ -836,8 +870,9 @@ final class LyklabordAutocompleteService: AutocompleteService {
                 eligible.count
             )
         } catch {
-            // Corrupt/unreadable model: keep typing, drop personal ranking.
-            engine.setPersonalVocabulary(nil)
+            // Corrupt/unreadable model: keep typing, drop personal ranking —
+            // but keep the curated layer on.
+            engine.setPersonalVocabulary(combinedVocabulary(personal: nil))
             engine.setPersonalTouch(nil)
             NSLog("[LyklaborÃ°] personal model load failed: %@", String(describing: error))
         }
