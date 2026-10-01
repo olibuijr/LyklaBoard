@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # LyklaBoard upstream engine sync — the codified surface behind the daily
-# pi-bun scheduled task (project LYKLA).
+# upstream-sync task (project LYKLA).
 #
 # Upstream is jokull/LyklabordApp (iOS/Swift). Our fork is Kotlin/Android.
 # There is NO mergeable tree: "adopt" means PORT the engine deltas 1:1 into
@@ -101,7 +101,7 @@ secret_scan() {
 
 verify() {
   ( cd "$GRADLE_DIR"
-    [[ -f local.properties ]] || echo "sdk.dir=/home/olafurbui/Projects/pi-bun/android/.sdk" >local.properties
+    [[ -f local.properties ]] || echo "sdk.dir=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}" >local.properties
     ./gradlew :lib:engine:test --no-daemon --console=plain
     ./gradlew :app:assembleDebug --no-daemon --console=plain )
   secret_scan
